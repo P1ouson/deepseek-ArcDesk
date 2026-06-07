@@ -1,0 +1,49 @@
+---
+description: UI 容器扁平化——禁止三层及以上圆角矩形嵌套
+globs: desktop/frontend/**/*.{tsx,css}
+alwaysApply: false
+---
+
+# UI 容器扁平化
+
+## 规则
+
+同一视觉链路里，**带边框/圆角背景的容器最多嵌套 2 层**，禁止出现第 3 层「矩形套矩形」。
+
+## 计数方式
+
+从外到内数「有 border 或明显 card 背景 + border-radius」的容器：
+
+- ✅ 面板 → 输入框（2 层）
+- ✅ 卡片 → 代码块（2 层）
+- ❌ 卡片 → 分组框 → 按钮框 → 输入框（3+ 层）
+
+## 优先手段
+
+1. **外层用分隔线**，不用额外套壳：`border-bottom` / `gap` / `padding`，代替再包一层 card。
+2. **内层控件去边框**：按钮用 ghost / 文字按钮；同组操作用**单一外框**的分段控件，内部用分隔线而非各自圆角。
+3. **代码/输出**：在已有卡片内用 `CodeViewer flat`，内层 `pre` 不再加 border。
+4. **同级多个输入框**可以各有边框，但不要每个都再包一层 card。
+
+## 示例
+
+```css
+/* ❌ 三层：card → sync-btn → message 各有 border */
+.panel-card { border: 1px solid ...; }
+.sync-btn { border: 1px solid ...; }
+.message { border: 1px solid ...; }
+
+/* ✅ 两层：actions 区无边框，仅分段控件 + 底部分隔 */
+.actions { padding: 10px 12px; border-bottom: 1px solid var(--border-soft); }
+.sync { border: 1px solid ...; } /* 唯一外框 */
+.sync-btn { border: 0; }
+.message { border: 0; border-bottom: 1px solid ...; background: transparent; }
+```
+
+```tsx
+// ❌ ToolCard 内默认 CodeViewer 会再套一层 code-block 边框
+<CodeViewer value={output} />
+
+// ✅ 卡片内输出用 flat，只保留 ToolCard 一层外框
+<CodeViewer value={output} flat />
+```
