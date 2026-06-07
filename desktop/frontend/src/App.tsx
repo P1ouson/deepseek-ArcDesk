@@ -11,6 +11,7 @@ import { BottomTerminalPanel, clampTerminalPanelHeight, TERMINAL_PANEL_DEFAULT_H
 import { closeAllTerminals, startTerminal } from "./lib/terminalBridge";
 import { Sidebar } from "./components/Sidebar";
 import { Topbar, type RightDockTab } from "./components/Topbar";
+import { StudioToolRail } from "./components/StudioToolRail";
 import { RightDock } from "./components/RightDock";
 import { FilePreviewPanel } from "./components/FilePreviewPanel";
 import { ApprovalModal } from "./components/ApprovalModal";
@@ -53,11 +54,7 @@ import {
 import { useWindowStatePersistence } from "./lib/windowState";
 
 const SIDEBAR_COLLAPSED_KEY = "reasonix.sidebar.collapsed";
-const SIDEBAR_DEFAULT_WIDTH = 268;
-const SIDEBAR_DEFAULT_RATIO = 0.175;
-const SIDEBAR_MIN_WIDTH = 236;
-const SIDEBAR_MAX_WIDTH = 420;
-const SIDEBAR_COLLAPSED_RAIL_WIDTH = 36;
+const STUDIO_RAIL_WIDTH = 56;
 const CHAT_MIN_WIDTH = 760;
 const WORKSPACE_RESIZER_WIDTH = 8;
 
@@ -78,10 +75,6 @@ type HistoryViewState =
   | { kind: "history"; source: "scope"; filter: HistoryScopeFilter; sessions: SessionMeta[] }
   | { kind: "history"; source: "all"; sessions: SessionMeta[] }
   | { kind: "trash"; sessions: SessionMeta[] };
-
-function clampSidebarWidth(width: number): number {
-  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)));
-}
 
 function clampRightDockWidth(width: number): number {
   return Math.min(RIGHT_DOCK_MAX_WIDTH, Math.max(RIGHT_DOCK_MIN_WIDTH, Math.round(width)));
@@ -105,12 +98,6 @@ function viewportWidthFallback(): number {
   return Number.isFinite(width) && width > 0 ? width : 0;
 }
 
-function defaultSidebarWidth(): number {
-  const width = viewportWidthFallback();
-  if (width <= 0) return SIDEBAR_DEFAULT_WIDTH;
-  return clampSidebarWidth(width * SIDEBAR_DEFAULT_RATIO);
-}
-
 function defaultRightDockWidth(): number {
   const width = viewportWidthFallback();
   if (width <= 0) return RIGHT_DOCK_DEFAULT_WIDTH;
@@ -126,10 +113,6 @@ function loadRightDockWidth(): number {
   if (preview !== null) return preview;
   if (tree !== null) return tree;
   return defaultRightDockWidth();
-}
-
-function saveRightDockWidth(width: number): void {
-  saveLayoutSize("rightDockWidth", width, clampRightDockWidth);
 }
 
 function resolveRightDockWidth(mainWidth: number, desiredDockWidth: number): number {
@@ -155,14 +138,6 @@ function saveSidebarCollapsed(collapsed: boolean): void {
   } catch {
     /* ignore storage failures */
   }
-}
-
-function loadSidebarWidth(): number {
-  return loadLayoutSize("sidebarWidth", defaultSidebarWidth(), clampSidebarWidth);
-}
-
-function saveSidebarWidth(width: number): void {
-  saveLayoutSize("sidebarWidth", width, clampSidebarWidth);
 }
 
 function tabWorkspaceTitle(tab?: TabMeta): string {
@@ -260,16 +235,13 @@ export default function App() {
   const [memView, setMemView] = useState<MemoryView | null>(null);
   const [histView, setHistView] = useState<HistoryViewState | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed);
-  const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
-  const [sidebarResizing, setSidebarResizing] = useState(false);
   const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false);
-  const [rightDockWidth, setRightDockWidth] = useState(loadRightDockWidth);
+  const [rightDockWidth] = useState(loadRightDockWidth);
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
   const [filePreviewWidth, setFilePreviewWidth] = useState(loadFilePreviewWidth);
   const [filePreviewExpanded, setFilePreviewExpanded] = useState(false);
   const [filePreviewComposerOpen, setFilePreviewComposerOpen] = useState(false);
   const [filePreviewResizing, setFilePreviewResizing] = useState(false);
-  const [workspacePanelResizing, setWorkspacePanelResizing] = useState(false);
   const [rightDockMode, setRightDockMode] = useState<RightDockTab>(() => loadHubLastTab("context"));
   const [projectRevision, setProjectRevision] = useState(0);
   const [composerInsertRequest, setComposerInsertRequest] = useState<ComposerInsertRequest | null>(null);
@@ -343,7 +315,7 @@ export default function App() {
   const filePreviewOpen = filePreviewPath !== null;
   const chatMode = appMode === "code";
   const showRightDock = chatMode || appMode === "write";
-  const sidebarRenderWidth = sidebarCollapsed ? SIDEBAR_COLLAPSED_RAIL_WIDTH : sidebarWidth;
+  const sidebarRenderWidth = STUDIO_RAIL_WIDTH;
   const measuredMainWidth = layoutWidth > 0
     ? Math.max(0, layoutWidth - sidebarRenderWidth)
     : CHAT_MIN_WIDTH + WORKSPACE_RESIZER_WIDTH + preferredWorkspacePanelWidth;
@@ -354,8 +326,7 @@ export default function App() {
     ? Math.max(resolvedWorkspacePanelWidth, RIGHT_DOCK_MIN_RENDER_WIDTH)
     : 0;
   const workspacePanelRenderable = workspacePanelOpen && workspacePanelRenderWidth > 0;
-  const workspacePanelGridOpen = workspacePanelRenderable;
-  const dockGridWidth = workspacePanelOpen && showRightDock ? workspacePanelRenderWidth : 0;
+  const dockGridWidth = 0;
   const filePreviewRenderWidth = filePreviewOpen && !filePreviewExpanded
     ? clampFilePreviewWidth(filePreviewWidth > 0 ? filePreviewWidth : preferredWorkspacePanelWidth)
     : 0;
@@ -924,64 +895,6 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleSidebar, toggleTerminal, openNewTerminal]);
 
-  const setExpandedSidebarWidth = useCallback((width: number) => {
-    const next = clampSidebarWidth(width);
-    setSidebarWidth(next);
-    saveSidebarWidth(next);
-  }, []);
-
-  const startSidebarResize = useCallback(
-    (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (sidebarCollapsed) return;
-      event.preventDefault();
-      setSidebarResizing(true);
-      let nextWidth = sidebarWidth;
-      const onMove = (moveEvent: PointerEvent) => {
-        nextWidth = clampSidebarWidth(moveEvent.clientX);
-        setSidebarWidth(nextWidth);
-      };
-      const onDone = () => {
-        setSidebarWidth(nextWidth);
-        saveSidebarWidth(nextWidth);
-        setSidebarResizing(false);
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onDone);
-        window.removeEventListener("pointercancel", onDone);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onDone);
-      window.addEventListener("pointercancel", onDone);
-    },
-    [sidebarCollapsed, sidebarWidth],
-  );
-
-  const resizeSidebarWithKeyboard = useCallback(
-    (event: KeyboardEvent<HTMLButtonElement>) => {
-      if (sidebarCollapsed) return;
-      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-        event.preventDefault();
-        setExpandedSidebarWidth(sidebarWidth + (event.key === "ArrowRight" ? 16 : -16));
-      } else if (event.key === "Home") {
-        event.preventDefault();
-        setExpandedSidebarWidth(SIDEBAR_MIN_WIDTH);
-      } else if (event.key === "End") {
-        event.preventDefault();
-        setExpandedSidebarWidth(SIDEBAR_MAX_WIDTH);
-      }
-    },
-    [setExpandedSidebarWidth, sidebarCollapsed, sidebarWidth],
-  );
-
-  const setSavedWorkspacePanelWidth = useCallback((width: number) => {
-    const next = clampRightDockWidth(width);
-    setRightDockWidth(next);
-    saveRightDockWidth(next);
-  }, []);
-
   const setSavedFilePreviewWidth = useCallback((width: number) => {
     const next = clampFilePreviewWidth(width);
     setFilePreviewWidth(next);
@@ -1037,53 +950,6 @@ export default function App() {
       }
     },
     [filePreviewWidth, setSavedFilePreviewWidth],
-  );
-
-  const startWorkspacePanelResize = useCallback(
-    (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (!workspacePanelOpen) return;
-      event.preventDefault();
-      setWorkspacePanelResizing(true);
-      const startX = event.clientX;
-      const startDockWidth = preferredWorkspacePanelWidth;
-      let nextDockWidth = startDockWidth;
-      const onMove = (moveEvent: PointerEvent) => {
-        const delta = moveEvent.clientX - startX;
-        nextDockWidth = clampRightDockWidth(startDockWidth - delta);
-        setRightDockWidth(nextDockWidth);
-      };
-      const onDone = () => {
-        setSavedWorkspacePanelWidth(nextDockWidth);
-        setWorkspacePanelResizing(false);
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onDone);
-        window.removeEventListener("pointercancel", onDone);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onDone);
-      window.addEventListener("pointercancel", onDone);
-    },
-    [preferredWorkspacePanelWidth, setSavedWorkspacePanelWidth, workspacePanelOpen],
-  );
-
-  const resizeWorkspacePanelWithKeyboard = useCallback(
-    (event: KeyboardEvent<HTMLButtonElement>) => {
-      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-        event.preventDefault();
-        setSavedWorkspacePanelWidth(preferredWorkspacePanelWidth + (event.key === "ArrowLeft" ? 16 : -16));
-      } else if (event.key === "Home") {
-        event.preventDefault();
-        setSavedWorkspacePanelWidth(RIGHT_DOCK_MIN_WIDTH);
-      } else if (event.key === "End") {
-        event.preventDefault();
-        setSavedWorkspacePanelWidth(RIGHT_DOCK_MAX_WIDTH);
-      }
-    },
-    [preferredWorkspacePanelWidth, setSavedWorkspacePanelWidth],
   );
 
   const layoutStyle = useMemo(
@@ -1323,8 +1189,6 @@ export default function App() {
     [saveDoc, fetchMemory],
   );
 
-  const workspacePanelResetWidth = defaultRightDockWidth();
-
   return (
     <ShellExpandProvider>
       <ShellHotkeys />
@@ -1332,10 +1196,11 @@ export default function App() {
         ref={layoutRef}
         className={[
           "workbench",
+          "workbench--studio",
           sidebarCollapsed ? "workbench--sidebar-collapsed" : "",
           workspacePanelOpen && showRightDock ? "workbench--dock-open" : "",
           !showRightDock ? "workbench--dock-hidden" : "",
-          sidebarResizing || workspacePanelResizing || filePreviewResizing ? "workbench--resizing" : "",
+          filePreviewResizing ? "workbench--resizing" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -1372,19 +1237,6 @@ export default function App() {
           onTopicsChanged={refreshProjectsAndTabs}
         />
 
-        {!sidebarCollapsed && (
-          <button
-            className="workbench__resizer workbench__resizer--sidebar wails-no-drag"
-            type="button"
-            role="separator"
-            aria-orientation="vertical"
-            aria-label={t("sidebar.resize")}
-            onPointerDown={startSidebarResize}
-            onKeyDown={resizeSidebarWithKeyboard}
-            onDoubleClick={() => setExpandedSidebarWidth(defaultSidebarWidth())}
-          />
-        )}
-
         <div className="workbench__main">
           <Topbar
             sidebarCollapsed={sidebarCollapsed}
@@ -1400,12 +1252,6 @@ export default function App() {
             running={state.running}
             goalLabel={goalLabel || undefined}
             sideConversationCount={sideConversationCount}
-            dockOpen={workspacePanelOpen}
-            activeDockTab={workspacePanelOpen ? rightDockMode : null}
-            onHubPress={openDockHub}
-            onOpenDockTab={(tab) => openDockTab(tab, { toggle: false })}
-            terminalOpen={terminalOpen}
-            onOpenPreviewMode={togglePreviewMode}
           />
 
           {state.meta?.startupErr && (
@@ -1551,50 +1397,48 @@ export default function App() {
                 />
               </>
             )}
+
+            {chatMode && (
+              <StudioToolRail
+                dockOpen={workspacePanelOpen}
+                activeDockTab={workspacePanelOpen ? rightDockMode : null}
+                terminalOpen={terminalOpen}
+                onHubPress={openDockHub}
+                onOpenDockTab={(tab) => openDockTab(tab, { toggle: false })}
+                onOpenPreviewMode={togglePreviewMode}
+              />
+            )}
           </div>
+
+          {showRightDock && (
+            <RightDock
+              open={workspacePanelRenderable}
+              tab={rightDockMode}
+              onTabChange={(tab) => openDockTab(tab, { toggle: false })}
+              onClose={closeWorkspacePanel}
+              tabId={activeTabId}
+              context={state.context}
+              usage={state.usage}
+              sessionCost={state.sessionCost}
+              sessionCurrency={state.sessionCurrency}
+              scopeLabel={topicScopeLabel(activeTab)}
+              refreshKey={projectRevision}
+              modelLabel={state.meta?.label}
+              mode={mode}
+              effort={state.effort}
+              balance={state.balance}
+              running={state.running}
+              cwd={state.meta?.cwd}
+              onAddToChat={addWorkspaceTextToComposer}
+              filePreviewPath={filePreviewPath}
+              onOpenFile={(path, dockTab) => openFilePreview(path, dockTab ?? "files")}
+              todos={showTodos ? todos : []}
+              todoStale={todoStale}
+              onDismissTodos={() => setDismissedTodo(todoItem!.id)}
+              onStartPlan={() => handleSend("/plan")}
+            />
+          )}
         </div>
-
-        {showRightDock && workspacePanelGridOpen && (
-          <button
-            className="workbench__resizer workbench__resizer--dock wails-no-drag"
-            type="button"
-            role="separator"
-            aria-orientation="vertical"
-            aria-label={t("rightDock.resize")}
-            onPointerDown={startWorkspacePanelResize}
-            onKeyDown={resizeWorkspacePanelWithKeyboard}
-            onDoubleClick={() => setSavedWorkspacePanelWidth(workspacePanelResetWidth)}
-          />
-        )}
-
-        {showRightDock && (
-        <RightDock
-          open={workspacePanelRenderable}
-          tab={rightDockMode}
-          onTabChange={(tab) => openDockTab(tab, { toggle: false })}
-          onClose={closeWorkspacePanel}
-          tabId={activeTabId}
-          context={state.context}
-          usage={state.usage}
-          sessionCost={state.sessionCost}
-          sessionCurrency={state.sessionCurrency}
-          scopeLabel={topicScopeLabel(activeTab)}
-          refreshKey={projectRevision}
-          modelLabel={state.meta?.label}
-          mode={mode}
-          effort={state.effort}
-          balance={state.balance}
-          running={state.running}
-          cwd={state.meta?.cwd}
-          onAddToChat={addWorkspaceTextToComposer}
-          filePreviewPath={filePreviewPath}
-          onOpenFile={(path, dockTab) => openFilePreview(path, dockTab ?? "files")}
-          todos={showTodos ? todos : []}
-          todoStale={todoStale}
-          onDismissTodos={() => setDismissedTodo(todoItem!.id)}
-          onStartPlan={() => handleSend("/plan")}
-        />
-        )}
       </div>
 
       {memView !== null && (

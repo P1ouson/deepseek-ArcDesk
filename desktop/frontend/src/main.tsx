@@ -9,6 +9,7 @@ import { initTheme } from "./lib/theme";
 import "./design-system.css";
 import "./styles.css";
 import "./cold-studio-complete.css";
+import "./studio-layout.css";
 
 // Apply the saved appearance before the first paint so the webview does not
 // flash the wrong theme while React boots.

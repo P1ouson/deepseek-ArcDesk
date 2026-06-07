@@ -522,6 +522,7 @@ export const zh: Record<DictKey, string> = {
 
   // 状态栏
   "status.connecting": "连接中…",
+  "status.running": "运行中",
   "status.ctx": "上下文 {pct}%",
   "status.compact": "压缩 {pct}%",
   "status.plan": "计划",

@@ -521,6 +521,7 @@ export const en = {
 
   // status bar
   "status.connecting": "connecting…",
+  "status.running": "Running",
   "status.ctx": "ctx {pct}%",
   "status.compact": "compact {pct}%",
   "status.plan": "PLAN",
