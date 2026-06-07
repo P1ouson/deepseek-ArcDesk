@@ -6,7 +6,9 @@ import { installGlobalCrashHandlers } from "./lib/crash";
 import { LocaleProvider } from "./lib/i18n";
 import { initTextSize } from "./lib/textSize";
 import { initTheme } from "./lib/theme";
+import "./design-system.css";
 import "./styles.css";
+import "./cold-studio-complete.css";
 
 // Apply the saved appearance before the first paint so the webview does not
 // flash the wrong theme while React boots.

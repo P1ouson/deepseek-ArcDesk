@@ -36,14 +36,18 @@ export function TerminalView({ sessionId, active, shell }: TerminalViewProps) {
     const host = hostRef.current;
     if (!host) return;
 
+    const styles = getComputedStyle(document.documentElement);
+    const readVar = (name: string, fallback: string) =>
+      styles.getPropertyValue(name).trim() || fallback;
+
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: "Consolas, 'Cascadia Mono', 'Courier New', monospace",
+      fontFamily: "Cascadia Mono, Consolas, 'Courier New', monospace",
       theme: {
-        background: "#1a1a2e",
-        foreground: "#e8e4df",
-        cursor: "#c45c26",
+        background: readVar("--term-bg", "#0c0e10"),
+        foreground: readVar("--term-fg", "#e4e4e7"),
+        cursor: readVar("--term-cursor", "#2dd4bf"),
       },
       scrollback: 5000,
     });

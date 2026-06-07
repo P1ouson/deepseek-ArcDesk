@@ -82,15 +82,15 @@
   --scrollbar-thumb-hover: rgba(82, 82, 91, 0.52);
   --scrollbar-thumb-active: rgba(13, 148, 136, 0.55);
 
-  /* Syntax */
-  --hl-keyword: #8b5cf6;
-  --hl-string: #0f9d58;
+  /* Syntax — Cold Studio */
+  --hl-keyword: #0d9488;
+  --hl-string: #15803d;
   --hl-number: #b45309;
-  --hl-comment: #7d8597;
-  --hl-func: #2563eb;
-  --hl-type: #0ea5a8;
-  --hl-builtin: #7c3aed;
-  --hl-meta: #64748b;
+  --hl-comment: #71717a;
+  --hl-func: #0891b2;
+  --hl-type: #7c3aed;
+  --hl-builtin: #0f766e;
+  --hl-meta: #52525b;
 }
 
 :root[data-theme="dark"] {
@@ -125,14 +125,14 @@
   --warn: #fbbf24;
   --err: #f87171;
   --danger: #f87171;
-  --hl-keyword: #c084fc;
-  --hl-string: #8dd99a;
-  --hl-number: #f5b35b;
-  --hl-comment: #7c8596;
-  --hl-func: #7db7ff;
-  --hl-type: #45d3d6;
-  --hl-builtin: #d27df9;
-  --hl-meta: #99a2b6;
+  --hl-keyword: #5eead4;
+  --hl-string: #86efac;
+  --hl-number: #fcd34d;
+  --hl-comment: #71717a;
+  --hl-func: #67e8f9;
+  --hl-type: #c4b5fd;
+  --hl-builtin: #99f6e4;
+  --hl-meta: #a1a1aa;
 }
 
 @media (prefers-color-scheme: dark) {

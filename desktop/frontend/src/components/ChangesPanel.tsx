@@ -180,9 +180,9 @@ export function ChangesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAd
         {loadingChanges && !changes ? (
           <li className="dock-panel__empty">{t("workspace.loadingChanges")}</li>
         ) : filteredRows.length === 0 ? (
-          <li className="dock-panel__empty">
-            <span>{t("workspace.noChanges")}</span>
-            <small>{t("changes.emptyHint")}</small>
+          <li className={`dock-panel__empty${allRows.length > 0 ? " dock-panel__search-empty" : ""}`}>
+            <span>{allRows.length > 0 ? t("workspace.noSearchResults") : t("workspace.noChanges")}</span>
+            <small>{allRows.length > 0 ? t("workspace.noSearchResultsHint") : t("changes.emptyHint")}</small>
           </li>
         ) : (
           filteredRows.map((row) => {

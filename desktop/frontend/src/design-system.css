@@ -1,0 +1,244 @@
+/*
+  Cold Studio — design system primitives
+  Shared tokens, states, forms, and motion for Reasonix Desktop
+*/
+
+:root {
+  --term-bg: #0c0e10;
+  --term-fg: #e4e4e7;
+  --term-cursor: #2dd4bf;
+
+  --state-empty-bg: color-mix(in srgb, var(--bg-soft) 88%, var(--bg-elev));
+  --state-error-bg: color-mix(in srgb, var(--err) 10%, var(--bg-elev));
+  --state-error-border: color-mix(in srgb, var(--err) 28%, var(--border));
+  --state-warn-bg: color-mix(in srgb, var(--warn) 10%, var(--bg-elev));
+  --state-ok-bg: color-mix(in srgb, var(--ok) 10%, var(--bg-elev));
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 140ms;
+  --duration-normal: 220ms;
+  --z-overlay: 9000;
+  --z-modal: 9100;
+  --z-tooltip: 9200;
+}
+
+@keyframes ds-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes ds-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@keyframes ds-cursor-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes ds-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.spin,
+.onboarding__spinner,
+.dock-panel__spin,
+.loading-screen__spinner {
+  animation: ds-spin 0.75s linear infinite;
+}
+
+.onboarding__spinner,
+.dock-panel__spin {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-soft);
+  border-top-color: var(--accent);
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+/* Shared state blocks */
+.ds-empty,
+.dock-panel__empty,
+.empty,
+.mem-empty,
+.connect-phone__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px 20px;
+  text-align: center;
+  color: var(--fg-faint);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ds-empty__title,
+.dock-panel__empty-title {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--fg-dim);
+}
+
+.ds-empty__hint,
+.dock-panel__empty-hint {
+  margin: 0;
+  max-width: 28ch;
+  font-size: 12px;
+  color: var(--fg-faint);
+}
+
+.ds-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-faint);
+  font-size: 12px;
+}
+
+.ds-error,
+.banner--error,
+.dock-panel__banner--error {
+  padding: 9px 11px;
+  border: 1px solid var(--state-error-border);
+  border-radius: var(--radius-md);
+  background: var(--state-error-bg);
+  color: var(--err);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ds-skeleton {
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--bg-soft) 0%,
+    color-mix(in srgb, var(--bg-elev) 90%, var(--bg-soft)) 50%,
+    var(--bg-soft) 100%
+  );
+  background-size: 200% 100%;
+  animation: ds-shimmer 1.4s ease-in-out infinite;
+}
+
+/* Forms */
+.mem-input,
+.mem-select,
+.mem-textarea,
+.set-input,
+.onboarding__input,
+.sandbox-setup__field input,
+.sandbox-setup__field select,
+.drawer input[type="text"],
+.drawer input[type="password"],
+.drawer input[type="number"],
+.drawer input[type="search"],
+.drawer select,
+.drawer textarea,
+.right-dock__browser-url,
+.history-search input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elev);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.45;
+  transition: border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.mem-input:focus,
+.mem-select:focus,
+.mem-textarea:focus,
+.set-input:focus,
+.onboarding__input:focus,
+.sandbox-setup__field input:focus,
+.sandbox-setup__field select:focus,
+.drawer input:focus,
+.drawer select:focus,
+.drawer textarea:focus,
+.right-dock__browser-url:focus,
+.history-search input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: var(--focus-ring);
+}
+
+.mem-input:disabled,
+.mem-select:disabled,
+.mem-textarea:disabled,
+.onboarding__input:disabled,
+.sandbox-setup__field input:disabled,
+.sandbox-setup__field select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--bg-soft);
+}
+
+.mem-hint,
+.set-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--fg-faint);
+}
+
+.mem-textarea {
+  min-height: 72px;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.set-seg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-soft);
+}
+
+.set-seg__btn {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-faint);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.set-seg__btn:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--bg-elev);
+}
+
+.set-seg__btn--active {
+  background: var(--bg-elev);
+  color: var(--fg);
+  box-shadow: var(--shadow-soft);
+}
+
+.set-seg__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin,
+  .onboarding__spinner,
+  .dock-panel__spin,
+  .loading-screen__spinner,
+  .ds-skeleton {
+    animation: none;
+  }
+}

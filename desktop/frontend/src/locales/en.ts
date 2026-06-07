@@ -315,6 +315,8 @@ export const en = {
   "workspace.refreshChanges": "Refresh changes",
   "workspace.loadingChanges": "Loading changes…",
   "workspace.noChanges": "No changed files",
+  "workspace.noSearchResults": "No matches for this filter",
+  "workspace.noSearchResultsHint": "Try a different keyword or clear the filter.",
   "workspace.gitUnavailable": "Git status is unavailable for this workspace.",
   "workspace.sourceSession": "Session",
   "workspace.sourceGit": "Git",

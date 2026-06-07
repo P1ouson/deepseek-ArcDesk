@@ -316,6 +316,8 @@ export const zh: Record<DictKey, string> = {
   "workspace.refreshChanges": "刷新改动",
   "workspace.loadingChanges": "正在加载改动…",
   "workspace.noChanges": "暂无改动文件",
+  "workspace.noSearchResults": "没有符合筛选的结果",
+  "workspace.noSearchResultsHint": "换个关键词，或清空筛选条件。",
   "workspace.gitUnavailable": "当前工作区不可读取 Git 状态。",
   "workspace.sourceSession": "会话",
   "workspace.sourceGit": "Git",

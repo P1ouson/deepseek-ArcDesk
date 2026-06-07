@@ -295,9 +295,9 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
           {loading && !changes ? (
             <li className="dock-panel__empty">{t("workspace.loadingChanges")}</li>
           ) : filteredRows.length === 0 ? (
-            <li className="dock-panel__empty">
-              <span>{t("git.empty")}</span>
-              <small>{t("git.emptyHint")}</small>
+            <li className={`dock-panel__empty${gitRows.length > 0 ? " dock-panel__search-empty" : ""}`}>
+              <span>{gitRows.length > 0 ? t("workspace.noSearchResults") : t("git.empty")}</span>
+              <small>{gitRows.length > 0 ? t("workspace.noSearchResultsHint") : t("git.emptyHint")}</small>
             </li>
           ) : (
             filteredRows.map((row) => {
