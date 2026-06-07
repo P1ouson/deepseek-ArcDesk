@@ -168,14 +168,14 @@
     --warn: #fbbf24;
     --err: #f87171;
     --danger: #f87171;
-    --hl-keyword: #c084fc;
-    --hl-string: #8dd99a;
-    --hl-number: #f5b35b;
-    --hl-comment: #7c8596;
-    --hl-func: #7db7ff;
-    --hl-type: #45d3d6;
-    --hl-builtin: #d27df9;
-    --hl-meta: #99a2b6;
+    --hl-keyword: #5eead4;
+    --hl-string: #86efac;
+    --hl-number: #fcd34d;
+    --hl-comment: #71717a;
+    --hl-func: #67e8f9;
+    --hl-type: #c4b5fd;
+    --hl-builtin: #99f6e4;
+    --hl-meta: #a1a1aa;
   }
 }
 
