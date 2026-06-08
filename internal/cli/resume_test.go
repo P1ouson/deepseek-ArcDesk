@@ -10,10 +10,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/control"
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
+	"arcdesk/internal/agent"
+	"arcdesk/internal/control"
+	"arcdesk/internal/event"
+	"arcdesk/internal/provider"
 )
 
 // TestResumeDispatchOpensPicker proves bare "/resume" writes the session list

@@ -29,11 +29,11 @@ const (
 )
 
 // CacheDir is where the CodeGraph bundle is unpacked on first use:
-// <user cache>/reasonix/codegraph/<Version>. Versioned so a bump installs cleanly
-// beside the old one. REASONIX_CACHE_DIR overrides the base (relocate the cache,
+// <user cache>/arcdesk/codegraph/<Version>. Versioned so a bump installs cleanly
+// beside the old one. ARCDESK_CACHE_DIR overrides the base (relocate the cache,
 // or isolate it in tests). Empty when no cache/config dir resolves.
 func CacheDir() string {
-	base := os.Getenv("REASONIX_CACHE_DIR")
+	base := os.Getenv("arcdesk_CACHE_DIR")
 	if base == "" {
 		var err error
 		if base, err = os.UserCacheDir(); err != nil {
@@ -41,7 +41,7 @@ func CacheDir() string {
 				return ""
 			}
 		}
-		base = filepath.Join(base, "reasonix")
+		base = filepath.Join(base, "arcdesk")
 	}
 	return filepath.Join(base, "codegraph", Version)
 }
@@ -88,7 +88,7 @@ func Install(ctx context.Context, log func(string)) (string, error) {
 	return InstallWithClient(ctx, http.DefaultClient, log)
 }
 
-// InstallWithClient is Install with an explicit HTTP client, used when Reasonix
+// InstallWithClient is Install with an explicit HTTP client, used when ARCDESK
 // network proxy settings should apply.
 func InstallWithClient(ctx context.Context, client *http.Client, log func(string)) (string, error) {
 	if client == nil {
@@ -152,7 +152,7 @@ func InstallWithClient(ctx context.Context, client *http.Client, log func(string
 		if p, ok := cached(); ok {
 			return p, nil // a concurrent winner landed during our retries
 		}
-		return "", fmt.Errorf("codegraph: install to %s failed: %w — the cache directory may be read-only or locked by antivirus; set REASONIX_CACHE_DIR to a writable location to relocate it", dir, err)
+		return "", fmt.Errorf("codegraph: install to %s failed: %w — the cache directory may be read-only or locked by antivirus; set ARCDESK_CACHE_DIR to a writable location to relocate it", dir, err)
 	}
 	p, ok := cached()
 	if !ok {

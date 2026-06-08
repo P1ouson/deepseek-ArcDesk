@@ -81,6 +81,7 @@ export function DockHubButtons({
   };
 
   const pickPreviewMode = (mode: PreviewMode) => {
+    setMenuHub(null);
     onOpenPreviewMode(mode);
   };
 
@@ -106,31 +107,35 @@ export function DockHubButtons({
         const hasMenu = menuItemCount(hub.id) > 1;
         return (
           <div key={hub.id} className={`topbar__hub${hubActive ? " topbar__hub--active" : ""}`}>
-            <button
-              type="button"
-              className="topbar__hub-main"
-              onClick={() => onHubPress(hub.id)}
-              aria-label={t(meta.labelKey)}
-              aria-pressed={hubActive}
-              title={t(meta.labelKey)}
-            >
-              {meta.icon}
-            </button>
-            {hasMenu && (
-              <>
-                <span className="topbar__hub-divider" aria-hidden="true" />
-                <button
-                  type="button"
-                  className={`topbar__hub-menu${menuHub === hub.id ? " topbar__hub-menu--open" : ""}`}
-                  onClick={(event) => openMenu(hub.id, event.currentTarget)}
-                  aria-label={t("dockHub.openMenu", { hub: t(meta.labelKey) })}
-                  aria-expanded={menuHub === hub.id}
-                  aria-haspopup="menu"
-                >
-                  <ChevronDown size={11} />
-                </button>
-              </>
-            )}
+            <div className="topbar__hub-controls">
+              <button
+                type="button"
+                className="topbar__hub-main"
+                onClick={() => onHubPress(hub.id)}
+                aria-label={t(meta.labelKey)}
+                aria-pressed={hubActive}
+              >
+                <span className="topbar__hub-icon" aria-hidden="true">
+                  {meta.icon}
+                </span>
+              </button>
+              {hasMenu && (
+                <>
+                  <span className="topbar__hub-divider" aria-hidden="true" />
+                  <button
+                    type="button"
+                    className={`topbar__hub-menu${menuHub === hub.id ? " topbar__hub-menu--open" : ""}`}
+                    onClick={(event) => openMenu(hub.id, event.currentTarget)}
+                    aria-label={t("dockHub.openMenu", { hub: t(meta.labelKey) })}
+                    aria-expanded={menuHub === hub.id}
+                    aria-haspopup="menu"
+                  >
+                    <ChevronDown size={11} />
+                  </button>
+                </>
+              )}
+            </div>
+            <span className="topbar__hub-label">{t(meta.labelKey)}</span>
           </div>
         );
       })}

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/config"
-	"reasonix/internal/i18n"
-	"reasonix/internal/skill"
+	"arcdesk/internal/config"
+	"arcdesk/internal/i18n"
+	"arcdesk/internal/skill"
 )
 
 // SlashItem is one slash-completion suggestion. Insert is the token text placed
@@ -111,6 +111,7 @@ func themeArgItems(prior []string) []SlashItem {
 		{"ember", "dark", "hot orange accent"},
 		{"aurora", "dark", "cool teal accent"},
 		{"midnight", "dark", "quiet violet accent"},
+		{"cobalt", "dark", "bright blue accent"},
 		{"sandstone", "light", "default warm light accent"},
 		{"porcelain", "light", "soft violet light accent"},
 		{"linen", "light", "muted coral light accent"},

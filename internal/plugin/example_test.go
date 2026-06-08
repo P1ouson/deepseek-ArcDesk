@@ -11,20 +11,20 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/event"
-	"reasonix/internal/tool"
+	"arcdesk/internal/event"
+	"arcdesk/internal/tool"
 )
 
-// buildExamplePlugin compiles cmd/reasonix-plugin-example into a temp binary and
+// buildExamplePlugin compiles cmd/ARCDESK-plugin-example into a temp binary and
 // returns its path. Building from inside the module lets `go build` resolve the
 // import path regardless of the test's working directory.
 func buildExamplePlugin(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "reasonix-plugin-example")
+	bin := filepath.Join(t.TempDir(), "arcdesk-plugin-example")
 	if runtime.GOOS == "windows" {
 		bin += ".exe"
 	}
-	out, err := exec.Command("go", "build", "-o", bin, "reasonix/cmd/reasonix-plugin-example").CombinedOutput()
+	out, err := exec.Command("go", "build", "-o", bin, "arcdesk/cmd/ARCDESK-plugin-example").CombinedOutput()
 	if err != nil {
 		t.Fatalf("build example plugin: %v\n%s", err, out)
 	}

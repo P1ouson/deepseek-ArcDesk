@@ -21,9 +21,9 @@ import (
 	"github.com/minio/selfupdate"
 	"golang.org/x/mod/semver"
 
-	"reasonix/desktop/internal/update"
-	"reasonix/internal/config"
-	"reasonix/internal/netclient"
+	"arcdesk/desktop/internal/update"
+	"arcdesk/internal/config"
+	"arcdesk/internal/netclient"
 )
 
 // updater.go is the transport-free core of the desktop auto-updater: manifest
@@ -35,8 +35,8 @@ import (
 // fallback. Mirrors the v1 desktop's two-endpoint scheme.
 const (
 	manifestPrimary     = "https://pub-147fb53b9c1e4bbf891a257968619ea7.r2.dev/latest/latest.json"
-	manifestFallback    = "https://github.com/esengine/reasonix/releases/latest/download/latest.json"
-	defaultDownloadPage = "https://github.com/esengine/reasonix/releases/latest"
+	manifestFallback    = "https://github.com/esengine/arcdesk/releases/latest/download/latest.json"
+	defaultDownloadPage = "https://github.com/esengine/arcdesk/releases/latest"
 	httpTimeout         = 15 * time.Second
 )
 
@@ -240,7 +240,7 @@ func extractBinary(targz []byte, name string) ([]byte, error) {
 // applyLinux replaces the running binary with the one inside the downloaded
 // tar.gz; the caller relaunches afterwards.
 func applyLinux(targz []byte) error {
-	bin, err := extractBinary(targz, "reasonix-desktop")
+	bin, err := extractBinary(targz, "arcdesk-desktop")
 	if err != nil {
 		return err
 	}
@@ -254,7 +254,7 @@ func applyLinux(targz []byte) error {
 // overwrites in place instead of landing a second copy at the per-user default —
 // this also covers upgrades from builds that predate the registry InstallLocation.
 func applyWindows(installer []byte) error {
-	f, err := os.CreateTemp("", "reasonix-update-*.exe")
+	f, err := os.CreateTemp("", "arcdesk-update-*.exe")
 	if err != nil {
 		return err
 	}

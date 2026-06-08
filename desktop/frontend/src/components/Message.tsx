@@ -120,7 +120,7 @@ export function UserMessage({
       </button>
     );
   };
-  const displayText = text.replace(/@\.reasonix\/attachments\/[^\s]+/g, "[image]");
+  const displayText = text.replace(/@\.ARCDESK\/attachments\/[^\s]+/g, "[image]");
   return (
     <div className="msg msg--user" id={anchorId} data-question-anchor={anchorId} data-turn={turn}>
       <span className="msg__caret">›</span>

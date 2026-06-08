@@ -11,7 +11,7 @@
 // line prefixes — fragile, and lossy for any frontend richer than a terminal.
 package event
 
-import "reasonix/internal/provider"
+import "arcdesk/internal/provider"
 
 // Kind tags an Event. Read the field(s) documented for that kind.
 type Kind int

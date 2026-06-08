@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/event"
-	"reasonix/internal/nilutil"
-	"reasonix/internal/provider"
+	"arcdesk/internal/event"
+	"arcdesk/internal/nilutil"
+	"arcdesk/internal/provider"
 )
 
 // Runner carries out one task turn. Both Agent (single model) and Coordinator

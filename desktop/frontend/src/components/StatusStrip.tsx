@@ -1,26 +1,33 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Tooltip } from "./Tooltip";
 import { useI18n } from "../lib/i18n";
+import { useDismissOnOutsidePointerDown } from "../lib/useDismissOnOutsidePointerDown";
 import { formatMoney } from "../lib/formatMoney";
 import type { BalanceInfo, ContextInfo, JobView, Mode, WireUsage } from "../lib/types";
 
 function JobsChip({ jobs }: { jobs: JobView[] }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useDismissOnOutsidePointerDown(open, () => setOpen(false), {
+    excludeRefs: [triggerRef, menuRef],
+  });
+
   if (jobs.length === 0) {
     return <span className="status-strip__item">{t("status.jobsCount", { n: 0 })}</span>;
   }
   return (
     <div className="status-strip__jobs-wrap">
       <Tooltip label={t("status.jobsTitle")}>
-        <button type="button" className="status-strip__jobs" onClick={() => setOpen((v) => !v)}>
+        <button ref={triggerRef} type="button" className="status-strip__jobs" onClick={() => setOpen((v) => !v)}>
           {t("status.jobsCount", { n: jobs.length })}
         </button>
       </Tooltip>
       {open && (
         <>
-          <div className="modelsw__backdrop" onClick={() => setOpen(false)} />
-          <div className="modelsw__menu jobsmenu" role="listbox">
+          <div ref={menuRef} className="modelsw__menu jobsmenu" role="listbox">
             <div className="jobsmenu__head">{t("status.jobsTitle")}</div>
             {jobs.map((j) => (
               <div className="jobsmenu__item" key={j.id} role="option">

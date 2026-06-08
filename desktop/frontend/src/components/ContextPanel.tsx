@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, GitBranch } from "lucide-react";
 import { asArray } from "../lib/array";
 import { app } from "../lib/bridge";
 import { formatMoney } from "../lib/formatMoney";
 import { useT, type Translator } from "../lib/i18n";
 import type { DictKey } from "../locales/en";
-import type { BalanceInfo, ContextInfo, ContextPanelInfo, EffortInfo, Mode, WireUsage } from "../lib/types";
+import { useWorkspaceChanges } from "../lib/useWorkspaceChanges";
+import type { BalanceInfo, ContextInfo, ContextPanelInfo, EffortInfo, Mode, WireUsage, WorkspaceChangeView } from "../lib/types";
 
 interface ContextPanelProps {
   tabId?: string;
@@ -20,7 +21,9 @@ interface ContextPanelProps {
   effort?: EffortInfo;
   balance?: BalanceInfo;
   running?: boolean;
+  cwd?: string;
   onOpenChangesTab?: () => void;
+  onOpenGitTab?: () => void;
 }
 
 type ContextDetail = "read" | "changed";
@@ -81,6 +84,33 @@ function modeLabel(mode: Mode | undefined, t: Translator): string {
   return t("composer.modeNormal");
 }
 
+interface GitOverviewStats {
+  total: number;
+  staged: number;
+  unstaged: number;
+  untracked: number;
+}
+
+function summarizeGitChanges(files: WorkspaceChangeView[]): GitOverviewStats {
+  const gitFiles = files.filter((row) => row.sources.includes("git"));
+  let staged = 0;
+  let unstaged = 0;
+  let untracked = 0;
+  for (const row of gitFiles) {
+    const raw = (row.gitStatus ?? "").trim();
+    if (!raw) continue;
+    if (raw === "??" || raw.includes("?")) {
+      untracked += 1;
+      continue;
+    }
+    const index = raw.length >= 2 ? raw[0]! : " ";
+    const work = raw.length >= 2 ? raw[1]! : raw[0]!;
+    if (index !== " " && index !== "?") staged += 1;
+    if (work !== " " && work !== "?") unstaged += 1;
+  }
+  return { total: gitFiles.length, staged, unstaged, untracked };
+}
+
 export function ContextPanel({
   tabId,
   context,
@@ -94,12 +124,16 @@ export function ContextPanel({
   effort,
   balance,
   running = false,
+  cwd,
   onOpenChangesTab,
+  onOpenGitTab,
 }: ContextPanelProps) {
   const t = useT();
   const [info, setInfo] = useState<ContextPanelInfo | null>(null);
   const [detailView, setDetailView] = useState<ContextDetail | null>(null);
   const [query, setQuery] = useState("");
+  const [gitBranch, setGitBranch] = useState("");
+  const { changes, loading: gitLoading } = useWorkspaceChanges(cwd, refreshKey);
 
   const refresh = useCallback(async () => {
     if (!tabId) return;
@@ -118,6 +152,21 @@ export function ContextPanel({
   useEffect(() => {
     void refresh();
   }, [refresh, refreshKey]);
+
+  useEffect(() => {
+    if (!changes?.gitAvailable) {
+      setGitBranch("");
+      return;
+    }
+    let cancelled = false;
+    void app.RunShellQuiet("git branch --show-current").then((result) => {
+      if (cancelled || result.err) return;
+      setGitBranch(result.output.trim());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [changes?.gitAvailable, cwd, refreshKey]);
 
   const usedTokens = context?.used && context.used > 0 ? context.used : info?.usedTokens ?? 0;
   const windowTokens = context?.window && context.window > 0 ? context.window : info?.windowTokens ?? 0;
@@ -166,6 +215,17 @@ export function ContextPanel({
     : t("context.readNote", { count: detailCount });
   const balanceText = balance?.available && balance.display ? balance.display : "-";
   const effortLevel = effort?.supported ? effort.current || "auto" : null;
+  const gitStats = summarizeGitChanges(asArray(changes?.files));
+  const gitPreviewRows = asArray(changes?.files)
+    .filter((row) => row.sources.includes("git"))
+    .slice(0, 3)
+    .map((row, index) => ({
+      key: `${row.path}-${index}`,
+      path: row.path,
+      meta: row.gitStatus?.trim() || "git",
+      time: fmtTime(row.latestTime),
+      detail: "",
+    }));
 
   const openDetail = (next: ContextDetail) => {
     setDetailView(next);
@@ -264,6 +324,16 @@ export function ContextPanel({
               </div>
             </div>
 
+            <GitOverviewCard
+              loading={gitLoading}
+              gitAvailable={changes?.gitAvailable}
+              gitErr={changes?.gitErr}
+              branch={gitBranch}
+              stats={gitStats}
+              rows={gitPreviewRows}
+              onOpenGit={onOpenGitTab}
+            />
+
             <p className={`context-panel__health context-panel__health--${health.tone}`}>
               <span className="context-panel__health-dot" />
               <span>{t(health.labelKey, health.vars)}</span>
@@ -293,6 +363,92 @@ export function ContextPanel({
         )}
       </div>
     </div>
+  );
+}
+
+function GitOverviewCard({
+  loading,
+  gitAvailable,
+  gitErr,
+  branch,
+  stats,
+  rows,
+  onOpenGit,
+}: {
+  loading: boolean;
+  gitAvailable?: boolean;
+  gitErr?: string;
+  branch: string;
+  stats: GitOverviewStats;
+  rows: Array<{ key: string; path: string; meta: string; time: string; detail: string }>;
+  onOpenGit?: () => void;
+}) {
+  const t = useT();
+
+  if (gitAvailable === false) {
+    return (
+      <section className="dock-panel__card context-panel__git">
+        <header className="context-panel__git-head">
+          <div className="context-panel__git-title">
+            <GitBranch size={14} />
+            <span>{t("context.git")}</span>
+          </div>
+        </header>
+        <p className="context-panel__git-note context-panel__git-note--warn">
+          {gitErr ? gitErr : t("context.gitUnavailable")}
+        </p>
+      </section>
+    );
+  }
+
+  const summary =
+    stats.total === 0
+      ? t("context.gitClean")
+      : t("context.gitChanges", { count: stats.total });
+
+  return (
+    <section className="dock-panel__card context-panel__git">
+      <header className="context-panel__git-head">
+        <div className="context-panel__git-title">
+          <GitBranch size={14} />
+          <span>{t("context.git")}</span>
+        </div>
+        {onOpenGit && (
+          <button type="button" className="dock-panel__text-btn" onClick={onOpenGit}>
+            {t("context.openGit")}
+          </button>
+        )}
+      </header>
+
+      <div className="context-panel__git-branch">
+        <span className="context-panel__git-branch-label">{t("context.gitBranch")}</span>
+        <strong>{loading && !branch ? "…" : branch || "—"}</strong>
+      </div>
+
+      <p className="context-panel__git-note">{summary}</p>
+
+      {stats.total > 0 && (
+        <div className="context-panel__git-stats">
+          {stats.staged > 0 && (
+            <span className="context-panel__git-pill context-panel__git-pill--staged">
+              {t("context.gitStaged", { count: stats.staged })}
+            </span>
+          )}
+          {stats.unstaged > 0 && (
+            <span className="context-panel__git-pill context-panel__git-pill--unstaged">
+              {t("context.gitUnstaged", { count: stats.unstaged })}
+            </span>
+          )}
+          {stats.untracked > 0 && (
+            <span className="context-panel__git-pill context-panel__git-pill--untracked">
+              {t("context.gitUntracked", { count: stats.untracked })}
+            </span>
+          )}
+        </div>
+      )}
+
+      {rows.length > 0 && <FileTable rows={rows} empty={t("git.empty")} compact />}
+    </section>
   );
 }
 

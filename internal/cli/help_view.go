@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/command"
-	"reasonix/internal/i18n"
-	"reasonix/internal/plugin"
-	"reasonix/internal/skill"
+	"arcdesk/internal/command"
+	"arcdesk/internal/i18n"
+	"arcdesk/internal/plugin"
+	"arcdesk/internal/skill"
 )
 
 const helpMaxDynamicItems = 8

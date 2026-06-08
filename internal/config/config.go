@@ -1,5 +1,5 @@
-// Package config loads Reasonix's runtime configuration from TOML. Resolution order:
-// flag > project ./reasonix.toml > user ~/.config/reasonix/config.toml > built-in defaults.
+// Package config loads ARCDESK's runtime configuration from TOML. Resolution order:
+// flag > project ./arcdesk.toml > user ~/.config/arcdesk/config.toml > built-in defaults.
 // Secrets come from the environment via api_key_env and are never stored in
 // config files.
 package config
@@ -16,8 +16,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"reasonix/internal/netclient"
-	"reasonix/internal/provider"
+	"arcdesk/internal/netclient"
+	"arcdesk/internal/provider"
 )
 
 var validSkillName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
@@ -37,11 +37,11 @@ func SkillNameKey(name string) string {
 	return name
 }
 
-// Config is Reasonix's runtime configuration.
+// Config is ARCDESK's runtime configuration.
 type Config struct {
 	ConfigVersion int               `toml:"config_version"`
 	DefaultModel  string            `toml:"default_model"`
-	Language      string            `toml:"language"` // ui/model language tag (e.g. "zh"); empty = auto-detect from $LANG / $REASONIX_LANG
+	Language      string            `toml:"language"` // ui/model language tag (e.g. "zh"); empty = auto-detect from $LANG / $ARCDESK_LANG
 	UI            UIConfig          `toml:"ui"`
 	Desktop       DesktopConfig     `toml:"desktop"`
 	Agent         AgentConfig       `toml:"agent"`
@@ -61,18 +61,45 @@ type Config struct {
 // DesktopConfig so desktop preferences cannot alter terminal output or prompts.
 type UIConfig struct {
 	Theme         string `toml:"theme"`          // auto|dark|light; empty resolves to auto
-	ThemeStyle    string `toml:"theme_style"`    // graphite|ember|aurora|midnight|sandstone|porcelain|linen|glacier
+	ThemeStyle    string `toml:"theme_style"`    // graphite|ember|aurora|midnight|cobalt|sandstone|porcelain|linen|glacier
 	CloseBehavior string `toml:"close_behavior"` // legacy desktop close behavior; prefer desktop.close_behavior
 }
 
 // DesktopConfig controls desktop-only UI preferences. It is intentionally
 // separate from top-level language and [ui] so desktop choices do not affect CLI
 // language, terminal colours, or provider-visible prompt/request data.
+type DesktopGitConfig struct {
+	PRMergeMethod         string `toml:"pr_merge_method"`           // merge|squash|rebase
+	CheckGitHubCli        bool   `toml:"check_github_cli"`          // probe gh for PR merge; opt-in, zero value = off
+	SyncRepoMergeToGitHub bool   `toml:"sync_repo_merge_to_github"` // PATCH repo allow_* merge flags when method changes
+	CommitInstructions    string `toml:"commit_instructions"`       // folded into commit-message prompts
+	PRInstructions        string `toml:"pr_instructions"`           // folded into PR title/body prompts
+}
+
+// DesktopAppearanceConfig stores desktop surface and typography preferences.
+type DesktopAppearanceConfig struct {
+	BackgroundPreset string `toml:"background_preset"` // paper|white|fog|linen|charcoal|graphite|slate|midnight
+	ForegroundPreset string `toml:"foreground_preset"` // ink|charcoal|slate|snow|silver|white
+	TextSize         string `toml:"text_size"`         // small|default|large|xlarge
+	CodeFontSize     string `toml:"code_font_size"`    // small|default|large|xlarge
+	DiffMarker       string `toml:"diff_marker"`       // background|signs
+}
+
+// DesktopCodeReviewConfig stores desktop code-review panel defaults.
+type DesktopCodeReviewConfig struct {
+	DefaultScope      string `toml:"default_scope"`       // all|session|git
+	SecurityByDefault bool   `toml:"security_by_default"` // start in security review mode
+}
+
 type DesktopConfig struct {
-	Language      string `toml:"language"`       // auto|en|zh; empty/auto = browser/OS auto-detect
-	Theme         string `toml:"theme"`          // auto|dark|light; empty resolves to dark
-	ThemeStyle    string `toml:"theme_style"`    // graphite|ember|aurora|midnight|sandstone|porcelain|linen|glacier
-	CloseBehavior string `toml:"close_behavior"` // quit|background; desktop window close behavior
+	Language      string                  `toml:"language"`        // auto|en|zh; empty/auto = browser/OS auto-detect
+	Theme         string                  `toml:"theme"`           // auto|dark|light; empty resolves to dark
+	ThemeStyle    string                  `toml:"theme_style"`     // graphite|ember|aurora|midnight|cobalt|sandstone|porcelain|linen|glacier
+	CloseBehavior string                  `toml:"close_behavior"`  // quit|background; desktop window close behavior
+	TerminalShell string                  `toml:"terminal_shell"` // powershell|cmd|git-bash|wsl; empty = auto
+	Git           DesktopGitConfig        `toml:"git"`
+	Appearance    DesktopAppearanceConfig `toml:"appearance"`
+	CodeReview    DesktopCodeReviewConfig `toml:"code_review"`
 }
 
 // UITheme normalizes ui.theme to a supported value.
@@ -95,7 +122,7 @@ func (c *Config) UIThemeStyle() string {
 
 func normalizeThemeStyle(style string) string {
 	switch strings.ToLower(strings.TrimSpace(style)) {
-	case "graphite", "ember", "aurora", "midnight", "sandstone", "porcelain", "linen", "glacier":
+	case "graphite", "ember", "aurora", "midnight", "cobalt", "sandstone", "porcelain", "linen", "glacier":
 		return strings.ToLower(strings.TrimSpace(style))
 	default:
 		return ""
@@ -125,8 +152,8 @@ func (c *Config) DesktopLanguage() string {
 	}
 }
 
-// DesktopTheme normalizes desktop.theme. New desktop users default to the dark
-// graphite product look; an explicit auto/light/dark is preserved.
+// DesktopTheme normalizes desktop.theme. New desktop users default to the light
+// glacier product look; an explicit auto/light/dark is preserved.
 func (c *Config) DesktopTheme() string {
 	switch strings.ToLower(strings.TrimSpace(c.Desktop.Theme)) {
 	case "auto":
@@ -136,7 +163,7 @@ func (c *Config) DesktopTheme() string {
 	case "dark":
 		return "dark"
 	default:
-		return "dark"
+		return "light"
 	}
 }
 
@@ -144,6 +171,101 @@ func (c *Config) DesktopTheme() string {
 // chooses the default style for the resolved desktop theme.
 func (c *Config) DesktopThemeStyle() string {
 	return normalizeThemeStyle(c.Desktop.ThemeStyle)
+}
+
+// DesktopTerminalShell normalizes desktop.terminal_shell. Empty means auto-detect
+// (PowerShell on Windows, $SHELL elsewhere).
+func (c *Config) DesktopTerminalShell() string {
+	switch strings.ToLower(strings.TrimSpace(c.Desktop.TerminalShell)) {
+	case "powershell", "pwsh":
+		return "powershell"
+	case "cmd", "command-prompt":
+		return "cmd"
+	case "git-bash", "gitbash", "bash":
+		return "git-bash"
+	case "wsl":
+		return "wsl"
+	default:
+		return ""
+	}
+}
+
+func normalizeDesktopBackgroundPreset(preset string) string {
+	switch strings.ToLower(strings.TrimSpace(preset)) {
+	case "paper", "white", "fog", "linen", "charcoal", "graphite", "slate", "midnight":
+		return strings.ToLower(strings.TrimSpace(preset))
+	default:
+		return ""
+	}
+}
+
+func normalizeDesktopForegroundPreset(preset string) string {
+	switch strings.ToLower(strings.TrimSpace(preset)) {
+	case "ink", "charcoal", "slate", "snow", "silver", "white":
+		return strings.ToLower(strings.TrimSpace(preset))
+	default:
+		return ""
+	}
+}
+
+func normalizeDesktopTextSize(size string) string {
+	switch strings.ToLower(strings.TrimSpace(size)) {
+	case "small", "default", "large", "xlarge":
+		return strings.ToLower(strings.TrimSpace(size))
+	default:
+		return ""
+	}
+}
+
+func normalizeDesktopDiffMarker(style string) string {
+	switch strings.ToLower(strings.TrimSpace(style)) {
+	case "background", "signs":
+		return strings.ToLower(strings.TrimSpace(style))
+	default:
+		return ""
+	}
+}
+
+// DesktopAppearanceSettings normalizes desktop.appearance for the settings panel.
+func (c *Config) DesktopAppearanceSettings() DesktopAppearanceConfig {
+	a := c.Desktop.Appearance
+	return DesktopAppearanceConfig{
+		BackgroundPreset: normalizeDesktopBackgroundPreset(a.BackgroundPreset),
+		ForegroundPreset: normalizeDesktopForegroundPreset(a.ForegroundPreset),
+		TextSize:         normalizeDesktopTextSize(a.TextSize),
+		CodeFontSize:     normalizeDesktopTextSize(a.CodeFontSize),
+		DiffMarker:       normalizeDesktopDiffMarker(a.DiffMarker),
+	}
+}
+
+func normalizeDesktopCodeReviewScope(scope string) string {
+	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case "session", "git":
+		return strings.ToLower(strings.TrimSpace(scope))
+	default:
+		return "all"
+	}
+}
+
+// DesktopCodeReviewSettings normalizes desktop.code_review for the settings panel.
+func (c *Config) DesktopCodeReviewSettings() DesktopCodeReviewConfig {
+	cr := c.Desktop.CodeReview
+	return DesktopCodeReviewConfig{
+		DefaultScope:      normalizeDesktopCodeReviewScope(cr.DefaultScope),
+		SecurityByDefault: cr.SecurityByDefault,
+	}
+}
+
+// DesktopGitSettings normalizes desktop.git preferences for the settings panel.
+func (c *Config) DesktopGitSettings() DesktopGitConfig {
+	g := c.Desktop.Git
+	switch strings.ToLower(strings.TrimSpace(g.PRMergeMethod)) {
+	case "squash", "rebase":
+		g.PRMergeMethod = strings.ToLower(strings.TrimSpace(g.PRMergeMethod))
+	default:
+		g.PRMergeMethod = "merge"
+	}
+	return g
 }
 
 // DesktopCloseBehavior normalizes the desktop close-window preference. It falls
@@ -163,10 +285,10 @@ func (c *Config) UICloseBehavior() string {
 
 // LSPConfig governs the optional Language Server Protocol tools (lsp_definition,
 // lsp_references, lsp_hover, lsp_diagnostics). Enabled defaults to true; the
-// servers themselves are never bundled — each resolves on PATH and the tool
+// servers themselves are never bundled 鈥?each resolves on PATH and the tool
 // returns an install hint when it is missing, so the capability is dormant until
 // the user installs a server. Servers overrides or extends the built-in language
-// → server map, keyed by language id (e.g. "go", "rust", "python").
+// 鈫?server map, keyed by language id (e.g. "go", "rust", "python").
 type LSPConfig struct {
 	Enabled bool                 `toml:"enabled"`
 	Servers map[string]LSPServer `toml:"servers"`
@@ -192,18 +314,18 @@ type StatuslineConfig struct {
 	Command string `toml:"command"`
 }
 
-// CodegraphConfig governs the built-in CodeGraph MCP server — symbol/call-graph
+// CodegraphConfig governs the built-in CodeGraph MCP server 鈥?symbol/call-graph
 // code intelligence (tree-sitter + SQLite) that gives the agent codegraph_*
 // search / context / explore / trace / node tools. Enabled defaults to true so
 // upgrades keep it for existing configs; first-run scaffolds write enabled =
 // false so only brand-new users start without it. AutoInstall (default true)
-// lets reasonix fetch the CodeGraph runtime into its cache when CodeGraph is
-// enabled but missing; set false to require an explicit `reasonix codegraph
+// lets ARCDESK fetch the CodeGraph runtime into its cache when CodeGraph is
+// enabled but missing; set false to require an explicit `ARCDESK codegraph
 // install` (e.g. for air-gapped or headless runs). Path overrides binary
 // resolution; empty resolves the cache, then a `codegraph` on PATH, then a
 // bundle beside the executable. Tier matches ordinary MCP servers (lazy,
-// background, eager); when unset it preserves the historical warm→eager /
-// cold→background startup.
+// background, eager); when unset it preserves the historical warm鈫抏ager /
+// cold鈫抌ackground startup.
 type CodegraphConfig struct {
 	Enabled     bool   `toml:"enabled"`
 	AutoInstall bool   `toml:"auto_install"`
@@ -288,8 +410,8 @@ func (c *Config) NetworkProxyMode() string {
 }
 
 // SkillsConfig configures skill discovery. Paths adds extra "custom"-scope skill
-// roots — each a directory of SKILL.md / <name>.md playbooks — scanned between
-// the project roots (.reasonix/.agents/.claude under the workspace) and the
+// roots 鈥?each a directory of SKILL.md / <name>.md playbooks 鈥?scanned between
+// the project roots (.arcdesk/.agents/.claude under the workspace) and the
 // global roots (the same three under the home dir). ~ and relative paths and
 // ${VAR} expansion are supported. DisabledSkills hides named skills from the
 // agent prompt, slash invocation, and skill tools while keeping them manageable.
@@ -421,7 +543,7 @@ type AgentConfig struct {
 	SubagentModels   map[string]string `toml:"subagent_models"`
 	// OutputStyle selects a persona/tone block folded into the system prompt at
 	// startup (a built-in like "explanatory"/"learning"/"concise", or a custom
-	// .reasonix/output-styles/<name>.md). Empty = the unmodified prompt.
+	// .arcdesk/output-styles/<name>.md). Empty = the unmodified prompt.
 	OutputStyle string `toml:"output_style"`
 	// AutoPlan controls whether interactive turns that look multi-step start in
 	// plan mode automatically: "off" keeps plan mode manual, "on" enables the
@@ -462,7 +584,7 @@ type ProviderEntry struct {
 	// SupportedEfforts lists the /effort levels this provider/model exposes.
 	// When non-empty, it overrides the built-in defaults derived from
 	// Kind/BaseURL and makes /effort configurable. "auto" is the implicit
-	// prefix — always accepted. DefaultEffort resolves it; omit DefaultEffort
+	// prefix 鈥?always accepted. DefaultEffort resolves it; omit DefaultEffort
 	// (or set one outside this list) to fall back to SupportedEfforts[0].
 	SupportedEfforts []string `toml:"supported_efforts"`
 	// DefaultEffort is the /effort level used when the user picks "auto" or
@@ -513,7 +635,7 @@ type ToolsConfig struct {
 	Search  SearchConfig `toml:"search"`
 }
 
-// SearchConfig tunes the grep tool's engine. Engine is "auto" (default — use
+// SearchConfig tunes the grep tool's engine. Engine is "auto" (default 鈥?use
 // ripgrep when it's on PATH, else the native Go scanner), "native" (always Go),
 // or "rg" (require ripgrep; warn at startup and fall back to native if absent).
 // RgPath optionally points at a specific ripgrep binary instead of a PATH lookup.
@@ -540,7 +662,7 @@ type PermissionsConfig struct {
 // static Headers. String fields support ${VAR} / ${VAR:-default} expansion so
 // secrets (bearer tokens, keys) come from the environment, not the file. The
 // fields mirror Claude Code's mcpServers spec, so entries can come from either
-// reasonix.toml's [[plugins]] or a project-root .mcp.json (see loadMCPJSON).
+// ARCDESK.toml's [[plugins]] or a project-root .mcp.json (see loadMCPJSON).
 type PluginEntry struct {
 	Name    string            `toml:"name"`
 	Type    string            `toml:"type"` // "stdio" (default) | "http" | "sse"
@@ -553,12 +675,12 @@ type PluginEntry struct {
 	// Nil preserves historical behavior: configured servers start automatically.
 	AutoStart *bool `toml:"auto_start"`
 	// Tier selects how aggressively the server is connected at boot:
-	//   "eager"      — blocks startup until the handshake completes; required for
+	//   "eager"      鈥?blocks startup until the handshake completes; required for
 	//                  servers whose tools the system prompt depends on.
-	//   "lazy"       — registers placeholder tools immediately (from on-disk
+	//   "lazy"       鈥?registers placeholder tools immediately (from on-disk
 	//                  schema cache when available) and only spawns the real
 	//                  subprocess on first model use. Default for user plugins.
-	//   "background" — placeholder + spawn fired at boot but not waited on;
+	//   "background" 鈥?placeholder + spawn fired at boot but not waited on;
 	//                  swap happens once the spawn finishes.
 	// Empty defaults to "lazy" so adding a plugin never slows the next launch.
 	Tier string `toml:"tier"`
@@ -597,16 +719,16 @@ func (c *Config) AutoStartPlugins() []PluginEntry {
 }
 
 // DefaultSystemPrompt is used when config provides none.
-const DefaultSystemPrompt = `You are Reasonix, a coding agent focused on executing code tasks.
+const DefaultSystemPrompt = `You are ArcDesk, a coding agent focused on executing code tasks.
 Use the provided tools to read and write files and run shell commands.
 Principles: understand the request before acting; verify with tools instead of
 guessing; keep changes minimal and correct; briefly summarize what you did.
-When the request leaves a real choice to the user — which approach or library,
-the scope, or a consequential or ambiguous decision — call the ask tool to offer
+When the request leaves a real choice to the user 鈥?which approach or library,
+the scope, or a consequential or ambiguous decision 鈥?call the ask tool to offer
 2-4 concrete options rather than guessing or burying the question in prose. Skip
 it when there's an obvious default; don't ask just to confirm.
 For multi-step work, track progress with the todo_write tool: lay out the steps,
-keep exactly one in_progress, and flip each to completed as you finish it — update
+keep exactly one in_progress, and flip each to completed as you finish it 鈥?update
 the list as you go, not just at the end.
 In plan mode the harness blocks writer tools: do read-only research, then write a
 concise plan as your reply and stop. The user is asked to approve before anything
@@ -618,7 +740,7 @@ is changed; once approved, work through the steps, updating the task list as you
 const LanguagePolicy = `Reply in the same language the user is using in their most recent message: ` +
 	`if they write in Chinese answer in Chinese, in English answer in English, and switch ` +
 	`whenever they switch. Let this also guide the language you think in. Always keep code, ` +
-	`identifiers, file paths, shell commands, and technical terms in their original form — never translate them.`
+	`identifiers, file paths, shell commands, and technical terms in their original form 鈥?never translate them.`
 
 // Default returns the built-in default configuration (DeepSeek + MiMo presets).
 func Default() *Config {
@@ -638,10 +760,13 @@ func Default() *Config {
 			CompactRatio:      0.8,
 			CompactForceRatio: 0.9,
 		},
-		// Mode "ask" with no rules keeps `reasonix run` autonomous (no TTY → ask
-		// resolves to allow) while `reasonix chat` prompts before writers. Users add
+		// Mode "ask" with no rules keeps `ARCDESK run` autonomous (no TTY 鈫?ask
+		// resolves to allow) while `ARCDESK chat` prompts before writers. Users add
 		// deny/allow rules to harden or quiet specific tools.
-		Permissions: PermissionsConfig{Mode: "ask"},
+		Permissions: PermissionsConfig{
+			Mode: "ask",
+			Deny: []string{"bash(rm -rf*)"},
+		},
 		// Sandbox on by default: bash is jailed (macOS), network allowed so
 		// builds/downloads work. Set bash = "off" to disable. Network=true here
 		// so an absent [sandbox] in a user's file keeps egress (zero value would
@@ -657,17 +782,17 @@ func Default() *Config {
 		LSP:     LSPConfig{Enabled: true},
 		Network: NetworkConfig{ProxyMode: netclient.ModeAuto},
 		Providers: []ProviderEntry{
-			{Name: "deepseek-flash", Kind: "openai", BaseURL: "https://api.deepseek.com", Model: "deepseek-v4-flash", APIKeyEnv: "DEEPSEEK_API_KEY", BalanceURL: "https://api.deepseek.com/user/balance", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.02, Input: 1, Output: 2, Currency: "¥"}},
-			{Name: "deepseek-pro", Kind: "openai", BaseURL: "https://api.deepseek.com", Model: "deepseek-v4-pro", APIKeyEnv: "DEEPSEEK_API_KEY", BalanceURL: "https://api.deepseek.com/user/balance", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.025, Input: 3, Output: 6, Currency: "¥"}},
-			{Name: "mimo-pro", Kind: "openai", BaseURL: "https://token-plan-cn.xiaomimimo.com/v1", Model: "mimo-v2.5-pro", APIKeyEnv: "MIMO_API_KEY", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.025, Input: 3, Output: 6, Currency: "¥"}, NoProxy: true},
-			{Name: "mimo-flash", Kind: "openai", BaseURL: "https://token-plan-cn.xiaomimimo.com/v1", Model: "mimo-v2.5", APIKeyEnv: "MIMO_API_KEY", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.02, Input: 1, Output: 2, Currency: "¥"}, NoProxy: true},
+			{Name: "deepseek-flash", Kind: "openai", BaseURL: "https://api.deepseek.com", Model: "deepseek-v4-flash", APIKeyEnv: "DEEPSEEK_API_KEY", BalanceURL: "https://api.deepseek.com/user/balance", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.02, Input: 1, Output: 2, Currency: "楼"}},
+			{Name: "deepseek-pro", Kind: "openai", BaseURL: "https://api.deepseek.com", Model: "deepseek-v4-pro", APIKeyEnv: "DEEPSEEK_API_KEY", BalanceURL: "https://api.deepseek.com/user/balance", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.025, Input: 3, Output: 6, Currency: "楼"}},
+			{Name: "mimo-pro", Kind: "openai", BaseURL: "https://token-plan-cn.xiaomimimo.com/v1", Model: "mimo-v2.5-pro", APIKeyEnv: "MIMO_API_KEY", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.025, Input: 3, Output: 6, Currency: "楼"}, NoProxy: true},
+			{Name: "mimo-flash", Kind: "openai", BaseURL: "https://token-plan-cn.xiaomimimo.com/v1", Model: "mimo-v2.5", APIKeyEnv: "MIMO_API_KEY", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.02, Input: 1, Output: 2, Currency: "楼"}, NoProxy: true},
 		},
 	}
 }
 
 // Load builds the configuration: defaults, then user config, then project
 // config, then MCP servers from Claude Code's .mcp.json, then (lowest priority)
-// the v0.x ~/.reasonix/config.json's mcpServers. A .env in the working directory
+// the v0.x ~/.arcdesk/config.json's mcpServers. A .env in the working directory
 // is loaded first so api_key_env can resolve.
 func Load() (*Config, error) {
 	return LoadForRoot(".")
@@ -676,17 +801,14 @@ func Load() (*Config, error) {
 // LoadForRoot builds the configuration with project files resolved from root
 // instead of the current working directory. When root is "" or ".", it behaves
 // like Load(). This is the workspace-aware entry point: desktop tabs use it so
-// each project's reasonix.toml + .env + .mcp.json are resolved independently
+// each project's ARCDESK.toml + .env + .mcp.json are resolved independently
 // without changing the process cwd.
 func LoadForRoot(root string) (*Config, error) {
 	root = resolveRoot(root)
 	loadDotEnvForRoot(root)
 	cfg := Default()
 
-	projectTOML := "reasonix.toml"
-	if root != "." {
-		projectTOML = filepath.Join(root, "reasonix.toml")
-	}
+	projectTOML := projectConfigPathForRoot(root)
 
 	var tomlSources []string
 	if uc := userConfigPath(); uc != "" {
@@ -704,7 +826,7 @@ func LoadForRoot(root string) (*Config, error) {
 	}
 	// toml.DecodeFile replaces [[plugins]] wholesale, so cfg.Plugins now holds
 	// only the last file's. Re-merge by name across all sources (later wins) so a
-	// project reasonix.toml doesn't drop the global config's MCP servers.
+	// project ARCDESK.toml doesn't drop the global config's MCP servers.
 	plugins, err := mergeTOMLPlugins(tomlSources)
 	if err != nil {
 		return nil, err
@@ -713,7 +835,7 @@ func LoadForRoot(root string) (*Config, error) {
 
 	// Claude Code's .mcp.json (project root) is read last and merged into
 	// [[plugins]], so a server configured for Claude works here unchanged.
-	// reasonix.toml wins on a name collision (see mergeMCPJSON).
+	// ARCDESK.toml wins on a name collision (see mergeMCPJSON).
 	mcpFile := mcpJSONFile
 	if root != "." {
 		mcpFile = filepath.Join(root, mcpJSONFile)
@@ -724,7 +846,7 @@ func LoadForRoot(root string) (*Config, error) {
 	}
 	cfg.mergeMCPJSON(entries)
 
-	// Lowest priority: the v0.x ~/.reasonix/config.json's mcpServers, so upgrading
+	// Lowest priority: the v0.x ~/.arcdesk/config.json's mcpServers, so upgrading
 	// from the TypeScript line keeps MCP servers without rewriting them. Anything
 	// the v2 config or .mcp.json already declared wins on a name collision.
 	cfg.mergeMCPJSON(loadLegacyMCP(legacyConfigPath()))
@@ -732,7 +854,7 @@ func LoadForRoot(root string) (*Config, error) {
 	normalizeEffortConfig(cfg)
 	backfillDeepSeekPro(cfg)
 	// First run (no config file anywhere): keep CodeGraph off until the user opts
-	// in. An existing config — even one without a [codegraph] section — keeps the
+	// in. An existing config 鈥?even one without a [codegraph] section 鈥?keeps the
 	// built-in default (on), so an upgrade never silently drops code intelligence.
 	if !sawConfigFile {
 		cfg.Codegraph.Enabled = false
@@ -742,7 +864,7 @@ func LoadForRoot(root string) (*Config, error) {
 
 // backfillDeepSeekPro restores deepseek-pro for configs the pre-fix setup wizard
 // wrote with only deepseek-v4-flash: a keyless /models probe used to drop the Pro
-// SKU, leaving users unable to switch to it. In-memory only — the user's file is
+// SKU, leaving users unable to switch to it. In-memory only 鈥?the user's file is
 // untouched. Narrowly scoped to the official DeepSeek endpoint (which is known to
 // serve pro) so a custom flash-only deployment isn't given an entry that 404s.
 func backfillDeepSeekPro(c *Config) {
@@ -819,7 +941,7 @@ func mergeTOMLPlugins(paths []string) ([]PluginEntry, error) {
 	return merged, nil
 }
 
-// LoadForEdit returns a config to seed the `reasonix setup` wizard when reconfiguring:
+// LoadForEdit returns a config to seed the `ARCDESK setup` wizard when reconfiguring:
 // the built-in defaults with the file at path (if present) decoded on top, so a
 // reconfigure preserves the user's existing providers and agent settings instead
 // of resetting to defaults. .env is loaded so api_key_env resolution works while
@@ -847,90 +969,86 @@ func mergeFile(cfg *Config, path string) error {
 }
 
 func userConfigPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
+	dir := userConfigDir()
+	if dir == "" {
 		return ""
 	}
-	return filepath.Join(dir, "reasonix", "config.toml")
+	return filepath.Join(dir, "config.toml")
 }
 
-// UserConfigPath is the user-global config file (~/.config/reasonix/config.toml),
+// UserConfigPath is the user-global config file (~/.config/arcdesk/config.toml),
 // or "" when the user config dir can't be resolved.
 func UserConfigPath() string { return userConfigPath() }
 
-// UserCredentialsPath is the reasonix-owned global secrets file, beside
-// config.toml in the user config dir (e.g. ~/.config/reasonix/credentials). It
+// UserCredentialsPath is the ARCDESK-owned global secrets file, beside
+// config.toml in the user config dir (e.g. ~/.config/arcdesk/credentials). It
 // holds KEY=value lines loaded into the environment by loadDotEnv. The setup
 // wizard writes API keys here, deliberately NOT named .env: keys never land in a
 // project's own .env (which can't be selectively gitignored), never get
 // committed, and resolve from any working directory. "" when the user config dir
 // can't be resolved.
 func UserCredentialsPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
+	dir := userConfigDir()
+	if dir == "" {
 		return ""
 	}
-	return filepath.Join(dir, "reasonix", "credentials")
+	return filepath.Join(dir, "credentials")
 }
 
 // ArchiveDir is where compacted conversation history is archived for
 // traceability (one timestamped .jsonl per compaction). Empty if the user config
 // directory cannot be resolved, in which case archiving is skipped.
 func ArchiveDir() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
+	dir := userConfigDir()
+	if dir == "" {
 		return ""
 	}
-	return filepath.Join(dir, "reasonix", "archive")
+	return filepath.Join(dir, "archive")
 }
 
 // SessionDir is where chat sessions are persisted (one .jsonl per session).
-// Used by `reasonix chat --continue` / `--resume` to find the recent ones. Empty
-// if the user config dir can't be resolved — sessions then aren't saved.
+// Used by `ARCDESK chat --continue` / `--resume` to find the recent ones. Empty
+// if the user config dir can't be resolved 鈥?sessions then aren't saved.
 func SessionDir() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
+	dir := userConfigDir()
+	if dir == "" {
 		return ""
 	}
-	return filepath.Join(dir, "reasonix", "sessions")
+	return filepath.Join(dir, "sessions")
 }
 
 // CacheDir is the per-user cache root for derived/regenerable artefacts: MCP
 // handshake snapshots, plugin startup-latency telemetry. Lives beside the
-// existing dirs (UserConfigDir/reasonix/...) so the whole reasonix state tree
+// existing dirs (UserConfigDir/arcdesk/...) so the whole ARCDESK state tree
 // shares one root the user can wipe in a single rm. Empty when the OS dir is
-// unavailable — callers must tolerate that (caching is best-effort).
+// unavailable 鈥?callers must tolerate that (caching is best-effort).
 func CacheDir() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
+	dir := userConfigDir()
+	if dir == "" {
 		return ""
 	}
-	return filepath.Join(dir, "reasonix", "cache")
+	return filepath.Join(dir, "cache")
 }
 
-// MemoryUserDir returns the reasonix user config root (…/reasonix), under which
-// the user-global REASONIX.md and the per-project auto-memory store live. Empty
+// MemoryUserDir returns the ARCDESK user config root (鈥?ARCDESK), under which
+// the user-global ARCDESK.md and the per-project auto-memory store live. Empty
 // when the user config dir can't be resolved, which disables user-scoped memory.
 func MemoryUserDir() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(dir, "reasonix")
+	return userConfigDir()
 }
 
 // ConventionDirs are the parent directories scanned for agent assets (skills,
-// commands), in canonical-first order. .reasonix is ours; .agents / .agent /
+// commands), in canonical-first order. .arcdesk is ours; .agents / .agent /
 // .claude let users drop in assets authored for other agent tools without moving
 // files. Shared so skills (internal/skill) and commands (CommandDirs) discover
-// the same set. Note: hooks are NOT scanned across these — a .claude/settings.json
+// the same set. Note: hooks are NOT scanned across these 鈥?a .claude/settings.json
 // uses a different hook schema that can't be parsed as ours, so hooks stay in
-// .reasonix/settings.json (see internal/hook).
-var ConventionDirs = []string{".reasonix", ".agents", ".agent", ".claude"}
+// .arcdesk/settings.json (see internal/hook).
+var ConventionDirs = []string{ProjectMetaDir, LegacyProjectMetaDir, ".agents", ".agent", ".claude"}
 
 // conventionSubdirsAsc joins sub under each ConventionDir of base, in ascending
-// priority (reverse of ConventionDirs) so the canonical .reasonix ends up the
-// highest-priority entry — command.Load lets a later directory win on a clash.
+// priority (reverse of ConventionDirs) so the canonical .arcdesk ends up the
+// highest-priority entry 鈥?command.Load lets a later directory win on a clash.
 func conventionSubdirsAsc(base, sub string) []string {
 	out := make([]string, 0, len(ConventionDirs))
 	for i := len(ConventionDirs) - 1; i >= 0; i-- {
@@ -941,9 +1059,9 @@ func conventionSubdirsAsc(base, sub string) []string {
 
 // CommandDirs returns the directories scanned for custom slash commands, lowest
 // priority first, so a later (more specific) directory overrides an earlier one
-// on a name clash. Order: home-dir convention dirs (~/.claude/commands … ~/.reasonix/commands),
-// the legacy XDG user dir (~/.config/reasonix/commands), then the project's
-// convention dirs (.claude/commands … .reasonix/commands). Scanning the .claude /
+// on a name clash. Order: home-dir convention dirs (~/.claude/commands 鈥?~/.arcdesk/commands),
+// the legacy XDG user dir (~/.config/arcdesk/commands), then the project's
+// convention dirs (.claude/commands 鈥?.arcdesk/commands). Scanning the .claude /
 // .agents / .agent dirs lets commands authored for other agent tools (same .md +
 // frontmatter format) work here unchanged.
 func CommandDirs() []string {
@@ -952,7 +1070,7 @@ func CommandDirs() []string {
 
 // CommandDirsForRoot is like CommandDirs but resolves the project convention
 // dirs under root instead of the current working directory. Global (home/XDG)
-// dirs are unchanged — they are always user-scoped.
+// dirs are unchanged 鈥?they are always user-scoped.
 func CommandDirsForRoot(root string) []string {
 	root = resolveRoot(root)
 	var dirs []string
@@ -960,7 +1078,7 @@ func CommandDirsForRoot(root string) []string {
 		dirs = append(dirs, conventionSubdirsAsc(home, "commands")...)
 	}
 	if dir, err := os.UserConfigDir(); err == nil {
-		dirs = append(dirs, filepath.Join(dir, "reasonix", "commands")) // legacy XDG user dir
+		dirs = append(dirs, filepath.Join(dir, LegacyConfigDirName, "commands")) // legacy XDG user dir
 	}
 	dirs = append(dirs, conventionSubdirsAsc(root, "commands")...)
 	return dirs
@@ -975,10 +1093,7 @@ func SourcePath() string {
 // root, or "" if none. Equivalent to SourcePath() when root is ".".
 func SourcePathForRoot(root string) string {
 	root = resolveRoot(root)
-	projectTOML := "reasonix.toml"
-	if root != "." {
-		projectTOML = filepath.Join(root, "reasonix.toml")
-	}
+	projectTOML := projectConfigPathForRoot(root)
 	if _, err := os.Stat(projectTOML); err == nil {
 		return projectTOML
 	}
@@ -1007,9 +1122,9 @@ func (c *Config) Provider(name string) (*ProviderEntry, bool) {
 
 // ResolveModel resolves a model reference to a provider entry whose Model is the
 // selected model string (a copy, so the config's lists stay intact). It accepts:
-//   - "provider/model" — that exact model under that provider;
-//   - a provider name   — the provider's default model;
-//   - a bare model name — the (first) provider that lists it.
+//   - "provider/model" 鈥?that exact model under that provider;
+//   - a provider name   鈥?the provider's default model;
+//   - a bare model name 鈥?the (first) provider that lists it.
 //
 // The returned entry is ready to build a provider from (NewProvider reads .Model),
 // so a single "vendor with many models" entry yields one instance per model
@@ -1027,13 +1142,13 @@ func (c *Config) ResolveModel(ref string) (*ProviderEntry, bool) {
 			return &cp, true
 		}
 	}
-	// a provider name → its default model
+	// a provider name 鈫?its default model
 	if e, found := c.Provider(ref); found {
 		cp := *e
 		cp.Model = e.DefaultModel()
 		return &cp, true
 	}
-	// a bare model name → the provider that lists it
+	// a bare model name 鈫?the provider that lists it
 	for i := range c.Providers {
 		if c.Providers[i].HasModel(ref) {
 			cp := c.Providers[i]
@@ -1052,7 +1167,7 @@ func (e *ProviderEntry) APIKey() string {
 	return os.Getenv(e.APIKeyEnv)
 }
 
-// Configured reports whether the provider's api_key_env is set — the same check
+// Configured reports whether the provider's api_key_env is set 鈥?the same check
 // Validate enforces, so pickers can filter on it.
 func (e *ProviderEntry) Configured() bool {
 	return e.APIKey() != ""

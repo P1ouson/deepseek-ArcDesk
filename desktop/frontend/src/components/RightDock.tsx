@@ -24,6 +24,10 @@ import type { Todo } from "../lib/tools";
 
 import type { RightDockTab } from "./Topbar";
 
+import type { CodeReviewState } from "./CodeReviewSection";
+
+import type { ReviewMode, ReviewScope } from "../lib/codeReview";
+
 export interface RightDockProps {
 
   open: boolean;
@@ -73,6 +77,16 @@ export interface RightDockProps {
   onDismissTodos?: () => void;
 
   onStartPlan?: () => void;
+
+  codeReview?: CodeReviewState;
+
+  onRunCodeReview?: (mode: ReviewMode, scope: ReviewScope, paths: string[]) => void;
+
+  onClearCodeReview?: () => void;
+
+  browserExpanded?: boolean;
+
+  onToggleBrowserExpanded?: () => void;
 
 }
 
@@ -128,6 +142,16 @@ export function RightDock({
 
   onStartPlan,
 
+  codeReview,
+
+  onRunCodeReview,
+
+  onClearCodeReview,
+
+  browserExpanded = false,
+
+  onToggleBrowserExpanded,
+
 }: RightDockProps) {
 
   const t = useT();
@@ -146,7 +170,10 @@ export function RightDock({
 
   return (
 
-    <aside className="right-dock" aria-label={t("rightDock.workbench")}>
+    <aside
+      className={`right-dock${tab === "browser" && browserExpanded ? " right-dock--browser-expanded" : ""}`}
+      aria-label={t("rightDock.workbench")}
+    >
 
       <div className="right-dock__head">
 
@@ -226,7 +253,11 @@ export function RightDock({
 
             running={running}
 
+            cwd={cwd}
+
             onOpenChangesTab={() => onTabChange("changes")}
+
+            onOpenGitTab={() => onTabChange("git")}
 
           />
 
@@ -237,8 +268,12 @@ export function RightDock({
             cwd={cwd}
             refreshKey={refreshKey}
             activeFilePath={filePreviewPath}
+            running={running}
+            review={codeReview}
             onOpenFile={(path) => onOpenFile?.(path, "changes")}
             onAddToChat={onAddToChat}
+            onRunReview={onRunCodeReview}
+            onClearReview={onClearCodeReview}
           />
         )}
 
@@ -271,7 +306,9 @@ export function RightDock({
           />
         )}
 
-        {tab === "browser" && <BrowserPanel />}
+        {tab === "browser" && (
+          <BrowserPanel expanded={browserExpanded} onToggleExpanded={onToggleBrowserExpanded} />
+        )}
 
       </div>
 

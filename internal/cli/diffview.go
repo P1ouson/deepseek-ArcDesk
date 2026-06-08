@@ -14,8 +14,8 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/x/ansi"
 
-	"reasonix/internal/event"
-	"reasonix/internal/i18n"
+	"arcdesk/internal/event"
+	"arcdesk/internal/i18n"
 )
 
 const tabWidth = 4

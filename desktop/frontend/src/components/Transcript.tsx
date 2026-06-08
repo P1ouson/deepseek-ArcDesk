@@ -16,7 +16,7 @@ function questionAnchorId(id: string): string {
 }
 
 function compactQuestionText(text: string): string {
-  const cleaned = text.replace(/@\.reasonix\/attachments\/[^\s]+/g, "[image]").replace(/\s+/g, " ").trim();
+  const cleaned = text.replace(/@\.ARCDESK\/attachments\/[^\s]+/g, "[image]").replace(/\s+/g, " ").trim();
   if (cleaned.length <= 80) return cleaned;
   return cleaned.slice(0, 80);
 }

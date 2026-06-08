@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/evidence"
-	"reasonix/internal/instruction"
-	"reasonix/internal/tool"
+	"arcdesk/internal/evidence"
+	"arcdesk/internal/instruction"
+	"arcdesk/internal/tool"
 )
 
 func init() { tool.RegisterBuiltin(completeStep{}) }

@@ -1,5 +1,5 @@
 /*
-  Cold Studio — complete UI overhaul layer
+  Editorial Studio — complete UI overhaul layer
   Messages, panels, overlays, drawers, and all component states
 */
 
@@ -111,6 +111,12 @@
   width: 100%;
   max-width: 640px;
   padding: 8px 0 12px;
+}
+
+.welcome--code {
+  width: min(100%, 680px);
+  max-width: none;
+  padding: 0;
 }
 
 .welcome__headline {

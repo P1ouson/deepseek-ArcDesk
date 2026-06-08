@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/diff"
-	"reasonix/internal/tool"
+	"arcdesk/internal/diff"
+	"arcdesk/internal/tool"
 )
 
 func init() { tool.RegisterBuiltin(deleteSymbol{}) }

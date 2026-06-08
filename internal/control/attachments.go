@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"reasonix/internal/proc"
+	"arcdesk/internal/proc"
 )
 
 const maxImageAttachmentBytes = 10 * 1024 * 1024
@@ -27,7 +27,7 @@ var safeAttachmentExt = regexp.MustCompile(`^\.[a-z0-9]{1,12}$`)
 
 // SaveAttachmentDataURL stores a non-image file (dropped/pasted in the desktop
 // app, where the browser exposes bytes but not a real path) under
-// .reasonix/attachments and returns its repo-relative path for @referencing.
+// .arcdesk/attachments and returns its repo-relative path for @referencing.
 // origName supplies only the extension; the stored name is generated.
 func SaveAttachmentDataURL(origName, dataURL string) (string, error) {
 	const marker = ";base64,"
@@ -317,9 +317,9 @@ func cleanAttachmentPath(path string) (string, error) {
 		return "", fmt.Errorf("attachment path must be relative")
 	}
 	clean := filepath.Clean(filepath.FromSlash(path))
-	root := filepath.Join(".reasonix", "attachments")
+	root := filepath.Join(".arcdesk", "attachments")
 	if clean == "." || clean == root || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || !strings.HasPrefix(clean, root+string(filepath.Separator)) {
-		return "", fmt.Errorf("attachment path is outside .reasonix/attachments")
+		return "", fmt.Errorf("attachment path is outside .arcdesk/attachments")
 	}
 	if err := ensureAttachmentRoot(); err != nil {
 		return "", err
@@ -336,7 +336,7 @@ func rejectSymlinkComponents(path, root string) error {
 		return err
 	}
 	if rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
-		return fmt.Errorf("attachment path is outside .reasonix/attachments")
+		return fmt.Errorf("attachment path is outside .arcdesk/attachments")
 	}
 	cur := root
 	for _, part := range strings.Split(rel, string(filepath.Separator)) {
@@ -356,7 +356,7 @@ func rejectSymlinkComponents(path, root string) error {
 }
 
 func ensureAttachmentRoot() error {
-	root := filepath.Join(".reasonix", "attachments")
+	root := filepath.Join(".arcdesk", "attachments")
 	if info, err := os.Lstat(root); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("attachment directory must not be a symlink")
@@ -456,7 +456,7 @@ func createAttachmentFile(ext string) (string, *os.File, error) {
 func attachmentPath(ext string) string {
 	seq := attachmentPathSeq.Add(1)
 	name := fmt.Sprintf("clipboard-%s-%06d%s", attachmentNow().Format("20060102-150405.000000"), seq, ext)
-	return filepath.Join(".reasonix", "attachments", name)
+	return filepath.Join(".arcdesk", "attachments", name)
 }
 
 func detectedImageMime(raw []byte) string {

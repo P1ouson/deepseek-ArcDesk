@@ -1,6 +1,6 @@
 // Package acp implements the Agent Client Protocol (https://agentclientprotocol.com)
 // transport: a stdio JSON-RPC 2.0 agent that editors and other host clients speak
-// to drive Reasonix. Many tools integrated with the v1 (main-branch) agent over
+// to drive ARCDESK. Many tools integrated with the v1 (main-branch) agent over
 // ACP, so v2 keeps the wire contract identical — the wire types in this file are a
 // faithful port of main's src/acp/protocol.ts (ACP protocol version 1).
 //

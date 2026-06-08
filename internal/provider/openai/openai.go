@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/netclient"
-	"reasonix/internal/provider"
+	"arcdesk/internal/netclient"
+	"arcdesk/internal/provider"
 )
 
 func init() {

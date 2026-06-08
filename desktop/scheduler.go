@@ -61,7 +61,7 @@ func (s *taskScheduler) tick() {
 		return
 	}
 	now := time.Now()
-	path := reasonixDesktopDataPath("scheduled-tasks.json")
+	path := ARCDESKDesktopDataPath("scheduled-tasks.json")
 	items, err := loadScheduledTasks(path)
 	if err != nil || len(items) == 0 {
 		return
@@ -111,7 +111,7 @@ func (a *App) runScheduledTaskByID(id, source string) error {
 	if key == "" {
 		return fmt.Errorf("task id is required")
 	}
-	items, err := loadScheduledTasks(reasonixDesktopDataPath("scheduled-tasks.json"))
+	items, err := loadScheduledTasks(ARCDESKDesktopDataPath("scheduled-tasks.json"))
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func (a *App) runScheduledTaskByID(id, source string) error {
 		items[i] = advanceScheduledTaskAfterRun(items[i], time.Now())
 		break
 	}
-	return saveJSON(reasonixDesktopDataPath("scheduled-tasks.json"), items)
+	return saveJSON(ARCDESKDesktopDataPath("scheduled-tasks.json"), items)
 }
 
 func (a *App) runScheduledTask(task ScheduledTask, source string) error {

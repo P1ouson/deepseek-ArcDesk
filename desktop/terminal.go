@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	goruntime "runtime"
 	"sync"
 
@@ -76,7 +77,7 @@ func (m *terminalManager) Start(app *App, cwd string) (id, shell, errMsg string)
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	name, args := terminalShellArgs()
+	name, args := terminalShellArgs(app)
 	cmd := exec.Command(name, args...)
 	cmd.Dir = cwd
 	cmd.Env = os.Environ()
@@ -182,14 +183,20 @@ func emitTerminalExit(app *App, sessionID string, code int) {
 	})
 }
 
-func terminalShellArgs() (string, []string) {
-	if goruntime.GOOS == "windows" {
-		for _, name := range []string{"pwsh.exe", "pwsh", "powershell.exe", "powershell"} {
-			if p, err := exec.LookPath(name); err == nil {
-				return p, []string{"-NoLogo"}
-			}
+func terminalShellArgs(app *App) (string, []string) {
+	pref := ""
+	if app != nil {
+		if cfg, _, err := app.loadDesktopUserConfigForEdit(); err == nil && cfg != nil {
+			pref = cfg.DesktopTerminalShell()
 		}
-		return "powershell.exe", []string{"-NoLogo"}
+	}
+	if goruntime.GOOS == "windows" {
+		return terminalShellWindows(pref)
+	}
+	if pref == "wsl" {
+		if p, err := exec.LookPath("wsl.exe"); err == nil {
+			return p, nil
+		}
 	}
 	shell := os.Getenv("SHELL")
 	if shell == "" {
@@ -199,4 +206,40 @@ func terminalShellArgs() (string, []string) {
 		shell = p
 	}
 	return shell, nil
+}
+
+func terminalShellWindows(pref string) (string, []string) {
+	switch pref {
+	case "cmd":
+		if p, err := exec.LookPath("cmd.exe"); err == nil {
+			return p, nil
+		}
+		return "cmd.exe", nil
+	case "git-bash":
+		candidates := []string{
+			filepath.Join(os.Getenv("ProgramFiles"), "Git", "bin", "bash.exe"),
+			filepath.Join(os.Getenv("ProgramFiles(x86)"), "Git", "bin", "bash.exe"),
+		}
+		for _, candidate := range candidates {
+			if candidate != "" {
+				if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
+					return candidate, []string{"--login", "-i"}
+				}
+			}
+		}
+		if p, err := exec.LookPath("bash.exe"); err == nil {
+			return p, []string{"--login", "-i"}
+		}
+	case "wsl":
+		if p, err := exec.LookPath("wsl.exe"); err == nil {
+			return p, nil
+		}
+		return "wsl.exe", nil
+	}
+	for _, name := range []string{"pwsh.exe", "pwsh", "powershell.exe", "powershell"} {
+		if p, err := exec.LookPath(name); err == nil {
+			return p, []string{"-NoLogo"}
+		}
+	}
+	return "powershell.exe", []string{"-NoLogo"}
 }

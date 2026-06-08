@@ -1,7 +1,7 @@
 Unicode true
 
 ####
-## Reasonix per-user NSIS installer.
+## ARCDESK per-user NSIS installer.
 ##
 ## This file is COMMITTED and customized (Wails leaves an existing project.nsi
 ## untouched and only regenerates wails_tools.nsh). The customizations vs.
@@ -15,8 +15,8 @@ Unicode true
 ##      cannot write - so we inline HKCU versions below instead.
 ##   3. InstallDir is remembered across updates via InstallDirRegKey +
 ##      InstallLocation (HKCU\...\Uninstall\InstallLocation). Without this, every
-##      release forces the user back to %LOCALAPPDATA%\Programs\Reasonix even if
-##      they had moved the install to a different drive (e.g. D:\Tools\Reasonix);
+##      release forces the user back to %LOCALAPPDATA%\Programs\ARCDESK even if
+##      they had moved the install to a different drive (e.g. D:\Tools\ARCDESK);
 ##      the silent auto-updater would re-run with /S into the wrong dir, leaving
 ##      the old install orphaned.
 ##
@@ -72,16 +72,16 @@ ManifestDPIAware true
 
 Name "${INFO_PRODUCTNAME}"
 OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.
-!define REASONIX_DEFAULT_INSTALLDIR "$LOCALAPPDATA\Programs\${INFO_PRODUCTNAME}"
+!define ARCDESK_DEFAULT_INSTALLDIR "$LOCALAPPDATA\Programs\${INFO_PRODUCTNAME}"
 InstallDirRegKey HKCU "${UNINST_KEY}" "InstallLocation" # Reuse the previous install path on update; .onInit falls back to the default on first install.
-InstallDir "${REASONIX_DEFAULT_INSTALLDIR}" # Per-user install location (no admin rights required).
+InstallDir "${ARCDESK_DEFAULT_INSTALLDIR}" # Per-user install location (no admin rights required).
 ShowInstDetails show # This will always show the installation details.
 
 ####
 ## Per-user uninstaller registry (HKCU). Replaces wails.writeUninstaller /
 ## wails.deleteUninstaller, which write HKLM and would fail without admin rights.
 ####
-!macro reasonix.writeUninstaller
+!macro ARCDESK.writeUninstaller
     WriteUninstaller "$INSTDIR\uninstall.exe"
 
     WriteRegStr HKCU "${UNINST_KEY}" "Publisher" "${INFO_COMPANYNAME}"
@@ -92,8 +92,8 @@ ShowInstDetails show # This will always show the installation details.
     WriteRegStr HKCU "${UNINST_KEY}" "QuietUninstallString" "$\"$INSTDIR\uninstall.exe$\" /S"
     # Persist the resolved install path so a subsequent update picks it up
     # via InstallDirRegKey above. Without this, every release would force the
-    # user back to %LOCALAPPDATA%\Programs\Reasonix even if they had moved
-    # the install to a different drive (e.g. D:\Tools\Reasonix). The auto-
+    # user back to %LOCALAPPDATA%\Programs\ARCDESK even if they had moved
+    # the install to a different drive (e.g. D:\Tools\ARCDESK). The auto-
     # updater re-runs this installer with /S and trusts the persisted path,
     # so it has to be present before the silent re-install.
     WriteRegStr HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
@@ -103,7 +103,7 @@ ShowInstDetails show # This will always show the installation details.
     WriteRegDWORD HKCU "${UNINST_KEY}" "EstimatedSize" "$0"
 !macroend
 
-!macro reasonix.deleteUninstaller
+!macro ARCDESK.deleteUninstaller
     Delete "$INSTDIR\uninstall.exe"
     DeleteRegKey HKCU "${UNINST_KEY}"
 !macroend
@@ -116,7 +116,7 @@ Function .onInit
    ; Fall back to the per-user default so the directory page lands on a
    ; usable path instead of crashing the install with "InstallDir empty".
    StrCmp $INSTDIR "" 0 +2
-   StrCpy $INSTDIR "${REASONIX_DEFAULT_INSTALLDIR}"
+   StrCpy $INSTDIR "${ARCDESK_DEFAULT_INSTALLDIR}"
 FunctionEnd
 
 Section
@@ -134,7 +134,7 @@ Section
     !insertmacro wails.associateFiles
     !insertmacro wails.associateCustomProtocols
 
-    !insertmacro reasonix.writeUninstaller
+    !insertmacro ARCDESK.writeUninstaller
 SectionEnd
 
 Section "uninstall"
@@ -150,5 +150,5 @@ Section "uninstall"
     !insertmacro wails.unassociateFiles
     !insertmacro wails.unassociateCustomProtocols
 
-    !insertmacro reasonix.deleteUninstaller
+    !insertmacro ARCDESK.deleteUninstaller
 SectionEnd

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/config"
+	"arcdesk/internal/config"
 )
 
 func (m *chatTUI) runAutoPlanCommand(input string) {

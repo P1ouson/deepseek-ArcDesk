@@ -16,6 +16,16 @@ export interface ToolDiff {
   label?: string; // multi_edit labels each step ("edit 1", …)
 }
 
+export type ToolDiffPanel =
+  | { kind: "lcs"; original: string; modified: string; lang: string; label?: string }
+  | { kind: "unified"; unified: string; lang: string; added: number; removed: number; label?: string };
+
+export interface ToolFileDiff {
+  diff: string;
+  added: number;
+  removed: number;
+}
+
 function parse(args: string): Record<string, unknown> {
   try {
     return JSON.parse(args) as Record<string, unknown>;
@@ -79,6 +89,47 @@ export function diffsFor(name: string, args: string): ToolDiff[] {
     return out;
   }
   return [];
+}
+
+/** Preferred diff source: backend unified FileDiff, else LCS from tool args. */
+export function toolDiffPanels(name: string, args: string, fileDiff?: ToolFileDiff): ToolDiffPanel[] {
+  const a = parse(args);
+  const lang = extToLang(str(a, "path") || str(a, "file_path"));
+  if (fileDiff?.diff) {
+    return [{ kind: "unified", unified: fileDiff.diff, lang, added: fileDiff.added, removed: fileDiff.removed }];
+  }
+  return diffsFor(name, args).map((d) => ({
+    kind: "lcs" as const,
+    original: d.original,
+    modified: d.modified,
+    lang: d.lang,
+    label: d.label,
+  }));
+}
+
+export function toolDiffStat(fileDiff?: ToolFileDiff, panels?: ToolDiffPanel[]): string {
+  if (fileDiff && (fileDiff.added > 0 || fileDiff.removed > 0)) {
+    const parts: string[] = [];
+    if (fileDiff.added > 0) parts.push(`+${fileDiff.added}`);
+    if (fileDiff.removed > 0) parts.push(`-${fileDiff.removed}`);
+    return parts.join(" ");
+  }
+  if (!panels?.length) return "";
+  const panel = panels[0];
+  if (panel?.kind === "lcs") {
+    const { add, del } = plusMinus(panel.original, panel.modified);
+    const parts: string[] = [];
+    if (add > 0) parts.push(`+${add}`);
+    if (del > 0) parts.push(`-${del}`);
+    return parts.join(" ");
+  }
+  if (panel?.kind === "unified") {
+    const parts: string[] = [];
+    if (panel.added > 0) parts.push(`+${panel.added}`);
+    if (panel.removed > 0) parts.push(`-${panel.removed}`);
+    return parts.join(" ");
+  }
+  return "";
 }
 
 export type TodoStatus = "pending" | "in_progress" | "completed";

@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/agent/testutil"
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"arcdesk/internal/agent/testutil"
+	"arcdesk/internal/event"
+	"arcdesk/internal/provider"
+	"arcdesk/internal/tool"
 )
 
 func echoRegistry() *tool.Registry {

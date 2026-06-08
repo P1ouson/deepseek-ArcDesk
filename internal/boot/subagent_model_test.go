@@ -3,8 +3,8 @@ package boot
 import (
 	"testing"
 
-	"reasonix/internal/config"
-	"reasonix/internal/skill"
+	"arcdesk/internal/config"
+	"arcdesk/internal/skill"
 )
 
 func TestSubagentModelRefUsesConfiguredDefault(t *testing.T) {

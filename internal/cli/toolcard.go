@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/tool"
+	"arcdesk/internal/tool"
 )
 
 // connector is the Claude-style "⎿" gutter that ties a continuation block (tool

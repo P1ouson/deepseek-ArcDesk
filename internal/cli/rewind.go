@@ -8,9 +8,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"reasonix/internal/checkpoint"
-	"reasonix/internal/control"
-	"reasonix/internal/i18n"
+	"arcdesk/internal/checkpoint"
+	"arcdesk/internal/control"
+	"arcdesk/internal/i18n"
 )
 
 // rewindPicker is the in-chat overlay for Esc-Esc / "/rewind". Stage 0 lists the

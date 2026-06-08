@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/config"
+	"arcdesk/internal/config"
 )
 
 func (a *App) activeTabMode() string {
@@ -29,7 +29,7 @@ func (a *App) ProjectSandboxStatus() ProjectSandboxStatus {
 }
 
 // ConfigureProjectSandbox persists the wizard output for the active workspace and
-// mirrors bash/network/write roots into the project reasonix.toml [sandbox].
+// mirrors bash/network/write roots into the project ARCDESK.toml [sandbox].
 func (a *App) ConfigureProjectSandbox(in ConfigureProjectSandboxInput) error {
 	root := a.activeWorkspaceRoot()
 	profile, err := mergeSandboxInput(root, in)
@@ -43,7 +43,7 @@ func (a *App) ConfigureProjectSandbox(in ConfigureProjectSandboxInput) error {
 }
 
 func (a *App) syncProjectSandboxSection(p ProjectSandboxProfile) error {
-	path := projectConfigPathForRoot(a.activeWorkspaceRoot())
+	path := config.ProjectConfigPathForRoot(a.activeWorkspaceRoot())
 	userPath := config.UserConfigPath()
 	if path == "" || sameConfigPath(path, userPath) {
 		return nil
@@ -61,11 +61,28 @@ func (a *App) syncProjectSandboxSection(p ProjectSandboxProfile) error {
 	return cfg.SaveTo(path)
 }
 
+// SaveProjectPreviewSettings persists preview whitelist fields for the active
+// workspace without altering global sandbox settings or project [sandbox] TOML.
+func (a *App) SaveProjectPreviewSettings(in ProjectPreviewSettingsInput) error {
+	root := a.activeWorkspaceRoot()
+	profile, err := loadProjectSandboxProfile(root)
+	if err != nil {
+		return err
+	}
+	profile.PreviewHosts = normalizePreviewHosts(in.PreviewHosts)
+	profile.PreviewPorts = normalizePreviewPorts(in.PreviewPorts)
+	profile.PreviewStrict = in.PreviewStrict
+	if profile.WorkspaceRoot == "" {
+		profile.WorkspaceRoot = root
+	}
+	return saveProjectSandboxProfile(root, profile)
+}
+
 // ValidatePreviewURL applies project sandbox policy to a Web preview URL.
 func (a *App) ValidatePreviewURL(raw string) PreviewURLValidation {
 	root := a.activeWorkspaceRoot()
 	profile, _ := loadProjectSandboxProfile(root)
-	strict := isYoloMode(a.activeTabMode()) && profile.Configured
+	strict := profile.PreviewStrict || (isYoloMode(a.activeTabMode()) && profile.Configured)
 	return validatePreviewURL(raw, profile, strict)
 }
 

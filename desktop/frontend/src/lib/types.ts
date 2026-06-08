@@ -26,6 +26,12 @@ export interface WireCompaction {
   archive?: string; // done: archive path, if any
 }
 
+export interface WireFileDiff {
+  diff: string;
+  added: number;
+  removed: number;
+}
+
 export interface WireTool {
   id?: string;
   name: string;
@@ -36,6 +42,7 @@ export interface WireTool {
   truncated?: boolean;
   partial?: boolean; // an early dispatch (name only) — a full one with args follows
   parentId?: string; // set on a sub-agent's calls — the parent `task` call's id
+  fileDiff?: WireFileDiff;
 }
 
 export interface WireUsage {
@@ -293,6 +300,11 @@ export interface ShellRunResult {
   err?: string;
 }
 
+export interface CodeReviewResult {
+  text: string;
+  err?: string;
+}
+
 export interface TerminalStartResult {
   id: string;
   shell: string;
@@ -307,6 +319,7 @@ export interface ProjectSandboxStatus {
   allowWrite: string[];
   previewHosts: string[];
   previewPorts: number[];
+  previewStrict: boolean;
   yoloRequired: boolean;
 }
 
@@ -316,6 +329,7 @@ export interface ConfigureProjectSandboxInput {
   allowWrite: string[];
   previewHosts: string[];
   previewPorts: number[];
+  previewStrict: boolean;
 }
 
 export interface PreviewURLValidation {
@@ -325,9 +339,22 @@ export interface PreviewURLValidation {
   strict: boolean;
 }
 
+export interface ComposerWriteContext {
+  actionKey: string;
+  actionLabel: string;
+  instruction: string;
+  scope: "selection" | "document";
+  filePath?: string;
+  fileName?: string;
+  selection?: string;
+}
+
 export interface ComposerInsertRequest {
   id: number;
-  text: string;
+  text?: string;
+  /** When true, replace the whole composer instead of inserting at caret. */
+  replace?: boolean;
+  writeContext?: ComposerWriteContext;
 }
 
 // MCP & Skills drawer (desktop/app.go Capabilities) — the GUI counterpart to
@@ -479,6 +506,11 @@ export interface ProviderView {
   defaultEffort: string; // /effort level when user picks "auto" or unset; "" = supportedEfforts[0]
 }
 
+export interface ProviderModelsResult {
+  provider: string;
+  models: string[];
+}
+
 // BalanceInfo is the wallet-balance readout (desktop/app.go Balance). available
 // is false when the provider declares no balanceUrl or a fetch failed; display is
 // the formatted amount (e.g. "¥110.00").
@@ -514,6 +546,51 @@ export interface ClawChannel {
   model: string;
   workspaceRoot: string;
   webhookURL: string;
+  wecomCorpId?: string;
+  wecomAgentId?: string;
+  wecomSecret?: string;
+  wecomToken?: string;
+  wecomEncodingAESKey?: string;
+}
+
+export interface ClawCallbackInfo {
+  baseUrl: string;
+  path: string;
+  url: string;
+  port: number;
+}
+
+export interface MobileConnectConfig {
+  enabled: boolean;
+  model: string;
+  persona: string;
+  workspaceRoot: string;
+  relayBaseURL?: string;
+  deviceId?: string;
+  deviceSecret?: string;
+}
+
+export interface MobilePairingInfo {
+  token: string;
+  pairUrl: string;
+  lanPairUrl: string;
+  relayUrl: string;
+  lanIp: string;
+  port: number;
+  expiresAt: number;
+  pairedCount: number;
+  enabled: boolean;
+  qrDataUrl: string;
+  relayConnected: boolean;
+  tunnelRunning: boolean;
+  tunnelUrl: string;
+  connectMode: "tunnel" | "relay" | "lan" | "none" | string;
+}
+
+export interface MobileTunnelStatus {
+  running: boolean;
+  url: string;
+  err?: string;
 }
 
 export interface ClawMessage {
@@ -569,6 +646,79 @@ export interface AgentView {
   temperature: number;
   maxSteps: number;
   systemPrompt: string;
+  systemPromptFile: string;
+  outputStyle: string;
+  autoPlan: string;
+  autoPlanClassifier: string;
+  softCompactRatio: number;
+  compactRatio: number;
+  compactForceRatio: number;
+  subagentModel: string;
+  subagentModels: Record<string, string>;
+  usesDefaultPrompt: boolean;
+  defaultSystemPrompt: string;
+}
+
+export interface AgentSettingsInput {
+  temperature: number;
+  maxSteps: number;
+  systemPrompt: string;
+  systemPromptFile: string;
+  outputStyle: string;
+  autoPlan: string;
+  autoPlanClassifier: string;
+  softCompactRatio: number;
+  compactRatio: number;
+  compactForceRatio: number;
+  subagentModel: string;
+  subagentModels: Record<string, string>;
+}
+
+export interface OutputStyleView {
+  name: string;
+  description: string;
+  builtin: boolean;
+}
+
+export type GitPRMergeMethod = "merge" | "squash" | "rebase";
+
+export interface DesktopGitView {
+  prMergeMethod: GitPRMergeMethod;
+  checkGitHubCli: boolean;
+  syncRepoMergeToGitHub: boolean;
+  commitInstructions: string;
+  prInstructions: string;
+}
+
+export interface DesktopAppearanceView {
+  backgroundPreset: string;
+  foregroundPreset: string;
+  textSize: string;
+  codeFontSize: string;
+  diffMarker: string;
+}
+
+export interface DesktopCodeReviewView {
+  defaultScope: string;
+  securityByDefault: boolean;
+}
+
+export interface DesktopLocalPrefsMigrationInput {
+  backgroundPreset: string;
+  foregroundPreset: string;
+  textSize: string;
+  codeFontSize: string;
+  diffMarker: string;
+  codeReviewScope: string;
+  codeReviewSecurity: boolean;
+  hasAppearance: boolean;
+  hasCodeReview: boolean;
+}
+
+export interface ProjectPreviewSettingsInput {
+  previewHosts: string[];
+  previewPorts: number[];
+  previewStrict: boolean;
 }
 
 export interface SettingsView {
@@ -583,6 +733,10 @@ export interface SettingsView {
   desktopLanguage: string; // "" | "en" | "zh"; empty = auto
   desktopTheme: string; // "auto" | "dark" | "light"
   desktopThemeStyle: string;
+  desktopTerminalShell: string; // "" | "powershell" | "cmd" | "git-bash" | "wsl"
+  desktopGit: DesktopGitView;
+  desktopAppearance: DesktopAppearanceView;
+  desktopCodeReview: DesktopCodeReviewView;
   closeBehavior: string; // "background" | "quit"
   configPath: string;
   providerKinds: string[]; // provider implementations the kernel registered (for the kind picker)

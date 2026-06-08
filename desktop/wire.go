@@ -1,6 +1,6 @@
 package main
 
-import "reasonix/internal/event"
+import "arcdesk/internal/event"
 
 // wireEvent is the JSON shape an event.Event takes when emitted to the webview.
 // It mirrors the serve transport's SSE wire form field-for-field on purpose: both
@@ -64,6 +64,13 @@ type wireTool struct {
 	Truncated bool   `json:"truncated,omitempty"`
 	Partial   bool   `json:"partial,omitempty"`
 	ParentID  string `json:"parentId,omitempty"`
+	FileDiff  *wireFileDiff `json:"fileDiff,omitempty"`
+}
+
+type wireFileDiff struct {
+	Diff    string `json:"diff"`
+	Added   int    `json:"added"`
+	Removed int    `json:"removed"`
 }
 
 type wireUsage struct {
@@ -147,12 +154,18 @@ func toWire(e event.Event) wireEvent {
 			w.Level = "info"
 		}
 	case event.ToolDispatch, event.ToolResult, event.ToolProgress:
-		w.Tool = &wireTool{
+		wt := &wireTool{
 			ID: e.Tool.ID, Name: e.Tool.Name, Args: e.Tool.Args,
 			Output: e.Tool.Output, Err: e.Tool.Err,
 			ReadOnly: e.Tool.ReadOnly, Truncated: e.Tool.Truncated,
 			Partial: e.Tool.Partial, ParentID: e.Tool.ParentID,
 		}
+		if e.Tool.Diff != "" {
+			wt.FileDiff = &wireFileDiff{
+				Diff: e.Tool.Diff, Added: e.Tool.Added, Removed: e.Tool.Removed,
+			}
+		}
+		w.Tool = wt
 	case event.Usage:
 		if u := e.Usage; u != nil {
 			w.Usage = &wireUsage{

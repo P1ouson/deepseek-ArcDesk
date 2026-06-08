@@ -26,8 +26,8 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/netclient"
-	"reasonix/internal/provider"
+	"arcdesk/internal/netclient"
+	"arcdesk/internal/provider"
 )
 
 const (

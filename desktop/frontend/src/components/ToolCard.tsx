@@ -16,9 +16,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { CodeViewer } from "./CodeViewer";
-import { DiffView } from "./DiffView";
+import { DiffView, UnifiedDiffView } from "./DiffView";
 import { useT } from "../lib/i18n";
-import { diffsFor, subjectOf, summarize } from "../lib/tools";
+import { subjectOf, summarize, toolDiffPanels, toolDiffStat } from "../lib/tools";
 import { useShellExpand } from "../lib/shellExpand";
 import type { Item } from "../lib/useController";
 
@@ -68,7 +68,8 @@ function splitPreview(text: string, n: number): { preview: string; total: number
 // the sub-agent's work is visible as it happens.
 export const ToolCard = memo(function ToolCard({ item, subcalls }: { item: ToolItem; subcalls?: ToolItem[] }) {
   const t = useT();
-  const diffs = diffsFor(item.name, item.args);
+  const diffPanels = toolDiffPanels(item.name, item.args, item.fileDiff);
+  const diffStat = toolDiffStat(item.fileDiff, diffPanels);
   const subject = subjectOf(item.name, item.args);
   const Icon = ICONS[item.name] ?? Wrench;
   const nested = subcalls ?? [];
@@ -85,7 +86,7 @@ export const ToolCard = memo(function ToolCard({ item, subcalls }: { item: ToolI
   // edit diffs are the point of the card, so they're shown inline; everything
   // else folds its args/output away by default. Nested children always show.
   // Shell commands default to open so the output is immediately visible.
-  const hasBody = diffs.length === 0 && (!!item.args || !!item.output);
+  const hasBody = diffPanels.length === 0 && (!!item.args || !!item.output);
   const [open, setOpen] = useState(item.isShell && hasBody);
   const [showAll, setShowAll] = useState(false);
   const expandable = hasBody;
@@ -110,7 +111,7 @@ export const ToolCard = memo(function ToolCard({ item, subcalls }: { item: ToolI
   const shellPreview = shellOutput ? splitPreview(shellOutput, SHELL_PREVIEW_LINES) : null;
 
   return (
-    <div className={`tool tool--${item.status} ${quiet ? "tool--quiet" : ""}`}>
+    <div className={`tool tool--${item.status}${diffPanels.length ? " tool--diff" : ""} ${quiet ? "tool--quiet" : ""}`}>
       <div
         className={`tool__row ${expandable ? "tool__row--clickable" : ""}`}
         onClick={expandable ? () => setOpen((v) => !v) : undefined}
@@ -123,6 +124,7 @@ export const ToolCard = memo(function ToolCard({ item, subcalls }: { item: ToolI
         <Icon className="tool__icon" size={14} />
         <span className="tool__name">{item.name}</span>
         {subject && <span className="tool__subject">{subject}</span>}
+        {diffStat ? <span className="tool__diff-stat">{diffStat}</span> : null}
         <span className="tool__meta">
           <StatusGlyph status={item.status} />
         </span>
@@ -130,10 +132,14 @@ export const ToolCard = memo(function ToolCard({ item, subcalls }: { item: ToolI
 
       {summary && <div className="tool__summary">{summary}</div>}
 
-      {diffs.map((d, i) => (
-        <div className="tool__body" key={i}>
-          {d.label && <div className="tool__difflabel">{d.label}</div>}
-          <DiffView original={d.original} modified={d.modified} language={d.lang} maxHeight={260} />
+      {diffPanels.map((d, i) => (
+        <div className="tool__body tool__body--diff" key={i}>
+          {d.label ? <div className="tool__difflabel">{d.label}</div> : null}
+          {d.kind === "unified" ? (
+            <UnifiedDiffView unified={d.unified} language={d.lang} maxHeight={360} />
+          ) : (
+            <DiffView original={d.original} modified={d.modified} language={d.lang} maxHeight={360} />
+          )}
         </div>
       ))}
 

@@ -15,12 +15,12 @@
 # Go test binaries
 *.test
 
-# Local config symlinks for `wails dev` (point at the repo-root reasonix.toml/.env
+# Local config symlinks for `wails dev` (point at the repo-root ARCDESK.toml/.env
 # so the desktop app resolves the same config/keys the CLI does). Never commit.
-/reasonix.toml
+/ARCDESK.toml
 /.env
 
-# `go build` binary produced in-tree (module reasonix/desktop → "desktop")
+# `go build` binary produced in-tree (module ARCDESK/desktop → "desktop")
 /desktop
 # Wails dependency-change cache
 /frontend/package.json.md5

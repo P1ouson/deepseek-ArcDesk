@@ -78,7 +78,7 @@ func TestLoadMergesMCPJSON(t *testing.T) {
 name = "shared"
 command = "local-bin"
 `
-	if err := os.WriteFile("reasonix.toml", []byte(toml), 0o644); err != nil {
+	if err := os.WriteFile("arcdesk.toml", []byte(toml), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	mcp := `{ "mcpServers": {
@@ -101,7 +101,7 @@ command = "local-bin"
 		t.Fatalf("plugins = %+v, want shared + extra", cfg.Plugins)
 	}
 	if byName["shared"].Command != "local-bin" || byName["shared"].URL != "" {
-		t.Errorf("reasonix.toml should win the collision, got %+v", byName["shared"])
+		t.Errorf("arcdesk.toml should win the collision, got %+v", byName["shared"])
 	}
 	if byName["extra"].Command != "extra-bin" {
 		t.Errorf("extra not merged from .mcp.json, got %+v", byName["extra"])
@@ -128,7 +128,7 @@ func TestLoadMergesPluginsAcrossTOMLSources(t *testing.T) {
 	if err := os.WriteFile(gpath, []byte("[[plugins]]\nname = \"globalmcp\"\ncommand = \"global-bin\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile("reasonix.toml", []byte("[[plugins]]\nname = \"projectmcp\"\ncommand = \"project-bin\"\n"), 0o644); err != nil {
+	if err := os.WriteFile("arcdesk.toml", []byte("[[plugins]]\nname = \"projectmcp\"\ncommand = \"project-bin\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -141,13 +141,13 @@ func TestLoadMergesPluginsAcrossTOMLSources(t *testing.T) {
 		names[p.Name] = true
 	}
 	if !names["globalmcp"] || !names["projectmcp"] {
-		t.Fatalf("a project reasonix.toml [[plugins]] dropped the global config's server; got %+v", cfg.Plugins)
+		t.Fatalf("a project ARCDESK.toml [[plugins]] dropped the global config's server; got %+v", cfg.Plugins)
 	}
 }
 
 func TestMergeMCPJSONPrecedence(t *testing.T) {
-	// reasonix.toml already declares "shared" (stdio); .mcp.json offers a colliding
-	// "shared" (http) plus a fresh "extra". reasonix.toml must win on the collision;
+	// ARCDESK.toml already declares "shared" (stdio); .mcp.json offers a colliding
+	// "shared" (http) plus a fresh "extra". ARCDESK.toml must win on the collision;
 	// "extra" gets appended.
 	cfg := &Config{Plugins: []PluginEntry{
 		{Name: "shared", Command: "local-bin"},
@@ -161,7 +161,7 @@ func TestMergeMCPJSONPrecedence(t *testing.T) {
 		t.Fatalf("plugins = %+v, want 2 (shared kept, extra added)", cfg.Plugins)
 	}
 	if cfg.Plugins[0].Name != "shared" || cfg.Plugins[0].Command != "local-bin" || cfg.Plugins[0].URL != "" {
-		t.Errorf("collision not won by reasonix.toml: %+v", cfg.Plugins[0])
+		t.Errorf("collision not won by ARCDESK.toml: %+v", cfg.Plugins[0])
 	}
 	if cfg.Plugins[1].Name != "extra" || cfg.Plugins[1].Command != "extra-bin" {
 		t.Errorf("non-colliding entry not appended: %+v", cfg.Plugins[1])
@@ -249,10 +249,10 @@ func TestClearPluginAuthenticationInSourcePrefersTOML(t *testing.T) {
 	t.Setenv("AppData", filepath.Join(root, "AppData"))
 	t.Chdir(t.TempDir())
 
-	if err := os.WriteFile("reasonix.toml", []byte(`[[plugins]]
+	if err := os.WriteFile("arcdesk.toml", []byte(`[[plugins]]
 name = "dida"
 type = "http"
-url = "https://reasonix.example/mcp?access_token=toml"
+url = "https://ARCDESK.example/mcp?access_token=toml"
 [plugins.headers]
 Authorization = "Bearer ${TOML_TOKEN}"
 `), 0o644); err != nil {
@@ -276,19 +276,19 @@ Authorization = "Bearer ${TOML_TOKEN}"
 	if !changed {
 		t.Fatal("ClearPluginAuthenticationInSource should report changed")
 	}
-	if source != "reasonix.toml" {
-		t.Fatalf("source = %q, want reasonix.toml", source)
+	if source != "arcdesk.toml" {
+		t.Fatalf("source = %q, want ARCDESK.toml", source)
 	}
-	if updated.URL != "https://reasonix.example/mcp" {
+	if updated.URL != "https://ARCDESK.example/mcp" {
 		t.Fatalf("updated URL = %q", updated.URL)
 	}
 
-	projectRaw, err := os.ReadFile("reasonix.toml")
+	projectRaw, err := os.ReadFile("arcdesk.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(projectRaw), "access_token=toml") || strings.Contains(string(projectRaw), "Authorization") {
-		t.Fatalf("reasonix.toml auth material should be removed:\n%s", projectRaw)
+		t.Fatalf("arcdesk.toml auth material should be removed:\n%s", projectRaw)
 	}
 	mcpRaw, err := os.ReadFile(mcpJSONFile)
 	if err != nil {

@@ -7,3 +7,10 @@ func TestDefaultAutoPlanOff(t *testing.T) {
 		t.Fatalf("default auto_plan = %q, want off", got)
 	}
 }
+
+func TestDefaultDenyBlocksRmRf(t *testing.T) {
+	deny := Default().Permissions.Deny
+	if len(deny) != 1 || deny[0] != "bash(rm -rf*)" {
+		t.Fatalf("default permissions.deny = %v, want [bash(rm -rf*)]", deny)
+	}
+}

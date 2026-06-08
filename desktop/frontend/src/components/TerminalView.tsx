@@ -39,15 +39,16 @@ export function TerminalView({ sessionId, active, shell }: TerminalViewProps) {
     const styles = getComputedStyle(document.documentElement);
     const readVar = (name: string, fallback: string) =>
       styles.getPropertyValue(name).trim() || fallback;
+    const codeScale = Number.parseFloat(readVar("--code-font-scale", "1")) || 1;
 
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: Math.round(13 * codeScale * 10) / 10,
       fontFamily: "Cascadia Mono, Consolas, 'Courier New', monospace",
       theme: {
         background: readVar("--term-bg", "#0c0e10"),
         foreground: readVar("--term-fg", "#e4e4e7"),
-        cursor: readVar("--term-cursor", "#2dd4bf"),
+        cursor: readVar("--term-cursor", "#8b95e6"),
       },
       scrollback: 5000,
     });

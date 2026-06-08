@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/tool"
+	"arcdesk/internal/tool"
 )
 
 func init() { tool.RegisterBuiltin(editFile{}) }

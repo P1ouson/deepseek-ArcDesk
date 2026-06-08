@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
+import { useDismissOnOutsidePointerDown } from "../lib/useDismissOnOutsidePointerDown";
 
 type PopoverPosition = {
   left: number;
@@ -90,6 +91,10 @@ export function AnchoredPopover({
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<PopoverPosition | null>(null);
+
+  useDismissOnOutsidePointerDown(open, onClose, {
+    excludeRefs: [anchorRef, menuRef],
+  });
 
   const updatePosition = useCallback(() => {
     const anchor = anchorRef.current?.getBoundingClientRect();

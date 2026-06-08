@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/i18n"
-	"reasonix/internal/memory"
+	"arcdesk/internal/i18n"
+	"arcdesk/internal/memory"
 )
 
 func renderMemory(width int, set *memory.Set) string {

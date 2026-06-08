@@ -10,15 +10,15 @@ import (
 	"sync/atomic"
 	"unicode/utf8"
 
-	"reasonix/internal/diff"
-	"reasonix/internal/event"
-	"reasonix/internal/evidence"
-	"reasonix/internal/instruction"
-	"reasonix/internal/jobs"
-	"reasonix/internal/memory"
-	"reasonix/internal/nilutil"
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"arcdesk/internal/diff"
+	"arcdesk/internal/event"
+	"arcdesk/internal/evidence"
+	"arcdesk/internal/instruction"
+	"arcdesk/internal/jobs"
+	"arcdesk/internal/memory"
+	"arcdesk/internal/nilutil"
+	"arcdesk/internal/provider"
+	"arcdesk/internal/tool"
 )
 
 // maxToolOutputBytes caps a single tool result before it goes into the model's
@@ -233,7 +233,7 @@ type Agent struct {
 // history — are left untouched, so the toggle costs nothing in cache hits.
 func (a *Agent) SetPlanMode(v bool) { a.planMode.Store(v) }
 
-// SetGate installs the per-call permission gate. Used by `reasonix chat` to swap the
+// SetGate installs the per-call permission gate. Used by `ARCDESK chat` to swap the
 // headless gate built in setup for an interactive one that prompts the user;
 // nil disables gating. Safe to call before the run loop starts.
 func (a *Agent) SetGate(g Gate) {
@@ -267,7 +267,7 @@ func (a *Agent) Session() *Session {
 }
 
 // SetSession replaces the agent's conversation wholesale. Used by
-// `reasonix chat --resume` to load a saved JSONL transcript before the first turn,
+// `ARCDESK chat --resume` to load a saved JSONL transcript before the first turn,
 // so the model picks up exactly where it left off. Callers serialise it against a
 // running turn (it only fires while idle); sessMu guards the pointer swap itself.
 func (a *Agent) SetSession(s *Session) {

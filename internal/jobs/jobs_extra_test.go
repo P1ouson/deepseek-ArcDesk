@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/event"
+	"arcdesk/internal/event"
 )
 
 type typedNilJobSink struct{}

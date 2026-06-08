@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/provider"
+	"arcdesk/internal/provider"
 )
 
 // legacyEvent is the subset of the v0.x typed event stream (<name>.events.jsonl)

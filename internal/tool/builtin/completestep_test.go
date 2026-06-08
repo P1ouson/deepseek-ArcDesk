@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/evidence"
-	"reasonix/internal/instruction"
+	"arcdesk/internal/evidence"
+	"arcdesk/internal/instruction"
 )
 
 func TestCompleteStepRejectsMissingEvidence(t *testing.T) {

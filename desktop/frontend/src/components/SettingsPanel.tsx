@@ -1,61 +1,156 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  GITHUB_CLI_SETTINGS_EVENT,
+  type GitHubCliSettingsNavDetail,
+} from "../lib/gitHubCliSettingsNav";
+import {
+  Bot,
+  Check,
+  ChevronDown,
+  Cpu,
+  FolderGit2,
+  Loader2,
+  BarChart3,
+  Palette,
+  RefreshCw,
+  Settings2,
+  Shield,
+} from "lucide-react";
 import { asArray } from "../lib/array";
-import { app } from "../lib/bridge";
+import { app, openExternal } from "../lib/bridge";
 import { normalizeLangPref, useI18n, useT, type LangPref } from "../lib/i18n";
 import { useUpdater } from "../lib/useUpdater";
+import { useDismissOnOutsidePointerDown } from "../lib/useDismissOnOutsidePointerDown";
 import {
   applyTheme,
-  defaultStyleForTheme,
+  getResolvedTheme,
   getTheme,
   getThemeStyle,
   normalizeThemePreference,
   normalizeThemeStyleForTheme,
+  stylesForTheme,
   type Theme,
   type ThemeStyle,
 } from "../lib/theme";
-import { TEXT_SIZES, applyTextSize, getTextSize, type TextSize } from "../lib/textSize";
-import type { NetworkView, ProviderView, SettingsView } from "../lib/types";
-import { InlineConfirmButton } from "./InlineConfirmButton";
-import { ResizableDrawer } from "./ResizableDrawer";
+import { TEXT_SIZES, getTextSize, isTextSize, type TextSize } from "../lib/textSize";
+import {
+  CODE_FONT_SIZES,
+  DIFF_MARKER_STYLES,
+  applyAppearancePrefs,
+  appearanceViewFromCurrentState,
+  backgroundColorFor,
+  backgroundPresetsForTheme,
+  foregroundColorFor,
+  foregroundPresetsForBackground,
+  isBackgroundPreset,
+  isForegroundPreset,
+  loadBackgroundPreset,
+  loadCodeFontSize,
+  loadDiffMarkerStyle,
+  loadForegroundPreset,
+  saveBackgroundPreset,
+  saveCodeFontSize,
+  saveDiffMarkerStyle,
+  saveForegroundPreset,
+  saveTextSize,
+  type BackgroundPreset,
+  type CodeFontSize,
+  type DiffMarkerStyle,
+  type ForegroundPreset,
+} from "../lib/appearancePrefs";
+import type { AppMode } from "../lib/appMode";
+import type { RightDockTab } from "./Topbar";
+import { normalizeDesktopGit, syncDesktopGitSettings } from "../lib/desktopGitPrefs";
+import { probeGitHubCli, probeReasonKey, syncGitHubRepoMergeMethod, type GitHubCliProbe } from "../lib/gitHubCli";
+import type { DesktopGitView, GitPRMergeMethod } from "../lib/types";
+import {
+  saveCodeReviewDefaultScope,
+  saveCodeReviewSecurityByDefault,
+  syncCodeReviewSettings,
+  type CodeReviewDefaultScope,
+} from "../lib/codeReviewPrefs";
+import type { AgentSettingsInput, DesktopCodeReviewView, OutputStyleView, ProviderView, SettingsView } from "../lib/types";
+import { ProjectPreviewSettings } from "./ProjectPreviewSettings";
+import { RuleList } from "./RuleList";
+import { StudioSelect } from "./StudioSelect";
 import { Tooltip } from "./Tooltip";
+import { UsageInsightsSettings } from "./UsageInsightsSettings";
 
-type SettingsTab = "general" | "models" | "providers" | "network" | "permissions" | "sandbox" | "appearance" | "updates";
+type SettingsTab =
+  | "general"
+  | "appearance"
+  | "workspace"
+  | "models"
+  | "usage"
+  | "agent"
+  | "permissions"
+  | "updates";
 
-const SETTINGS_TABS: SettingsTab[] = ["general", "models", "providers", "network", "permissions", "sandbox", "appearance", "updates"];
+const SETTINGS_TABS: SettingsTab[] = [
+  "general",
+  "appearance",
+  "workspace",
+  "models",
+  "usage",
+  "agent",
+  "permissions",
+  "updates",
+];
 
-// SettingsPanel is the desktop settings surface, aligning with Claude Code's
-// settings: model & providers (incl. API keys), permissions, sandbox, and
-// appearance. Every change writes reasonix.toml (or .env for keys)
-// through the kernel's config edit API and rebuilds the controller live.
-export function SettingsPanel({
-  onClose,
-  onChanged,
-  onOpenHistory,
-  onOpenMemory,
-  onOpenCapabilities,
-  onOpenTrash,
-  onConfigureProjectSandbox,
-}: {
-  onClose: () => void;
+export interface SettingsPageProps {
   onChanged: () => void;
+  workspaceRoot?: string;
+  onModeChange?: (mode: AppMode) => void;
   onOpenHistory?: () => void;
   onOpenMemory?: () => void;
   onOpenCapabilities?: () => void;
   onOpenTrash?: () => void;
   onConfigureProjectSandbox?: () => void;
-}) {
+  onOpenDockTab?: (tab: RightDockTab) => void;
+  onOpenTerminal?: () => void;
+}
+
+// SettingsPage is the full-page settings surface (Codex / Claude Code style).
+export function SettingsPage({
+  onChanged,
+}: SettingsPageProps) {
   const t = useT();
   const [s, setS] = useState<SettingsView | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [theme, setThemeState] = useState<Theme>(getTheme());
-  const [, setThemeStyleState] = useState<ThemeStyle>(() => getThemeStyle(getTheme()));
+  const [themeStyle, setThemeStyleState] = useState<ThemeStyle>(() => getThemeStyle(getTheme()));
   const [textSize, setTextSizeState] = useState<TextSize>(getTextSize());
+  const [backgroundPreset, setBackgroundPresetState] = useState<BackgroundPreset>(() => loadBackgroundPreset());
+  const [foregroundPreset, setForegroundPresetState] = useState<ForegroundPreset>(() => loadForegroundPreset());
+  const [codeFontSize, setCodeFontSizeState] = useState<CodeFontSize>(() => loadCodeFontSize());
+  const [diffMarker, setDiffMarkerState] = useState<DiffMarkerStyle>(() => loadDiffMarkerStyle());
   const [tab, setTab] = useState<SettingsTab>("general");
+  const [ghCliSetupRequest, setGhCliSetupRequest] = useState<(GitHubCliSettingsNavDetail & { id: number }) | null>(
+    null,
+  );
+  const ghCliSetupSeq = useRef(0);
 
   const reload = async () => setS(normalizeSettingsView(await app.Settings().catch(() => null)));
   useEffect(() => {
     void reload();
+  }, []);
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<GitHubCliSettingsNavDetail>).detail ?? {};
+      ghCliSetupSeq.current += 1;
+      setGhCliSetupRequest({
+        runCheck: detail.runCheck !== false,
+        enableCheck: detail.enableCheck !== false,
+        id: ghCliSetupSeq.current,
+      });
+      setTab("workspace");
+      requestAnimationFrame(() => {
+        document.getElementById("settings-github-cli")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    };
+    window.addEventListener(GITHUB_CLI_SETTINGS_EVENT, handler);
+    return () => window.removeEventListener(GITHUB_CLI_SETTINGS_EVENT, handler);
   }, []);
   useEffect(() => {
     if (!s) return;
@@ -63,7 +158,20 @@ export function SettingsPanel({
     const nextStyle = normalizeThemeStyleForTheme(s.desktopThemeStyle, nextTheme);
     setThemeState(nextTheme);
     setThemeStyleState(nextStyle);
+    applyTheme(nextTheme, nextStyle, { syncSurfaces: false });
   }, [s?.desktopTheme, s?.desktopThemeStyle]);
+
+  useEffect(() => {
+    if (!s?.desktopAppearance) return;
+    const a = s.desktopAppearance;
+    if (isBackgroundPreset(a.backgroundPreset)) setBackgroundPresetState(a.backgroundPreset);
+    if (isForegroundPreset(a.foregroundPreset)) setForegroundPresetState(a.foregroundPreset);
+    if (isTextSize(a.textSize)) setTextSizeState(a.textSize);
+    if (CODE_FONT_SIZES.includes(a.codeFontSize as CodeFontSize)) setCodeFontSizeState(a.codeFontSize as CodeFontSize);
+    if (DIFF_MARKER_STYLES.includes(a.diffMarker as DiffMarkerStyle)) setDiffMarkerState(a.diffMarker as DiffMarkerStyle);
+  }, [s?.desktopAppearance]);
+
+  const persistAppearanceConfig = () => app.SetDesktopAppearancePrefs(appearanceViewFromCurrentState());
 
   // apply runs a mutation, re-reads settings, and refreshes the topbar/model. A
   // rejected binding (validation / rebuild failure) surfaces as an inline banner.
@@ -82,76 +190,120 @@ export function SettingsPanel({
   };
 
   return (
-    <ResizableDrawer onClose={onClose} wide>
-        <header className="drawer__head">
-          <div className="drawer__title">{t("settings.title")}</div>
-          <Tooltip label={t("common.close")}>
-            <button className="chip" onClick={onClose}>
-              ✕
-            </button>
-          </Tooltip>
-        </header>
+    <div className="settings-studio-shell">
+      <aside className="settings-studio__sidebar">
+        <div className="settings-studio__sidebar-head">
+          <h2>{t("settings.title")}</h2>
+          <p>{s?.configPath ? t("settings.configPath", { path: s.configPath }) : t("settings.subtitle")}</p>
+        </div>
+        <nav className="settings-studio__nav" aria-label={t("settings.title")}>
+          {SETTINGS_TABS.map((id) => {
+            const Icon = settingsTabIcon(id);
+            return (
+              <button
+                key={id}
+                type="button"
+                className={`settings-studio__nav-item${tab === id ? " settings-studio__nav-item--active" : ""}`}
+                onClick={() => setTab(id)}
+              >
+                <Icon size={15} />
+                <span className="settings-studio__nav-copy">
+                  <strong>{settingsTabLabel(id, t)}</strong>
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+      </aside>
 
+      <main className="settings-studio__main">
         {!s ? (
-          <div className="empty">{t("settings.loading")}</div>
+          <div className="empty settings-studio__loading">{t("settings.loading")}</div>
         ) : (
-          <div className="drawer__body drawer__body--settings">
-            <div className="settings-shell">
-              <nav className="settings-nav" aria-label={t("settings.title")}>
-                {SETTINGS_TABS.map((id) => (
-                  <button
-                    key={id}
-                    className={`settings-nav__item${tab === id ? " settings-nav__item--active" : ""}`}
-                    onClick={() => setTab(id)}
-                  >
-                    <span>{settingsTabLabel(id, t)}</span>
-                    <small>{settingsTabMeta(id, s, t)}</small>
-                  </button>
-                ))}
-              </nav>
-              <main className="settings-content">
-                {err && <div className="banner banner--error">{err}</div>}
-                {tab === "general" && (
-                  <GeneralSection
-                    s={s}
-                    busy={busy}
-                    apply={apply}
-                    onOpenHistory={onOpenHistory}
-                    onOpenMemory={onOpenMemory}
-                    onOpenCapabilities={onOpenCapabilities}
-                    onOpenTrash={onOpenTrash}
-                  />
-                )}
-                {tab === "models" && <ModelsSection s={s} busy={busy} apply={apply} onManageProviders={() => setTab("providers")} />}
-                {tab === "providers" && <ProvidersSection s={s} busy={busy} apply={apply} />}
-                {tab === "network" && <NetworkSection s={s} busy={busy} apply={apply} />}
-                {tab === "permissions" && <PermissionsSection s={s} busy={busy} apply={apply} />}
-                {tab === "sandbox" && (
-                  <SandboxSection s={s} busy={busy} apply={apply} onConfigureProjectSandbox={onConfigureProjectSandbox} />
-                )}
-                {tab === "appearance" && (
-                  <AppearanceSection
-                    theme={theme}
-                    textSize={textSize}
-                    onTheme={(nextTheme) => {
-                      const nextStyle = defaultStyleForTheme(nextTheme);
-                      applyTheme(nextTheme, nextStyle, { persist: false });
-                      setThemeState(nextTheme);
-                      setThemeStyleState(nextStyle);
-                      void apply(() => app.SetDesktopAppearance(nextTheme, nextStyle));
-                    }}
-                    onTextSize={(size) => {
-                      applyTextSize(size);
-                      setTextSizeState(size);
-                    }}
-                  />
-                )}
-                {tab === "updates" && <UpdatesSection configPath={s.configPath} />}
-              </main>
+          <div className="settings-studio__scroll">
+            <div className="settings-studio__inner">
+              {err ? <div className="banner banner--error">{err}</div> : null}
+              <SettingsPageShell title={settingsTabLabel(tab, t)}>
+              {tab === "general" && <GeneralSection s={s} busy={busy} apply={apply} />}
+            {tab === "appearance" && (
+              <AppearanceSection
+                theme={theme}
+                themeStyle={themeStyle}
+                backgroundPreset={backgroundPreset}
+                foregroundPreset={foregroundPreset}
+                textSize={textSize}
+                codeFontSize={codeFontSize}
+                diffMarker={diffMarker}
+                onTheme={(nextTheme) => {
+                  const nextStyle = normalizeThemeStyleForTheme(themeStyle, nextTheme);
+                  applyTheme(nextTheme, nextStyle, { syncSurfaces: true });
+                  setBackgroundPresetState(loadBackgroundPreset());
+                  setForegroundPresetState(loadForegroundPreset());
+                  setThemeState(nextTheme);
+                  setThemeStyleState(nextStyle);
+                  void apply(async () => {
+                    await app.SetDesktopAppearance(nextTheme, nextStyle);
+                    await persistAppearanceConfig();
+                  });
+                }}
+                onThemeStyle={(nextStyle) => {
+                  applyTheme(theme, nextStyle, { syncSurfaces: false });
+                  setThemeStyleState(nextStyle);
+                  void apply(() => app.SetDesktopAppearance(theme, nextStyle));
+                }}
+                onBackgroundPreset={(preset) => {
+                  const nextForeground = saveBackgroundPreset(preset);
+                  setBackgroundPresetState(preset);
+                  setForegroundPresetState(nextForeground);
+                  applyAppearancePrefs();
+                  void apply(persistAppearanceConfig);
+                }}
+                onForegroundPreset={(preset) => {
+                  const nextForeground = saveForegroundPreset(preset);
+                  setForegroundPresetState(nextForeground);
+                  applyAppearancePrefs();
+                  void apply(persistAppearanceConfig);
+                }}
+                onTextSize={(size) => {
+                  saveTextSize(size);
+                  applyAppearancePrefs();
+                  setTextSizeState(size);
+                  void apply(persistAppearanceConfig);
+                }}
+                onCodeFontSize={(size) => {
+                  saveCodeFontSize(size);
+                  setCodeFontSizeState(size);
+                  applyAppearancePrefs();
+                  void apply(persistAppearanceConfig);
+                }}
+                onDiffMarker={(style) => {
+                  saveDiffMarkerStyle(style);
+                  setDiffMarkerState(style);
+                  applyAppearancePrefs();
+                  void apply(persistAppearanceConfig);
+                }}
+              />
+            )}
+            {tab === "workspace" && (
+              <WorkspaceSection
+                s={s}
+                busy={busy}
+                apply={apply}
+                ghCliSetupRequest={ghCliSetupRequest}
+                onGhCliSetupHandled={() => setGhCliSetupRequest(null)}
+              />
+            )}
+            {tab === "models" && <ModelsServicesSection s={s} busy={busy} apply={apply} />}
+            {tab === "usage" && <UsageInsightsSettings />}
+            {tab === "agent" && <AgentSection s={s} busy={busy} apply={apply} onNavigateTab={setTab} />}
+            {tab === "permissions" && <PermissionsSection s={s} busy={busy} apply={apply} />}
+            {tab === "updates" && <UpdatesSection configPath={s.configPath} />}
+              </SettingsPageShell>
             </div>
           </div>
         )}
-    </ResizableDrawer>
+      </main>
+    </div>
   );
 }
 
@@ -161,53 +313,124 @@ type SectionProps = {
   apply: (fn: () => Promise<void>) => Promise<void>;
 };
 
+function SettingsPageShell({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="settings-page">
+      <h2 className="settings-page__title">{title}</h2>
+      <div className="settings-page__sections">{children}</div>
+    </div>
+  );
+}
+
+function SettingsBlock({
+  title,
+  hint,
+  children,
+  compact,
+}: {
+  title: string;
+  hint?: string;
+  children: ReactNode;
+  compact?: boolean;
+}) {
+  return (
+    <section className={`settings-block${compact ? " settings-block--compact" : ""}`}>
+      <h3 className="settings-block__title">{title}</h3>
+      <div className="settings-block__card">
+        {hint ? <p className="settings-block__card-lead">{hint}</p> : null}
+        <div className="settings-block__card-content">{children}</div>
+      </div>
+    </section>
+  );
+}
+
+function SettingsSaveChip({
+  children,
+  onClick,
+  disabled = false,
+  ready = false,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  ready?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`settings-save-chip${ready ? " settings-save-chip--ready" : ""}`}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <Check size={13} strokeWidth={2} aria-hidden="true" />
+      {children}
+    </button>
+  );
+}
+
+function SettingsActionButton({
+  children,
+  onClick,
+  primary = true,
+  disabled = false,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  primary?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`settings-action-btn${primary ? " settings-action-btn--primary" : ""}`}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
 function settingsTabLabel(id: SettingsTab, t: ReturnType<typeof useT>): string {
   switch (id) {
-    case "models":
-      return t("settings.tab.models");
     case "general":
       return t("settings.tab.general");
-    case "providers":
-      return t("settings.tab.providers");
-    case "network":
-      return t("settings.tab.network");
-    case "permissions":
-      return t("settings.tab.permissions");
-    case "sandbox":
-      return t("settings.tab.sandbox");
     case "appearance":
       return t("settings.tab.appearance");
+    case "workspace":
+      return t("settings.tab.workspace");
+    case "models":
+      return t("settings.tab.models");
+    case "usage":
+      return t("settings.tab.usage");
+    case "agent":
+      return t("settings.tab.agent");
+    case "permissions":
+      return t("settings.tab.permissions");
     case "updates":
       return t("settings.tab.updates");
   }
 }
 
-function settingsTabMeta(id: SettingsTab, s: SettingsView, t: ReturnType<typeof useT>): string {
+function settingsTabIcon(id: SettingsTab) {
   switch (id) {
-    case "models":
-      return toRef(s.defaultModel, s) || t("common.none");
     case "general":
-      return `${closeBehaviorLabel(normalizeCloseBehavior(s.closeBehavior), t)} · ${t(`settings.autoPlan.${normalizeAutoPlan(s.autoPlan)}`)}`;
-    case "providers":
-      return t("settings.providerCount", { n: s.providers.length });
-    case "network":
-      return proxyModeLabel(normalizeProxyMode(s.network.proxyMode), t);
-    case "permissions":
-      return s.permissions.mode;
-    case "sandbox":
-      return s.sandbox.bash;
+      return Settings2;
     case "appearance":
-      return t("settings.appearanceMeta");
+      return Palette;
+    case "workspace":
+      return FolderGit2;
+    case "models":
+      return Cpu;
+    case "usage":
+      return BarChart3;
+    case "agent":
+      return Bot;
+    case "permissions":
+      return Shield;
     case "updates":
-      return t("settings.updatesMeta");
+      return RefreshCw;
   }
-}
-
-// allRefs flattens providers into "provider/model" refs for the model selectors.
-function allRefs(s: SettingsView): string[] {
-  const out: string[] = [];
-  for (const p of s.providers) for (const m of p.models) out.push(`${p.name}/${m}`);
-  return out;
 }
 
 // toRef normalises a stored model id (a provider name, a bare model, or a ref) to
@@ -222,34 +445,10 @@ function toRef(model: string, s: SettingsView): string {
   return model;
 }
 
-const PROXY_MODES = ["auto", "custom", "off"] as const;
-
-// EFFORT_PRESETS is the canonical union of /effort levels the kernel
-// recognises. The settings UI exposes these as toggleable checkboxes; users
-// can additionally add arbitrary custom names via the "Add" input. The order
-// here is what the user sees in the dropdown.
-const EFFORT_PRESETS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
-const PROXY_TYPES = ["http", "https", "socks5", "socks5h"] as const;
 const LANGUAGE_PREFS: LangPref[] = ["", "zh", "en"];
 const AUTO_PLAN_MODES = ["off", "on"] as const;
 
-type ProxyMode = (typeof PROXY_MODES)[number];
 type AutoPlanMode = (typeof AUTO_PLAN_MODES)[number];
-
-function normalizeProxyMode(mode: string): ProxyMode {
-  switch (mode) {
-    case "custom":
-      return "custom";
-    case "off":
-      return "off";
-    default:
-      return "auto";
-  }
-}
-
-function normalizeNetworkView(network: NetworkView): NetworkView {
-  return { ...network, proxyMode: normalizeProxyMode(network.proxyMode) };
-}
 
 function normalizeAutoPlan(mode: string | undefined): AutoPlanMode {
   return mode === "ask" || mode === "on" ? "on" : "off";
@@ -265,7 +464,23 @@ function normalizeSettingsView(view: SettingsView | null | undefined): SettingsV
     noProxy: "",
     proxy: { type: "socks5", server: "", port: 0, username: "", password: "" },
   };
-  const agent = view.agent ?? { temperature: 0, maxSteps: 0, systemPrompt: "" };
+  const rawAgent = view.agent;
+  const agent = {
+    temperature: rawAgent?.temperature ?? 0,
+    maxSteps: rawAgent?.maxSteps ?? 0,
+    systemPrompt: rawAgent?.systemPrompt ?? "",
+    systemPromptFile: rawAgent?.systemPromptFile ?? "",
+    outputStyle: rawAgent?.outputStyle ?? "",
+    autoPlan: normalizeAutoPlan(rawAgent?.autoPlan ?? view.autoPlan),
+    autoPlanClassifier: rawAgent?.autoPlanClassifier ?? "",
+    softCompactRatio: rawAgent?.softCompactRatio ?? 0.5,
+    compactRatio: rawAgent?.compactRatio ?? 0.8,
+    compactForceRatio: rawAgent?.compactForceRatio ?? 0.9,
+    subagentModel: rawAgent?.subagentModel ?? "",
+    subagentModels: { ...(rawAgent?.subagentModels ?? {}) },
+    usesDefaultPrompt: rawAgent?.usesDefaultPrompt ?? false,
+    defaultSystemPrompt: rawAgent?.defaultSystemPrompt ?? "",
+  };
   return {
     ...view,
     providers: asArray(view.providers).map((p) => ({ ...p, models: asArray(p.models) })),
@@ -285,12 +500,44 @@ function normalizeSettingsView(view: SettingsView | null | undefined): SettingsV
       proxy: network.proxy ?? { type: "socks5", server: "", port: 0, username: "", password: "" },
     },
     agent,
-    autoPlan: normalizeAutoPlan(view.autoPlan),
+    autoPlan: agent.autoPlan,
     desktopLanguage: normalizeLangPref(view.desktopLanguage),
     desktopTheme: normalizeThemePreference(view.desktopTheme),
     desktopThemeStyle: normalizeThemeStyleForTheme(view.desktopThemeStyle, normalizeThemePreference(view.desktopTheme)),
+    desktopTerminalShell: normalizeTerminalShell(view.desktopTerminalShell),
+    desktopGit: normalizeDesktopGit(view.desktopGit),
+    desktopAppearance: view.desktopAppearance ?? {
+      backgroundPreset: "",
+      foregroundPreset: "",
+      textSize: "default",
+      codeFontSize: "default",
+      diffMarker: "background",
+    },
+    desktopCodeReview: view.desktopCodeReview ?? { defaultScope: "all", securityByDefault: false },
     closeBehavior: normalizeCloseBehavior(view.closeBehavior),
   };
+}
+
+const GIT_PR_MERGE_METHODS: GitPRMergeMethod[] = ["merge", "squash", "rebase"];
+
+const DEEPSEEK_OFFICIAL_BASE = "https://api.deepseek.com";
+const TERMINAL_SHELL_PREFS = ["powershell", "cmd", "git-bash", "wsl"] as const;
+type TerminalShellPref = (typeof TERMINAL_SHELL_PREFS)[number];
+
+function normalizeTerminalShell(value: string | undefined): TerminalShellPref | "" {
+  switch (value) {
+    case "powershell":
+    case "cmd":
+    case "git-bash":
+    case "wsl":
+      return value;
+    default:
+      return "";
+  }
+}
+
+function deepseekProviders(providers: ProviderView[]): ProviderView[] {
+  return asArray(providers).filter((p) => p.apiKeyEnv === "DEEPSEEK_API_KEY");
 }
 
 type CloseBehavior = "background" | "quit";
@@ -299,41 +546,27 @@ function normalizeCloseBehavior(mode: string | undefined): CloseBehavior {
   return mode === "quit" ? "quit" : "background";
 }
 
-function closeBehaviorLabel(mode: CloseBehavior, t: ReturnType<typeof useT>): string {
-  return mode === "quit" ? t("settings.closeBehavior.quit") : t("settings.closeBehavior.background");
-}
-
 function GeneralSection({
   s,
   busy,
   apply,
-  onOpenHistory,
-  onOpenMemory,
-  onOpenCapabilities,
-  onOpenTrash,
-}: SectionProps & {
-  onOpenHistory?: () => void;
-  onOpenMemory?: () => void;
-  onOpenCapabilities?: () => void;
-  onOpenTrash?: () => void;
-}) {
+}: SectionProps) {
   const { t, setPref } = useI18n();
-  const closeBehavior = normalizeCloseBehavior(s.closeBehavior);
-  const autoPlan = normalizeAutoPlan(s.autoPlan);
   const languagePref = normalizeLangPref(s.desktopLanguage);
+  const shellPref = normalizeTerminalShell(s.desktopTerminalShell) || "powershell";
   const setLanguage = (next: LangPref) => {
     setPref(next);
     void apply(() => app.SetDesktopLanguage(next));
   };
+
   return (
-    <section className="mem-section">
-      <div className="mem-section__title">{t("settings.tab.general")}</div>
-      <div className="set-row">
-        <label className="set-label">{t("settings.language")}</label>
-        <div className="set-seg">
+    <>
+      <SettingsBlock title={t("settings.language")}>
+        <div className="set-seg set-seg--compact">
           {LANGUAGE_PREFS.map((pref) => (
             <button
               key={pref || "auto"}
+              type="button"
               className={`set-seg__btn${languagePref === pref ? " set-seg__btn--on" : ""}`}
               disabled={busy}
               onClick={() => setLanguage(pref)}
@@ -342,545 +575,1030 @@ function GeneralSection({
             </button>
           ))}
         </div>
-      </div>
-      <div className="set-row">
-        <label className="set-label">{t("settings.closeBehavior")}</label>
-        <div className="set-seg">
-          {(["background", "quit"] as const).map((mode) => (
+      </SettingsBlock>
+
+      <SettingsBlock title={t("settings.general.terminalShell")} hint={t("settings.general.terminalShellHint")}>
+        <div className="set-seg set-seg--compact set-seg--wrap">
+          {TERMINAL_SHELL_PREFS.map((shell) => (
             <button
-              key={mode}
-              className={`set-seg__btn${closeBehavior === mode ? " set-seg__btn--on" : ""}`}
+              key={shell}
+              type="button"
+              className={`set-seg__btn${shellPref === shell ? " set-seg__btn--on" : ""}`}
               disabled={busy}
-              onClick={() => void apply(() => app.SetCloseBehavior(mode))}
+              onClick={() => void apply(() => app.SetDesktopTerminalShell(shell))}
             >
-              {closeBehaviorLabel(mode, t)}
+              {t(
+                shell === "powershell"
+                  ? "settings.general.shell.powershell"
+                  : shell === "cmd"
+                    ? "settings.general.shell.cmd"
+                    : shell === "git-bash"
+                      ? "settings.general.shell.gitBash"
+                      : "settings.general.shell.wsl",
+              )}
             </button>
           ))}
         </div>
-      </div>
-      <div className="set-row">
-        <label className="set-label">{t("settings.autoPlan")}</label>
-        <div className="set-seg">
-          {AUTO_PLAN_MODES.map((mode) => (
-            <button
-              key={mode}
-              className={`set-seg__btn${autoPlan === mode ? " set-seg__btn--on" : ""}`}
-              disabled={busy}
-              onClick={() => void apply(() => app.SetAutoPlan(mode))}
-            >
-              {t(`settings.autoPlan.${mode}`)}
-            </button>
-          ))}
-        </div>
-      </div>
-      {(onOpenHistory || onOpenMemory || onOpenCapabilities || onOpenTrash) && (
-        <>
-          <div className="mem-section__title settings-tools__title">{t("settings.workspaceTools")}</div>
-          <div className="settings-tools">
-            {onOpenHistory ? (
-              <button type="button" className="btn btn--small" onClick={onOpenHistory}>
-                {t("topbar.history")}
-              </button>
-            ) : null}
-            {onOpenMemory ? (
-              <button type="button" className="btn btn--small" onClick={onOpenMemory}>
-                {t("topbar.memory")}
-              </button>
-            ) : null}
-            {onOpenCapabilities ? (
-              <button type="button" className="btn btn--small" onClick={onOpenCapabilities}>
-                {t("sidebar.capabilities")}
-              </button>
-            ) : null}
-            {onOpenTrash ? (
-              <button type="button" className="btn btn--small" onClick={onOpenTrash}>
-                {t("sidebar.trash")}
-              </button>
-            ) : null}
-          </div>
-        </>
-      )}
-    </section>
+      </SettingsBlock>
+
+      <CodeReviewSettingsBlock s={s} busy={busy} apply={apply} />
+
+      <SettingsBlock title={t("settings.general.onboarding")} hint={t("settings.general.onboardingHint")}>
+        <button type="button" className="settings-action-btn settings-action-btn--compact" disabled title={t("settings.general.onboardingSoon")}>
+          {t("settings.general.onboarding")}
+        </button>
+      </SettingsBlock>
+    </>
   );
 }
 
-function NetworkSection({ s, busy, apply }: SectionProps) {
+function CodeReviewSettingsBlock({ s, busy, apply }: SectionProps) {
   const t = useT();
-  const savedNetwork = normalizeNetworkView(s.network);
-  const [draft, setDraft] = useState<NetworkView>(savedNetwork);
-  useEffect(() => setDraft(normalizeNetworkView(s.network)), [s.network]);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(savedNetwork);
-  const setProxy = (next: Partial<NetworkView["proxy"]>) => {
-    setDraft({ ...draft, proxy: { ...draft.proxy, ...next } });
+  const saved = s.desktopCodeReview ?? { defaultScope: "all", securityByDefault: false };
+  const scope = (saved.defaultScope === "session" || saved.defaultScope === "git" ? saved.defaultScope : "all") as CodeReviewDefaultScope;
+  const securityDefault = saved.securityByDefault === true;
+
+  const persist = (next: DesktopCodeReviewView) => {
+    syncCodeReviewSettings(next);
+    void apply(() => app.SetDesktopCodeReviewSettings(next));
   };
 
   return (
-    <section className="mem-section">
-      <div className="mem-section__title">{t("settings.tab.network")}</div>
-      <div className="set-row">
-        <label className="set-label">{t("settings.proxyMode")}</label>
-        <div className="set-seg">
-          {PROXY_MODES.map((mode) => (
+    <SettingsBlock title={t("settings.general.codeReview")} hint={t("settings.general.codeReviewHint")}>
+      <div className="settings-block__stack">
+        <div>
+          <div className="settings-field__label">{t("settings.general.codeReviewScope")}</div>
+          <div className="set-seg set-seg--compact set-seg--wrap">
+            {(["all", "session", "git"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                className={`set-seg__btn${scope === value ? " set-seg__btn--on" : ""}`}
+                disabled={busy}
+                onClick={() => {
+                  saveCodeReviewDefaultScope(value);
+                  persist({ defaultScope: value, securityByDefault: securityDefault });
+                }}
+              >
+                {t(
+                  value === "all"
+                    ? "changes.filterAll"
+                    : value === "session"
+                      ? "changes.filterSession"
+                      : "changes.filterGit",
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="settings-block__check">
+          <input
+            type="checkbox"
+            checked={securityDefault}
+            disabled={busy}
+            onChange={(event) => {
+              saveCodeReviewSecurityByDefault(event.target.checked);
+              persist({ defaultScope: scope, securityByDefault: event.target.checked });
+            }}
+          />
+          <span>{t("settings.general.codeReviewSecurityDefault")}</span>
+        </label>
+      </div>
+    </SettingsBlock>
+  );
+}
+
+function DeepSeekServiceUrlField({
+  providers,
+  busy,
+  apply,
+}: {
+  providers: ProviderView[];
+  busy: boolean;
+  apply: SectionProps["apply"];
+}) {
+  const t = useT();
+  const targets = deepseekProviders(providers);
+  const currentBase = targets[0]?.baseUrl ?? DEEPSEEK_OFFICIAL_BASE;
+  const [value, setValue] = useState(currentBase === DEEPSEEK_OFFICIAL_BASE ? "" : currentBase);
+
+  useEffect(() => {
+    const next = targets[0]?.baseUrl ?? DEEPSEEK_OFFICIAL_BASE;
+    setValue(next === DEEPSEEK_OFFICIAL_BASE ? "" : next);
+  }, [targets[0]?.baseUrl]);
+
+  const savedDisplay =
+    (targets[0]?.baseUrl ?? DEEPSEEK_OFFICIAL_BASE) === DEEPSEEK_OFFICIAL_BASE
+      ? ""
+      : (targets[0]?.baseUrl ?? "");
+  const dirty = value !== savedDisplay;
+
+  const save = () => {
+    const next = value.trim() || DEEPSEEK_OFFICIAL_BASE;
+    void apply(async () => {
+      for (const provider of targets) {
+        await app.SaveProvider({ ...provider, baseUrl: next });
+      }
+    });
+  };
+
+  return (
+    <div className="settings-block__inline-save">
+      <input
+        className="mem-input settings-block__input"
+        value={value}
+        disabled={busy || !targets.length}
+        placeholder={t("settings.models.baseUrlPlaceholder")}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && dirty) save();
+        }}
+      />
+      <SettingsSaveChip disabled={busy || !targets.length || !dirty} ready={dirty} onClick={save}>
+        {t("common.save")}
+      </SettingsSaveChip>
+    </div>
+  );
+}
+
+const GITHUB_CLI_INSTALL_URL = "https://cli.github.com";
+
+function GitHubCliStatusRow({
+  label,
+  status,
+  detail,
+  action,
+}: {
+  label: string;
+  status: "pending" | "ok" | "warn" | "idle";
+  detail: string;
+  action?: ReactNode;
+}) {
+  const t = useT();
+  return (
+    <div className="settings-gh-status__row">
+      <span className="settings-gh-status__label">{label}</span>
+      <span className="settings-gh-status__detail">{detail}</span>
+      <span
+        className={`settings-block__status${status === "warn" ? " settings-block__status--warn" : ""}${status === "pending" || status === "idle" ? " settings-block__status--muted" : ""}`}
+      >
+        {status === "pending"
+          ? "…"
+          : status === "ok"
+            ? t("settings.git.ghStatusOk")
+            : status === "warn"
+              ? t("settings.git.ghStatusFail")
+              : "—"}
+      </span>
+      {action ? <span className="settings-gh-status__action">{action}</span> : null}
+    </div>
+  );
+}
+
+function GitHubCliSettingsBlock({
+  gitDraft,
+  busy,
+  onChange,
+  setupRequest,
+  onSetupHandled,
+}: {
+  gitDraft: DesktopGitView;
+  busy: boolean;
+  onChange: (next: DesktopGitView) => void;
+  setupRequest: (GitHubCliSettingsNavDetail & { id: number }) | null;
+  onSetupHandled: () => void;
+}) {
+  const t = useT();
+  const [probe, setProbe] = useState<GitHubCliProbe | null>(null);
+  const [probing, setProbing] = useState(false);
+
+  const runProbe = useCallback(async () => {
+    setProbing(true);
+    try {
+      const result = await probeGitHubCli((command) => app.RunShellQuiet(command));
+      setProbe(result);
+    } finally {
+      setProbing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!gitDraft.checkGitHubCli) {
+      setProbe(null);
+      return;
+    }
+    void runProbe();
+  }, [gitDraft.checkGitHubCli, runProbe]);
+
+  useEffect(() => {
+    if (!setupRequest) return;
+    let cancelled = false;
+    void (async () => {
+      if (setupRequest.enableCheck && !gitDraft.checkGitHubCli) {
+        onChange({ ...gitDraft, checkGitHubCli: true });
+      }
+      if (setupRequest.runCheck !== false) {
+        await runProbe();
+      }
+      if (!cancelled) onSetupHandled();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [setupRequest?.id]);
+
+  const copyAuthCommand = () => {
+    void navigator.clipboard?.writeText("gh auth login");
+  };
+
+  return (
+    <SettingsBlock title={t("settings.git.githubCliTitle")} compact>
+      <div className="settings-block__form settings-gh-block" id="settings-github-cli">
+        <label className="set-check">
+          <input
+            type="checkbox"
+            checked={gitDraft.checkGitHubCli}
+            disabled={busy}
+            onChange={(event) => onChange({ ...gitDraft, checkGitHubCli: event.target.checked })}
+          />
+          {t("settings.git.checkGitHubCli")}
+        </label>
+        {gitDraft.checkGitHubCli ? (
+          <>
+            <label className="set-check">
+              <input
+                type="checkbox"
+                checked={gitDraft.syncRepoMergeToGitHub}
+                disabled={busy}
+                onChange={(event) => onChange({ ...gitDraft, syncRepoMergeToGitHub: event.target.checked })}
+              />
+              {t("settings.git.syncRepoMergeToGitHub")}
+            </label>
+            <div className="settings-gh-status" aria-live="polite">
+              <GitHubCliStatusRow
+                label={t("settings.git.ghStatusInstall")}
+                status={probing ? "pending" : !probe ? "idle" : probe.ghInstalled ? "ok" : "warn"}
+                detail={
+                  probe?.ghVersion ??
+                  (probe && !probe.ghInstalled ? t("settings.git.ghNotInstalled") : t("settings.git.ghStatusUnknown"))
+                }
+                action={
+                  probe && !probe.ghInstalled ? (
+                    <button type="button" className="settings-gh-status__link" onClick={() => openExternal(GITHUB_CLI_INSTALL_URL)}>
+                      {t("settings.git.ghInstallLink")}
+                    </button>
+                  ) : null
+                }
+              />
+              <GitHubCliStatusRow
+                label={t("settings.git.ghStatusAuth")}
+                status={
+                  probing ? "pending" : !probe || !probe.ghInstalled ? "idle" : probe.ghAuthenticated ? "ok" : "warn"
+                }
+                detail={
+                  probe?.ghAuthenticated
+                    ? t("settings.git.ghLoggedIn")
+                    : probe && probe.ghInstalled
+                      ? t("settings.git.ghNotLoggedIn")
+                      : t("settings.git.ghStatusUnknown")
+                }
+                action={
+                  probe && probe.ghInstalled && !probe.ghAuthenticated ? (
+                    <button type="button" className="settings-gh-status__link" onClick={copyAuthCommand}>
+                      {t("settings.git.ghCopyAuthCommand")}
+                    </button>
+                  ) : null
+                }
+              />
+              <GitHubCliStatusRow
+                label={t("settings.git.ghStatusPR")}
+                status={
+                  probing
+                    ? "pending"
+                    : !probe || !probe.ghAuthenticated
+                      ? "idle"
+                      : probe.canMerge
+                        ? "ok"
+                        : "warn"
+                }
+                detail={
+                  probe?.canMerge && probe.prNumber != null
+                    ? t("settings.git.ghPROpen", { number: String(probe.prNumber), title: probe.prTitle ?? "" })
+                    : probe && probe.ghAuthenticated
+                      ? (() => {
+                          const key = probeReasonKey(probe.reason);
+                          return key ? t(key) : t("settings.git.ghPRReady");
+                        })()
+                      : t("settings.git.ghStatusUnknown")
+                }
+                action={
+                  probe?.prUrl ? (
+                    <button type="button" className="settings-gh-status__link" onClick={() => openExternal(probe.prUrl!)}>
+                      {t("settings.git.ghOpenPR")}
+                    </button>
+                  ) : null
+                }
+              />
+            </div>
+            <div className="settings-block__footer settings-gh-block__footer">
+              <SettingsActionButton primary={false} disabled={busy || probing} onClick={() => void runProbe()}>
+                {probing ? t("settings.git.ghProbing") : t("settings.git.ghRunCheck")}
+              </SettingsActionButton>
+            </div>
+          </>
+        ) : null}
+      </div>
+    </SettingsBlock>
+  );
+}
+
+function WorkspaceSection({
+  s,
+  busy,
+  apply,
+  ghCliSetupRequest,
+  onGhCliSetupHandled,
+}: SectionProps & {
+  ghCliSetupRequest: (GitHubCliSettingsNavDetail & { id: number }) | null;
+  onGhCliSetupHandled: () => void;
+}) {
+  const t = useT();
+  const saved = normalizeDesktopGit(s.desktopGit);
+  const [gitDraft, setGitDraft] = useState<DesktopGitView>(saved);
+  const [commitInstructions, setCommitInstructions] = useState(saved.commitInstructions);
+  const [prInstructions, setPrInstructions] = useState(saved.prInstructions);
+  const [mergeSyncNote, setMergeSyncNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    const next = normalizeDesktopGit(s.desktopGit);
+    setGitDraft(next);
+    setCommitInstructions(next.commitInstructions);
+    setPrInstructions(next.prInstructions);
+  }, [
+    s.desktopGit?.prMergeMethod,
+    s.desktopGit?.commitInstructions,
+    s.desktopGit?.prInstructions,
+    s.desktopGit?.checkGitHubCli,
+    s.desktopGit?.syncRepoMergeToGitHub,
+  ]);
+
+  const persistGit = (next: DesktopGitView) => {
+    const normalized = normalizeDesktopGit(next);
+    setGitDraft(normalized);
+    setCommitInstructions(normalized.commitInstructions);
+    setPrInstructions(normalized.prInstructions);
+    syncDesktopGitSettings(normalized);
+    void apply(() => app.SetDesktopGitSettings(normalized));
+  };
+
+  const commitDirty = commitInstructions.trim() !== saved.commitInstructions;
+  const prDirty = prInstructions.trim() !== saved.prInstructions;
+
+  const saveCommitInstructions = () => {
+    persistGit({ ...gitDraft, commitInstructions: commitInstructions.trim() });
+  };
+
+  const savePRInstructions = () => {
+    persistGit({ ...gitDraft, prInstructions: prInstructions.trim() });
+  };
+
+  const setMergeMethod = (method: GitPRMergeMethod) => {
+    if (method === gitDraft.prMergeMethod) return;
+    persistGit({ ...gitDraft, prMergeMethod: method });
+    if (!gitDraft.syncRepoMergeToGitHub) return;
+    setMergeSyncNote(null);
+    void syncGitHubRepoMergeMethod(method, (command) => app.RunShellQuiet(command)).then((result) => {
+      setMergeSyncNote(
+        result.ok ? t("settings.git.repoSyncOk", { repo: result.message }) : t("settings.git.repoSyncFailed"),
+      );
+    });
+  };
+
+  return (
+    <>
+      <GitHubCliSettingsBlock
+        gitDraft={gitDraft}
+        busy={busy}
+        onChange={(next) => persistGit(next)}
+        setupRequest={ghCliSetupRequest}
+        onSetupHandled={onGhCliSetupHandled}
+      />
+
+      <SettingsBlock title={t("settings.git.prMergeTitle")} hint={t("settings.git.prMergeHint")}>
+        <div className="set-seg set-seg--compact">
+          {GIT_PR_MERGE_METHODS.map((method) => (
             <button
-              key={mode}
-              className={`set-seg__btn${draft.proxyMode === mode ? " set-seg__btn--on" : ""}`}
+              key={method}
+              type="button"
+              className={`set-seg__btn${gitDraft.prMergeMethod === method ? " set-seg__btn--on" : ""}`}
               disabled={busy}
-              onClick={() => setDraft({ ...draft, proxyMode: mode })}
+              onClick={() => setMergeMethod(method)}
             >
-              {proxyModeLabel(mode, t)}
+              {t(
+                method === "merge"
+                  ? "settings.git.mergeMethod.merge"
+                  : method === "squash"
+                    ? "settings.git.mergeMethod.squash"
+                    : "settings.git.mergeMethod.rebase",
+              )}
             </button>
           ))}
         </div>
-      </div>
+        {mergeSyncNote && <p className="settings-block__note">{mergeSyncNote}</p>}
+      </SettingsBlock>
 
-      {draft.proxyMode === "custom" && (
-        <>
+      <SettingsBlock title={t("settings.git.commitInstructionsTitle")} hint={t("settings.git.commitInstructionsHint")}>
+        <div className="settings-instructions-editor">
+          <textarea
+            className="settings-block__textarea mem-input"
+            value={commitInstructions}
+            disabled={busy}
+            rows={4}
+            placeholder={t("settings.git.commitInstructionsPlaceholder")}
+            onChange={(event) => setCommitInstructions(event.target.value)}
+          />
+          <div className="settings-instructions-editor__bar">
+            <SettingsSaveChip disabled={busy || !commitDirty} ready={commitDirty} onClick={saveCommitInstructions}>
+              {t("common.save")}
+            </SettingsSaveChip>
+          </div>
+        </div>
+      </SettingsBlock>
+
+      <SettingsBlock title={t("settings.git.prInstructionsTitle")} hint={t("settings.git.prInstructionsHint")}>
+        <div className="settings-instructions-editor">
+          <textarea
+            className="settings-block__textarea mem-input"
+            value={prInstructions}
+            disabled={busy}
+            rows={4}
+            placeholder={t("settings.git.prInstructionsPlaceholder")}
+            onChange={(event) => setPrInstructions(event.target.value)}
+          />
+          <div className="settings-instructions-editor__bar">
+            <SettingsSaveChip disabled={busy || !prDirty} ready={prDirty} onClick={savePRInstructions}>
+              {t("common.save")}
+            </SettingsSaveChip>
+          </div>
+        </div>
+      </SettingsBlock>
+    </>
+  );
+}
+
+function providerNames(providers: ProviderView[]): { value: string; label: string }[] {
+  return [{ value: "", label: "—" }, ...providers.map((p) => ({ value: p.name, label: p.name }))];
+}
+
+const ARCDESK_COMPACT_DEFAULTS = {
+  softCompactRatio: 0.5,
+  compactRatio: 0.8,
+  compactForceRatio: 0.9,
+} as const;
+
+const TEMPERATURE_OPTIONS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.2, 1.5, 2];
+const MAX_STEPS_OPTIONS = [0, 5, 10, 15, 20, 30, 50, 100, 150, 200];
+const SOFT_COMPACT_OPTIONS = [0.45, 0.5, 0.55, 0.6];
+const COMPACT_OPTIONS = [0.75, 0.8, 0.85, 0.9];
+const FORCE_COMPACT_OPTIONS = [0.85, 0.9, 0.95];
+
+function ensureNumericOption(options: number[], value: number): number[] {
+  if (options.includes(value)) return options;
+  return [...options, value].sort((a, b) => a - b);
+}
+
+function SettingsNumericSelect({
+  value,
+  onChange,
+  options,
+  disabled,
+  className,
+  formatLabel,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  options: number[];
+  disabled?: boolean;
+  className?: string;
+  formatLabel: (value: number) => string;
+}) {
+  const merged = ensureNumericOption(options, value);
+  return (
+    <StudioSelect
+      className={className ?? "set-grow"}
+      value={String(value)}
+      disabled={disabled}
+      onChange={(next) => onChange(Number(next))}
+      options={merged.map((option) => ({ value: String(option), label: formatLabel(option) }))}
+    />
+  );
+}
+
+function agentDraftFromSettings(s: SettingsView): AgentSettingsInput {
+  const a = s.agent;
+  const prompt = a.usesDefaultPrompt || !a.systemPrompt.trim() ? "" : a.systemPrompt;
+  return {
+    temperature: a.temperature,
+    maxSteps: a.maxSteps,
+    systemPrompt: prompt,
+    systemPromptFile: a.systemPromptFile,
+    outputStyle: a.outputStyle,
+    autoPlan: a.autoPlan,
+    autoPlanClassifier: a.autoPlanClassifier,
+    softCompactRatio: a.softCompactRatio,
+    compactRatio: a.compactRatio,
+    compactForceRatio: a.compactForceRatio,
+    subagentModel: a.subagentModel,
+    subagentModels: { ...a.subagentModels },
+  };
+}
+
+function agentDraftEquals(a: AgentSettingsInput, b: AgentSettingsInput): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function outputStyleLabel(name: string, t: ReturnType<typeof useT>): string {
+  const key = `settings.agent.outputStyle.${name.replace(/-/g, "_")}` as const;
+  const translated = t(key as "settings.agent.outputStyle.explanatory");
+  return translated !== key ? translated : name;
+}
+
+function outputStyleDescription(name: string, styles: OutputStyleView[], t: ReturnType<typeof useT>): string {
+  const key = `settings.agent.outputStyleDesc.${name.replace(/-/g, "_")}` as const;
+  const translated = t(key as "settings.agent.outputStyleDesc.explanatory");
+  if (translated !== key) return translated;
+  return styles.find((st) => st.name === name)?.description ?? "";
+}
+
+function subagentSkillLabel(name: string, t: ReturnType<typeof useT>): string {
+  const key = `settings.agent.skill.${name.replace(/-/g, "_")}` as const;
+  const translated = t(key as "settings.agent.skill.explore");
+  return translated !== key ? translated : name;
+}
+
+function normalizeAgentPromptForSave(draft: AgentSettingsInput, defaultPrompt: string): string {
+  const trimmed = draft.systemPrompt.trim();
+  const defaultTrimmed = defaultPrompt.trim();
+  if (!trimmed || trimmed === defaultTrimmed) return "";
+  return draft.systemPrompt;
+}
+
+function AgentSection({
+  s,
+  busy,
+  apply,
+  onNavigateTab,
+}: SectionProps & { onNavigateTab: (tab: SettingsTab) => void }) {
+  const t = useT();
+  const saved = agentDraftFromSettings(s);
+  const [draft, setDraft] = useState<AgentSettingsInput>(saved);
+  const [outputStyles, setOutputStyles] = useState<OutputStyleView[]>([]);
+  const [subagentSkills, setSubagentSkills] = useState<string[]>([]);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  useEffect(() => {
+    setDraft(agentDraftFromSettings(s));
+  }, [s]);
+
+  useEffect(() => {
+    void app.ListOutputStyles().then(setOutputStyles).catch(() => setOutputStyles([]));
+    void app
+      .Capabilities()
+      .then((view) => {
+        const names = view.skills.filter((sk) => sk.runAs === "subagent").map((sk) => sk.name);
+        setSubagentSkills(Array.from(new Set(names)).sort());
+      })
+      .catch(() => setSubagentSkills([]));
+  }, []);
+
+  const defaultPrompt = s.agent.defaultSystemPrompt;
+  const dirty = !agentDraftEquals(
+    { ...draft, systemPrompt: normalizeAgentPromptForSave(draft, defaultPrompt) },
+    { ...saved, systemPrompt: normalizeAgentPromptForSave(saved, defaultPrompt) },
+  );
+  const providerOpts = providerNames(s.providers);
+  const plannerLabel = s.plannerModel ? toRef(s.plannerModel, s) : t("common.none");
+  const promptDisplay = draft.systemPrompt.trim() ? draft.systemPrompt : defaultPrompt;
+  const promptDirty =
+    normalizeAgentPromptForSave(draft, defaultPrompt) !== normalizeAgentPromptForSave(saved, defaultPrompt);
+
+  const patchDraft = (patch: Partial<AgentSettingsInput>) => {
+    setDraft((current) => ({ ...current, ...patch }));
+  };
+
+  const patchSubagentModel = (skill: string, model: string) => {
+    setDraft((current) => {
+      const next = { ...current.subagentModels };
+      if (!model) delete next[skill];
+      else next[skill] = model;
+      return { ...current, subagentModels: next };
+    });
+  };
+
+  const save = () => {
+    const payload: AgentSettingsInput = {
+      ...draft,
+      systemPrompt: normalizeAgentPromptForSave(draft, defaultPrompt),
+    };
+    void apply(() => app.SetAgentSettings(payload));
+  };
+
+  const resetPrompt = () => patchDraft({ systemPrompt: "" });
+
+  const resetCompactDefaults = () => {
+    patchDraft({ ...ARCDESK_COMPACT_DEFAULTS });
+  };
+
+  const formatRatioLabel = (ratio: number) => `${Math.round(ratio * 100)}%`;
+
+  const formatMaxStepsLabel = (steps: number) =>
+    steps === 0 ? t("settings.agent.maxStepsUnlimited") : t("settings.agent.maxStepsValue", { n: String(steps) });
+
+  const formatTemperatureLabel = (temp: number) => String(temp);
+
+  const compactDefaultsDirty =
+    draft.softCompactRatio !== ARCDESK_COMPACT_DEFAULTS.softCompactRatio ||
+    draft.compactRatio !== ARCDESK_COMPACT_DEFAULTS.compactRatio ||
+    draft.compactForceRatio !== ARCDESK_COMPACT_DEFAULTS.compactForceRatio;
+
+  return (
+    <>
+      <SettingsBlock title={t("settings.agent.inferenceTitle")} hint={t("settings.agent.inferenceHint")}>
+        <div className="settings-block__form">
           <div className="set-row">
-            <label className="set-label">{t("settings.proxyType")}</label>
-            <div className="set-seg">
-              {PROXY_TYPES.map((typ) => (
+            <label className="set-label">{t("settings.agent.temperature")}</label>
+            <SettingsNumericSelect
+              value={draft.temperature}
+              disabled={busy}
+              options={TEMPERATURE_OPTIONS}
+              formatLabel={formatTemperatureLabel}
+              onChange={(value) => patchDraft({ temperature: value })}
+            />
+          </div>
+          <div className="set-row">
+            <label className="set-label">{t("settings.agent.maxSteps")}</label>
+            <SettingsNumericSelect
+              value={draft.maxSteps}
+              disabled={busy}
+              options={MAX_STEPS_OPTIONS}
+              formatLabel={formatMaxStepsLabel}
+              onChange={(value) => patchDraft({ maxSteps: value })}
+            />
+          </div>
+        </div>
+      </SettingsBlock>
+
+      <SettingsBlock title={t("settings.agent.promptTitle")} hint={t("settings.agent.systemPromptHint")}>
+        <div className="settings-instructions-editor">
+          <textarea
+            id="agent-prompt"
+            className="settings-block__textarea mem-input"
+            rows={10}
+            value={promptDisplay}
+            disabled={busy}
+            onChange={(e) => patchDraft({ systemPrompt: e.target.value })}
+          />
+          <div className="settings-instructions-editor__bar">
+            <button type="button" className="settings-action-btn settings-action-btn--compact" disabled={busy || !promptDirty} onClick={resetPrompt}>
+              {t("settings.agent.resetPrompt")}
+            </button>
+          </div>
+        </div>
+        <div className="set-row settings-agent-style-row">
+          <label className="set-label" htmlFor="agent-style">
+            {t("settings.agent.outputStyle")}
+          </label>
+          <StudioSelect
+            className="set-grow"
+            id="agent-style"
+            value={draft.outputStyle}
+            disabled={busy}
+            onChange={(value) => patchDraft({ outputStyle: value })}
+            options={[
+              { value: "", label: t("settings.agent.outputStyleDefault") },
+              ...outputStyles.map((style) => ({
+                value: style.name,
+                label: style.builtin
+                  ? outputStyleLabel(style.name, t)
+                  : `${style.name}（${t("settings.agent.outputStyleCustom")}）`,
+              })),
+            ]}
+          />
+        </div>
+        {draft.outputStyle ? (
+          <p className="settings-block__note settings-block__note--inline">
+            {outputStyleDescription(draft.outputStyle, outputStyles, t)}
+          </p>
+        ) : null}
+      </SettingsBlock>
+
+      <SettingsBlock title={t("settings.agent.planningTitle")} hint={t("settings.agent.planningHint")}>
+        <div className="settings-block__form">
+          <div className="set-row">
+            <label className="set-label">{t("settings.autoPlan")}</label>
+            <div className="set-seg set-seg--compact">
+              {AUTO_PLAN_MODES.map((mode) => (
                 <button
-                  key={typ}
-                  className={`set-seg__btn${draft.proxy.type === typ ? " set-seg__btn--on" : ""}`}
+                  key={mode}
+                  type="button"
+                  className={`set-seg__btn${draft.autoPlan === mode ? " set-seg__btn--on" : ""}`}
                   disabled={busy}
-                  onClick={() => setProxy({ type: typ })}
+                  onClick={() => patchDraft({ autoPlan: mode })}
                 >
-                  {typ.toUpperCase()}
+                  {mode === "on" ? t("settings.autoPlan.on") : t("settings.autoPlan.off")}
                 </button>
               ))}
             </div>
           </div>
           <div className="set-row">
-            <label className="set-label">{t("settings.proxyServer")}</label>
-            <input
-              className="mem-input set-grow"
-              placeholder={t("settings.proxyServerPlaceholder")}
-              value={draft.proxy.server}
-              disabled={busy || !!draft.proxyUrl.trim()}
-              onChange={(e) => setProxy({ server: e.target.value })}
-            />
-            <label className="set-label">{t("settings.proxyPort")}</label>
-            <input
-              className="mem-input set-narrow"
-              placeholder={t("settings.proxyPortPlaceholder")}
-              value={draft.proxy.port ? String(draft.proxy.port) : ""}
-              disabled={busy || !!draft.proxyUrl.trim()}
-              inputMode="numeric"
-              onChange={(e) => setProxy({ port: Number(e.target.value) || 0 })}
-            />
-          </div>
-          <div className="set-row">
-            <label className="set-label">{t("settings.proxyUsername")}</label>
-            <input
-              className="mem-input set-grow"
-              value={draft.proxy.username}
-              disabled={busy || !!draft.proxyUrl.trim()}
-              onChange={(e) => setProxy({ username: e.target.value })}
-            />
-            <label className="set-label">{t("settings.proxyPassword")}</label>
-            <input
-              className="mem-input set-grow"
-              type="password"
-              value={draft.proxy.password}
-              disabled={busy || !!draft.proxyUrl.trim()}
-              onChange={(e) => setProxy({ password: e.target.value })}
-            />
-          </div>
-          <div className="set-field">
-            <div className="set-row">
-              <label className="set-label">{t("settings.proxyUrl")}</label>
-              <input
-                className="mem-input set-grow"
-                placeholder={t("settings.proxyUrlPlaceholder")}
-                value={draft.proxyUrl}
-                disabled={busy}
-                onChange={(e) => setDraft({ ...draft, proxyUrl: e.target.value })}
-              />
+            <label className="set-label">{t("settings.plannerModel")}</label>
+            <div className="settings-agent-linked-value">
+              <span className="settings-agent-linked-value__text">{plannerLabel}</span>
+              <button type="button" className="settings-action-btn settings-action-btn--compact" onClick={() => onNavigateTab("models")}>
+                {t("settings.agent.openModels")}
+              </button>
             </div>
-            <div className="mem-hint set-hint">{t("settings.proxyUrlHint")}</div>
           </div>
-          <div className="set-row">
-            <label className="set-label">{t("settings.noProxy")}</label>
-            <input
-              className="mem-input set-grow"
-              placeholder={t("settings.noProxyPlaceholder")}
-              value={draft.noProxy}
-              disabled={busy}
-              onChange={(e) => setDraft({ ...draft, noProxy: e.target.value })}
+          <div className="set-row set-row--stack">
+            <label className="set-label">{t("settings.agent.autoPlanClassifier")}</label>
+            <StudioSelect
+              className="set-grow"
+              value={draft.autoPlanClassifier}
+              disabled={busy || draft.autoPlan === "off"}
+              onChange={(value) => patchDraft({ autoPlanClassifier: value })}
+              options={providerOpts}
             />
+            <p className="settings-block__note settings-block__note--inline">{t("settings.agent.autoPlanClassifierHint")}</p>
           </div>
-        </>
-      )}
-
-      <div className="prov-card__actions">
-        <button
-          className="btn btn--primary btn--small"
-          disabled={busy || !dirty}
-          onClick={() => void apply(() => app.SetNetwork(draft))}
-        >
-          {t("settings.saveNetwork")}
-        </button>
-      </div>
-    </section>
-  );
-}
-
-function ModelsSection({ s, busy, apply, onManageProviders }: SectionProps & { onManageProviders: () => void }) {
-  const t = useT();
-  const refs = allRefs(s);
-  const defaultRef = toRef(s.defaultModel, s);
-  const plannerRef = toRef(s.plannerModel, s);
-  const [defaultProvider, defaultModel] = defaultRef.split("/");
-  const plannerModeDetail = plannerRef
-    ? t("settings.plannerDualDetail", { planner: plannerRef, executor: defaultRef || t("common.none") })
-    : t("settings.plannerSingleDetail", { model: defaultRef || t("common.none") });
-
-  return (
-    <section className="mem-section">
-      <div className="mem-section__head">
-        <div className="mem-section__title">{t("settings.tab.models")}</div>
-        <button className="btn btn--small" onClick={onManageProviders}>
-          {t("settings.manageProviders")}
-        </button>
-      </div>
-
-      <div className="set-row">
-        <label className="set-label">{t("settings.defaultModel")}</label>
-        <select
-          className="mem-select set-grow"
-          value={toRef(s.defaultModel, s)}
-          disabled={busy}
-          onChange={(e) => void apply(() => app.SetDefaultModel(e.target.value))}
-        >
-          {refs.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="set-row">
-        <label className="set-label">{t("settings.plannerModel")}</label>
-        <select
-          className="mem-select set-grow"
-          value={toRef(s.plannerModel, s)}
-          disabled={busy}
-          onChange={(e) => void apply(() => app.SetPlannerModel(e.target.value))}
-        >
-          <option value="">{t("settings.plannerNone")}</option>
-          {refs.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="settings-model-card">
-        <div>
-          <span>{t("settings.activeProvider")}</span>
-          <strong>{defaultProvider || t("common.none")}</strong>
-          <small>{defaultModel || defaultRef || t("common.none")}</small>
-        </div>
-        <div>
-          <span>{t("settings.plannerStatus")}</span>
-          <strong>{plannerRef ? t("settings.plannerDual") : t("settings.plannerSingle")}</strong>
-          <small>{plannerModeDetail}</small>
-        </div>
-      </div>
-
-      <div className="settings-summary-grid">
-        <div className="settings-summary">
-          <span>{t("settings.providers")}</span>
-          <strong>{s.providers.length}</strong>
-        </div>
-        <div className="settings-summary">
-          <span>{t("settings.availableModels")}</span>
-          <strong>{refs.length}</strong>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function proxyModeLabel(mode: ProxyMode, t: ReturnType<typeof useT>): string {
-  switch (mode) {
-    case "auto":
-      return t("settings.proxyMode.auto");
-    case "custom":
-      return t("settings.proxyMode.custom");
-    case "off":
-      return t("settings.proxyMode.off");
-  }
-}
-
-function ProvidersSection({ s, busy, apply }: SectionProps) {
-  const t = useT();
-  // The provider backing the default model — can't be deleted (would dangle the
-  // default). default_model may be a provider name or a "provider/model" ref.
-  const defaultProvider = toRef(s.defaultModel, s).split("/")[0];
-  const [editing, setEditing] = useState<string | null>(null); // provider name, or "__new__"
-
-  return (
-    <section className="mem-section">
-      <div className="mem-section__head">
-        <div className="mem-section__title">{t("settings.tab.providers")}</div>
-        {editing !== "__new__" && (
-          <button className="btn btn--small" disabled={busy} onClick={() => setEditing("__new__")}>
-            {t("settings.addProvider")}
+          <p className="settings-block__note settings-block__note--inline">{t("settings.agent.permissionsNote")}</p>
+          <button type="button" className="settings-action-btn settings-action-btn--compact" onClick={() => onNavigateTab("permissions")}>
+            {t("settings.agent.openPermissions")}
           </button>
-        )}
-      </div>
+        </div>
+      </SettingsBlock>
 
-      <div className="provider-list">
-        {s.providers.map((p) =>
-          editing === p.name ? (
-            <ProviderEditor
-              key={p.name}
-              initial={p}
-              kinds={s.providerKinds}
-              busy={busy}
-              onCancel={() => setEditing(null)}
-              onSave={(pv) => apply(() => app.SaveProvider(pv)).then(() => setEditing(null))}
+      <SettingsBlock title={t("settings.agent.subagentTitle")}>
+        <div className="settings-block__form">
+          <div className="set-row">
+            <label className="set-label">{t("settings.agent.subagentDefault")}</label>
+            <StudioSelect
+              className="set-grow"
+              value={draft.subagentModel}
+              disabled={busy || providerOpts.length <= 1}
+              onChange={(value) => patchDraft({ subagentModel: value })}
+              options={providerOpts}
             />
-          ) : (
-            <div className="prov-card" key={p.name}>
-              <div className="prov-card__head">
-                <span className="prov-card__name">{p.name}</span>
-                <span className={`badge ${p.keySet ? "badge--project" : "badge--feedback"}`}>
-                  {p.keySet ? t("settings.keySet") : t("settings.noKey")}
-                </span>
-                <span className="prov-card__spacer" />
-                <button className="btn btn--small" disabled={busy} onClick={() => setEditing(p.name)}>
-                  {t("common.edit")}
-                </button>
-                {defaultProvider === p.name ? (
-                  <Tooltip label={t("settings.cantDeleteDefault")}>
-                    <button className="btn btn--small" disabled>
-                      {t("common.delete")}
-                    </button>
-                  </Tooltip>
-                ) : (
-                  <InlineConfirmButton
-                    label={t("common.delete")}
-                    confirmLabel={t("settings.confirmDeleteProvider")}
-                    cancelLabel={t("common.cancel")}
-                    disabled={busy}
-                    danger
-                    onConfirm={() => apply(() => app.DeleteProvider(p.name))}
+          </div>
+          {subagentSkills.length > 0 ? (
+            <div className="settings-agent-subagent-list">
+              {subagentSkills.map((skill) => (
+                <div key={skill} className="set-row settings-agent-subagent-list__row">
+                  <label className="set-label">{subagentSkillLabel(skill, t)}</label>
+                  <StudioSelect
+                    className="set-grow"
+                    value={draft.subagentModels[skill] ?? ""}
+                    disabled={busy || providerOpts.length <= 1}
+                    onChange={(value) => patchSubagentModel(skill, value)}
+                    options={providerOpts}
                   />
-                )}
-              </div>
-              <div className="prov-card__meta">
-                <span>{p.kind}</span>
-                <span>{p.baseUrl}</span>
-                <span>{p.models.join(", ")}</span>
-              </div>
-              <KeyField apiKeyEnv={p.apiKeyEnv} busy={busy} onSet={(v) => apply(() => app.SetProviderKey(p.apiKeyEnv, v))} />
+                </div>
+              ))}
             </div>
-          ),
-        )}
-      </div>
+          ) : (
+            <p className="settings-block__note">{t("settings.agent.subagentEmpty")}</p>
+          )}
+        </div>
+      </SettingsBlock>
 
-      {editing === "__new__" && (
-        <ProviderEditor
-          kinds={s.providerKinds}
-          busy={busy}
-          onCancel={() => setEditing(null)}
-          onSave={(pv) => apply(() => app.SaveProvider(pv)).then(() => setEditing(null))}
-        />
-      )}
-    </section>
-  );
-}
-
-function ProviderEditor({
-  initial,
-  kinds,
-  busy,
-  onCancel,
-  onSave,
-}: {
-  initial?: ProviderView;
-  kinds: string[];
-  busy: boolean;
-  onCancel: () => void;
-  onSave: (p: ProviderView) => void;
-}) {
-  const t = useT();
-  const [name, setName] = useState(initial?.name ?? "");
-  const [kind, setKind] = useState(initial?.kind ?? kinds[0] ?? "openai");
-  const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? "");
-  const [models, setModels] = useState((initial?.models ?? []).join(", "));
-  const [apiKeyEnv, setApiKeyEnv] = useState(initial?.apiKeyEnv ?? "");
-  const [balanceUrl, setBalanceUrl] = useState(initial?.balanceUrl ?? "");
-  // Empty when unset so the placeholder (and its "0 = default" hint) reads instead
-  // of a bare "0"; saved back as 0.
-  const [ctx, setCtx] = useState(initial?.contextWindow ? String(initial.contextWindow) : "");
-  const [supportedEfforts, setSupportedEfforts] = useState<string[]>(initial?.supportedEfforts ?? []);
-  const [customEffortDraft, setCustomEffortDraft] = useState("");
-  const [defaultEffort, setDefaultEffort] = useState(initial?.defaultEffort ?? "");
-
-  // Offer the kinds the kernel actually registered; if the stored kind is a
-  // legacy/unknown one, keep it as an option so editing doesn't silently change it.
-  const kindOptions = kind && !kinds.includes(kind) ? [kind, ...kinds] : kinds;
-
-  // Split supportedEfforts into the 5 canonical presets (for checkbox UI) and
-  // any user-added custom names (rendered as removable chips). The preset order
-  // is fixed; custom names keep insertion order.
-  const presetEfforts = supportedEfforts.filter((e) => EFFORT_PRESETS.includes(e));
-  const customEfforts = supportedEfforts.filter((e) => !EFFORT_PRESETS.includes(e));
-
-  const togglePreset = (level: string) => {
-    const has = presetEfforts.includes(level);
-    const nextPresets = has ? presetEfforts.filter((e) => e !== level) : [...presetEfforts, level];
-    setSupportedEfforts([...nextPresets, ...customEfforts]);
-    // If the removed preset was the default, fall back to "auto" (empty string).
-    if (has && defaultEffort === level) setDefaultEffort("");
-  };
-
-  const addCustomEffort = () => {
-    const v = customEffortDraft.trim().toLowerCase();
-    if (!v || supportedEfforts.includes(v)) {
-      setCustomEffortDraft("");
-      return;
-    }
-    setSupportedEfforts([...presetEfforts, ...customEfforts, v]);
-    setCustomEffortDraft("");
-  };
-
-  const removeCustomEffort = (level: string) => {
-    setSupportedEfforts(supportedEfforts.filter((e) => e !== level));
-    if (defaultEffort === level) setDefaultEffort("");
-  };
-
-  const save = () => {
-    const ms = models
-      .split(",")
-      .map((m) => m.trim())
-      .filter(Boolean);
-    onSave({
-      name: name.trim(),
-      kind: kind.trim() || kinds[0] || "openai",
-      baseUrl: baseUrl.trim(),
-      models: ms,
-      default: ms[0] ?? "",
-      apiKeyEnv: apiKeyEnv.trim(),
-      keySet: initial?.keySet ?? false,
-      balanceUrl: balanceUrl.trim(),
-      contextWindow: Number(ctx) || 0,
-      supportedEfforts,
-      // Clear the stored default if no levels are selected; the backend's
-      // NormalizeEffort would otherwise silently ignore an unsupported value.
-      defaultEffort: supportedEfforts.length > 0 ? defaultEffort : "",
-    });
-  };
-
-  return (
-    <div className="prov-card prov-card--edit">
-      <input className="mem-input" placeholder={t("settings.providerName")} value={name} onChange={(e) => setName(e.target.value)} disabled={!!initial} />
-      <label className="set-label">{t("settings.providerKind")}</label>
-      <select className="mem-select" value={kind} onChange={(e) => setKind(e.target.value)}>
-        {kindOptions.map((k) => (
-          <option key={k} value={k}>
-            {k}
-          </option>
-        ))}
-      </select>
-      <input className="mem-input" placeholder={t("settings.providerBaseUrl")} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
-      <input className="mem-input" placeholder={t("settings.providerModels")} value={models} onChange={(e) => setModels(e.target.value)} />
-      <input className="mem-input" placeholder={t("settings.providerApiKeyEnv")} value={apiKeyEnv} onChange={(e) => setApiKeyEnv(e.target.value)} />
-      <label className="set-label">{t("settings.providerBalanceUrl")}</label>
-      <input className="mem-input" placeholder={t("settings.balanceUrlPlaceholder")} value={balanceUrl} onChange={(e) => setBalanceUrl(e.target.value)} />
-      <div className="mem-hint">{t("settings.balanceUrlHint")}</div>
-      <label className="set-label">{t("settings.providerContextWindow")}</label>
-      <input className="mem-input" placeholder={t("settings.contextWindowPlaceholder")} value={ctx} onChange={(e) => setCtx(e.target.value)} inputMode="numeric" />
-      <div className="mem-hint">{t("settings.contextWindowHint")}</div>
-      <label className="set-label">{t("settings.supportedEfforts")}</label>
-      {EFFORT_PRESETS.map((level) => (
-        <label key={level} className="set-check">
-          <input
-            type="checkbox"
-            checked={presetEfforts.includes(level)}
-            onChange={() => togglePreset(level)}
-          />
-          {level}
-        </label>
-      ))}
-      <div className="set-row">
-        <input
-          className="mem-input set-grow"
-          placeholder={t("settings.supportedEffortsCustomPlaceholder")}
-          value={customEffortDraft}
-          onChange={(e) => setCustomEffortDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              addCustomEffort();
-            }
-          }}
-        />
+      <SettingsBlock title={t("settings.agent.advancedTitle")} hint={t("settings.agent.advancedHint")}>
         <button
           type="button"
-          className="btn btn--small"
-          disabled={
-            !customEffortDraft.trim() || supportedEfforts.includes(customEffortDraft.trim().toLowerCase())
-          }
-          onClick={addCustomEffort}
+          className={`settings-agent-advanced-toggle${advancedOpen ? " settings-agent-advanced-toggle--open" : ""}`}
+          aria-expanded={advancedOpen}
+          onClick={() => setAdvancedOpen((open) => !open)}
         >
-          {t("common.add")}
+          <ChevronDown size={13} aria-hidden="true" />
+          <span>{advancedOpen ? t("settings.agent.advancedHide") : t("settings.agent.advancedShow")}</span>
         </button>
+        {advancedOpen ? (
+          <div className="settings-block__form settings-agent-advanced-body">
+            <div className="set-row set-row--stack">
+              <label className="set-label">{t("settings.agent.systemPromptFile")}</label>
+              <input
+                id="agent-prompt-file"
+                className="mem-input settings-block__input"
+                value={draft.systemPromptFile}
+                disabled={busy}
+                placeholder={t("settings.agent.systemPromptFilePlaceholder")}
+                onChange={(e) => patchDraft({ systemPromptFile: e.target.value })}
+              />
+              <p className="settings-block__note settings-block__note--inline">{t("settings.agent.systemPromptFileHint")}</p>
+            </div>
+            <div className="set-row">
+              <label className="set-label">{t("settings.agent.softCompactRatio")}</label>
+              <SettingsNumericSelect
+                value={draft.softCompactRatio}
+                disabled={busy}
+                options={SOFT_COMPACT_OPTIONS}
+                formatLabel={formatRatioLabel}
+                onChange={(value) => patchDraft({ softCompactRatio: value })}
+              />
+            </div>
+            <div className="set-row">
+              <label className="set-label">{t("settings.agent.compactRatio")}</label>
+              <SettingsNumericSelect
+                value={draft.compactRatio}
+                disabled={busy}
+                options={COMPACT_OPTIONS}
+                formatLabel={formatRatioLabel}
+                onChange={(value) => patchDraft({ compactRatio: value })}
+              />
+            </div>
+            <div className="set-row">
+              <label className="set-label">{t("settings.agent.compactForceRatio")}</label>
+              <SettingsNumericSelect
+                value={draft.compactForceRatio}
+                disabled={busy}
+                options={FORCE_COMPACT_OPTIONS}
+                formatLabel={formatRatioLabel}
+                onChange={(value) => patchDraft({ compactForceRatio: value })}
+              />
+            </div>
+            <p className="settings-block__note settings-block__note--inline">{t("settings.agent.compactHint")}</p>
+            <div className="settings-agent-prompt-actions">
+              <button
+                type="button"
+                className="settings-action-btn settings-action-btn--compact"
+                disabled={busy || !compactDefaultsDirty}
+                onClick={resetCompactDefaults}
+              >
+                {t("settings.agent.resetCompactDefaults")}
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </SettingsBlock>
+
+      <div className="settings-agent-save-row">
+        <SettingsSaveChip disabled={busy || !dirty} ready={dirty} onClick={save}>
+          {t("settings.agent.save")}
+        </SettingsSaveChip>
       </div>
-      {customEfforts.length > 0 && (
-        <div className="set-rules__chips">
-          {customEfforts.map((level) => (
-            <span className="set-rule" key={level}>
-              {level}
-              <Tooltip label={t("common.delete")}>
-                <button
-                  type="button"
-                  className="set-rule__x"
-                  disabled={busy}
-                  onClick={() => removeCustomEffort(level)}
-                >
-                  ×
-                </button>
-              </Tooltip>
-            </span>
-          ))}
+    </>
+  );
+}
+
+function ModelsServicesSection({ s, busy, apply }: SectionProps) {
+  const t = useT();
+  const deepseek = deepseekProviders(s.providers)[0] ?? s.providers[0];
+  const [fetchedModels, setFetchedModels] = useState<string[] | null>(null);
+  const [modelsExpanded, setModelsExpanded] = useState(false);
+  const [fetchCount, setFetchCount] = useState<number | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fetching, setFetching] = useState(false);
+  const modelsToggleRef = useRef<HTMLButtonElement>(null);
+  const modelsPanelRef = useRef<HTMLDivElement>(null);
+
+  useDismissOnOutsidePointerDown(modelsExpanded, () => setModelsExpanded(false), {
+    excludeRefs: [modelsToggleRef, modelsPanelRef],
+  });
+
+  const modelRefs =
+    fetchedModels && deepseek ? fetchedModels.map((model) => `${deepseek.name}/${model}`) : [];
+  const modelsReady = modelRefs.length > 0;
+  const selectPlaceholder = t("settings.models.selectAfterFetch");
+
+  const syncModels = () => {
+    if (!deepseek) return;
+    setFetching(true);
+    setFetchCount(null);
+    setFetchError(null);
+    void apply(async () => {
+      const result = await app.SyncProviderModels(deepseek.name);
+      setFetchedModels(result.models);
+      setFetchCount(result.models.length);
+    })
+      .catch((e) => {
+        setFetchError(String((e as Error)?.message ?? e));
+      })
+      .finally(() => {
+        setFetching(false);
+      });
+  };
+
+  const defaultRef = (() => {
+    if (!modelsReady) return "";
+    const ref = toRef(s.defaultModel, s);
+    return modelRefs.includes(ref) ? ref : modelRefs[0];
+  })();
+
+  const plannerRef = (() => {
+    if (!modelsReady) return "";
+    if (!s.plannerModel) return "";
+    const ref = toRef(s.plannerModel, s);
+    return modelRefs.includes(ref) ? ref : "";
+  })();
+
+  return (
+    <SettingsBlock title={t("settings.providers")}>
+      <div className="settings-block__form">
+        <div className="set-row set-row--stack">
+          <label className="set-label">{t("settings.models.baseUrlTitle")}</label>
+          <DeepSeekServiceUrlField providers={s.providers} busy={busy} apply={apply} />
+          <p className="settings-block__note settings-block__note--inline">{t("settings.models.baseUrlHint")}</p>
         </div>
-      )}
-      <div className="mem-hint">{t("settings.supportedEffortsHint")}</div>
-      <label className="set-label">{t("settings.defaultEffort")}</label>
-      {supportedEfforts.length > 0 ? (
-        <select
-          className="mem-select"
-          value={defaultEffort}
-          onChange={(e) => setDefaultEffort(e.target.value)}
-        >
-          <option value="">{t("settings.defaultEffortAuto")}</option>
-          {supportedEfforts.map((level) => (
-            <option key={level} value={level}>
-              {level}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <select className="mem-select" value="" disabled>
-          <option value="">{t("settings.defaultEffortAuto")}</option>
-        </select>
-      )}
-      <div className="mem-hint">{t("settings.defaultEffortHint")}</div>
-      <div className="prov-card__actions">
-        <button className="btn btn--small" onClick={onCancel} disabled={busy}>
-          {t("common.cancel")}
-        </button>
-        <button className="btn btn--primary btn--small" onClick={save} disabled={busy || !name.trim() || !baseUrl.trim()}>
-          {t("common.save")}
-        </button>
+
+        <div className="set-row set-row--stack">
+          <label className="set-label">{t("settings.models.apiTitle")}</label>
+          {deepseek?.keySet ? (
+            <span className="settings-block__status">{t("settings.general.keyConfigured")}</span>
+          ) : (
+            <span className="settings-block__status settings-block__status--warn">{t("settings.general.keyMissing")}</span>
+          )}
+          {deepseek ? (
+            <KeyField apiKeyEnv={deepseek.apiKeyEnv} busy={busy} onSet={(v) => apply(() => app.SetProviderKey(deepseek.apiKeyEnv, v))} />
+          ) : (
+            <p className="settings-block__note">{t("settings.models.apiMissingProvider")}</p>
+          )}
+          <p className="settings-block__note settings-block__note--inline">{t("settings.models.apiHint")}</p>
+        </div>
+
+        <div className="set-row set-row--stack">
+          <label className="set-label">{t("settings.models.fetchTitle")}</label>
+          <div className="settings-models-fetch-row">
+            <button
+              type="button"
+              ref={modelsToggleRef}
+              className={`settings-models-list-toggle${modelsExpanded ? " settings-models-list-toggle--open" : ""}`}
+              disabled={!fetchedModels?.length}
+              aria-expanded={modelsExpanded}
+              onClick={() => setModelsExpanded((open) => !open)}
+            >
+              <ChevronDown size={13} className="settings-models-list-toggle__caret" aria-hidden="true" />
+              <span>
+                {fetchedModels?.length
+                  ? t("settings.models.listToggle", { count: String(fetchedModels.length) })
+                  : t("settings.models.listToggleEmpty")}
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`settings-action-btn settings-models-fetch-btn${fetching ? " settings-models-fetch-btn--loading" : ""}`}
+              disabled={busy || fetching || !deepseek?.keySet}
+              onClick={syncModels}
+            >
+              {fetching ? (
+                <Loader2 size={14} className="dock-panel__spin" aria-hidden="true" />
+              ) : (
+                t("settings.models.fetchModels")
+              )}
+            </button>
+          </div>
+          {modelsExpanded && fetchedModels && fetchedModels.length > 0 ? (
+            <div ref={modelsPanelRef} className="settings-models-list-panel" role="list">
+              {fetchedModels.map((model) => (
+                <span key={model} className="settings-models-list-panel__item" role="listitem">
+                  {model}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {fetchCount !== null ? (
+            <p className="settings-block__note settings-block__note--inline settings-models-fetch-note--ok">
+              {t("settings.models.fetchOk", { count: String(fetchCount) })}
+            </p>
+          ) : null}
+          {fetchError ? <p className="settings-block__note settings-block__note--inline">{fetchError}</p> : null}
+        </div>
+
+        <div className="set-row">
+          <label className="set-label">{t("settings.defaultModel")}</label>
+          <StudioSelect
+            className="set-grow"
+            value={defaultRef}
+            disabled={busy || !modelsReady}
+            placeholder={selectPlaceholder}
+            onChange={(value) => void apply(() => app.SetDefaultModel(value))}
+            options={modelRefs.map((ref) => ({ value: ref, label: ref }))}
+          />
+        </div>
+
+        <div className="set-row">
+          <label className="set-label">{t("settings.plannerModel")}</label>
+          <StudioSelect
+            className="set-grow"
+            value={plannerRef}
+            disabled={busy || !modelsReady}
+            placeholder={selectPlaceholder}
+            onChange={(value) => void apply(() => app.SetPlannerModel(value))}
+            options={[
+              { value: "", label: t("settings.plannerNone") },
+              ...modelRefs.map((ref) => ({ value: ref, label: ref })),
+            ]}
+          />
+        </div>
       </div>
-    </div>
+    </SettingsBlock>
   );
 }
 
@@ -897,210 +1615,245 @@ function KeyField({ apiKeyEnv, busy, onSet }: { apiKeyEnv: string; busy: boolean
         value={val}
         onChange={(e) => setVal(e.target.value)}
       />
-      <button
-        className="btn btn--small"
+      <SettingsSaveChip
         disabled={busy || !val.trim()}
+        ready={!!val.trim()}
         onClick={() => {
           void onSet(val.trim());
           setVal("");
         }}
       >
         {t("settings.saveKey")}
-      </button>
+      </SettingsSaveChip>
     </div>
   );
 }
+
+const PERMISSION_RULE_LISTS = ["deny", "ask", "allow"] as const;
 
 function PermissionsSection({ s, busy, apply }: SectionProps) {
   const t = useT();
-  return (
-    <section className="mem-section">
-      <div className="mem-section__title">{t("settings.permissions")}</div>
-      <div className="set-row">
-        <label className="set-label">{t("settings.writerMode")}</label>
-        <select
-          className="mem-select set-grow"
-          value={s.permissions.mode}
-          disabled={busy}
-          onChange={(e) => void apply(() => app.SetPermissionMode(e.target.value))}
-        >
-          <option value="ask">{t("settings.modeAsk")}</option>
-          <option value="allow">{t("settings.modeAllow")}</option>
-          <option value="deny">{t("settings.modeDeny")}</option>
-        </select>
-      </div>
-      <div className="set-rules-grid">
-        {(["deny", "ask", "allow"] as const).map((list) => (
-          <RuleList
-            key={list}
-            list={list}
-            rules={s.permissions[list]}
-            busy={busy}
-            onAdd={(rule) => apply(() => app.AddPermissionRule(list, rule))}
-            onRemove={(rule) => apply(() => app.RemovePermissionRule(list, rule))}
-          />
-        ))}
-      </div>
-      <div className="mem-hint">{t("settings.ruleForm")}</div>
-    </section>
-  );
-}
-
-function RuleList({
-  list,
-  rules,
-  busy,
-  onAdd,
-  onRemove,
-}: {
-  list: string;
-  rules: string[];
-  busy: boolean;
-  onAdd: (rule: string) => Promise<void>;
-  onRemove: (rule: string) => Promise<void>;
-}) {
-  const t = useT();
-  const [draft, setDraft] = useState("");
-  const add = () => {
-    const r = draft.trim();
-    if (r) {
-      void onAdd(r);
-      setDraft("");
-    }
-  };
-  return (
-    <div className="set-rules">
-      <div className="set-rules__label">{list}</div>
-      <div className="set-rules__chips">
-        {rules.length === 0 && <span className="mem-empty">{t("common.none")}</span>}
-        {rules.map((r) => (
-          <span className="set-rule" key={r}>
-            {r}
-            <Tooltip label={t("common.delete")}>
-              <button className="set-rule__x" disabled={busy} onClick={() => void onRemove(r)}>
-                ✕
-              </button>
-            </Tooltip>
-          </span>
-        ))}
-      </div>
-      <div className="set-rules__add">
-        <input
-          className="mem-input"
-          placeholder={t("settings.addRule", { list })}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") add();
-          }}
-        />
-        <button className="btn btn--small" disabled={busy || !draft.trim()} onClick={add}>
-          {t("common.add")}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function SandboxSection({
-  s,
-  busy,
-  apply,
-  onConfigureProjectSandbox,
-}: SectionProps & { onConfigureProjectSandbox?: () => void }) {
-  const t = useT();
+  const perms = s.permissions;
   const sb = s.sandbox;
   const [root, setRoot] = useState(sb.workspaceRoot);
-  const [projectSandboxConfigured, setProjectSandboxConfigured] = useState<boolean | null>(null);
-  const set = (next: Partial<typeof sb>) =>
-    apply(() => app.SetSandbox(next.bash ?? sb.bash, next.network ?? sb.network, next.workspaceRoot ?? sb.workspaceRoot, next.allowWrite ?? sb.allowWrite));
+  const [previewHosts, setPreviewHosts] = useState<string[]>([]);
+  const [previewPorts, setPreviewPorts] = useState<number[]>([]);
+  const [previewStrict, setPreviewStrict] = useState(false);
+  const [savedPreview, setSavedPreview] = useState({ hosts: [] as string[], ports: [] as number[], strict: false });
+
+  useEffect(() => {
+    setRoot(sb.workspaceRoot);
+  }, [sb.workspaceRoot]);
 
   useEffect(() => {
     let cancelled = false;
-    void app.ProjectSandboxStatus().then((status) => {
-      if (!cancelled) setProjectSandboxConfigured(status.configured);
-    }).catch(() => {
-      if (!cancelled) setProjectSandboxConfigured(false);
-    });
+    void app
+      .ProjectSandboxStatus()
+      .then((status) => {
+        if (cancelled) return;
+        const hosts = status.previewHosts ?? [];
+        const ports = status.previewPorts ?? [];
+        const strict = status.previewStrict ?? false;
+        setPreviewHosts(hosts);
+        setPreviewPorts(ports);
+        setPreviewStrict(strict);
+        setSavedPreview({ hosts, ports, strict });
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, [s.configPath]);
 
+  const setSandbox = (next: Partial<typeof sb>) =>
+    apply(() =>
+      app.SetSandbox(
+        next.bash ?? sb.bash,
+        next.network ?? sb.network,
+        next.workspaceRoot ?? sb.workspaceRoot,
+        next.allowWrite ?? sb.allowWrite,
+      ),
+    );
+
+  const previewDirty =
+    previewStrict !== savedPreview.strict ||
+    previewHosts.join("\0") !== savedPreview.hosts.join("\0") ||
+    previewPorts.join(",") !== savedPreview.ports.join(",");
+
+  const savePreview = () => {
+    void apply(async () => {
+      await app.SaveProjectPreviewSettings({
+        previewHosts,
+        previewPorts,
+        previewStrict,
+      });
+      setSavedPreview({ hosts: [...previewHosts], ports: [...previewPorts], strict: previewStrict });
+    });
+  };
+
   return (
-    <section className="mem-section">
-      <div className="mem-section__title">{t("settings.sandboxTitle")}</div>
-      {onConfigureProjectSandbox && (
-        <div className="set-row set-row--stack">
-          <div>
-            <div className="set-label">{t("settings.projectSandboxTitle")}</div>
-            <p className="set-hint">{t("settings.projectSandboxHint")}</p>
-            {projectSandboxConfigured != null && (
-              <p className="set-hint">
-                {projectSandboxConfigured ? t("settings.projectSandboxConfigured") : t("settings.projectSandboxNotConfigured")}
-              </p>
-            )}
+    <>
+      <SettingsBlock title={t("settings.permissions.writerModeTitle")}>
+        <div className="settings-block__form">
+          <div className="set-row">
+            <label className="set-label">{t("settings.permissions.writerFallback")}</label>
+            <StudioSelect
+              className="set-grow"
+              value={perms.mode}
+              disabled={busy}
+              onChange={(value) => void apply(() => app.SetPermissionMode(value))}
+              options={[
+                { value: "ask", label: t("settings.modeAsk") },
+                { value: "allow", label: t("settings.modeAllow") },
+                { value: "deny", label: t("settings.modeDeny") },
+              ]}
+            />
           </div>
-          <button type="button" className="btn btn--small" disabled={busy} onClick={onConfigureProjectSandbox}>
-            {t("settings.projectSandboxConfigure")}
-          </button>
         </div>
-      )}
-      <div className="set-row">
-        <label className="set-label">{t("settings.bashSandbox")}</label>
-        <select className="mem-select set-grow" value={sb.bash} disabled={busy} onChange={(e) => void set({ bash: e.target.value })}>
-          <option value="enforce">{t("settings.bashEnforce")}</option>
-          <option value="off">{t("settings.bashOff")}</option>
-        </select>
-      </div>
-      <label className="set-check">
-        <input type="checkbox" checked={sb.network} disabled={busy} onChange={(e) => void set({ network: e.target.checked })} />
-        {t("settings.allowNetwork")}
-      </label>
-      <div className="set-row">
-        <label className="set-label">{t("settings.workspaceRoot")}</label>
-        <input
-          className="mem-input set-grow"
-          placeholder={t("settings.workspaceDefault")}
-          value={root}
-          disabled={busy}
-          onChange={(e) => setRoot(e.target.value)}
-          onBlur={() => root !== sb.workspaceRoot && void set({ workspaceRoot: root })}
-        />
-      </div>
-      <RuleList
-        list="allow_write"
-        rules={sb.allowWrite}
-        busy={busy}
-        onAdd={(d) => set({ allowWrite: [...sb.allowWrite, d] })}
-        onRemove={(d) => set({ allowWrite: sb.allowWrite.filter((x) => x !== d) })}
-      />
-    </section>
+      </SettingsBlock>
+
+      <SettingsBlock title={t("settings.permissions.rulesTitle")}>
+        <div className="settings-block__form">
+          {PERMISSION_RULE_LISTS.map((list) => (
+            <RuleList
+              key={list}
+              collapsible
+              list={list}
+              rules={perms[list]}
+              busy={busy}
+              title={t(`settings.permissions.list.${list}`)}
+              tone={list}
+              placeholder={t("settings.permissions.addRulePlaceholder")}
+              onAdd={(rule) => apply(() => app.AddPermissionRule(list, rule))}
+              onRemove={(rule) => apply(() => app.RemovePermissionRule(list, rule))}
+            />
+          ))}
+        </div>
+      </SettingsBlock>
+
+      <SettingsBlock title={t("settings.sandboxTitle")}>
+        <div className="settings-block__form">
+          <div className="set-row">
+            <label className="set-label">{t("settings.bashSandbox")}</label>
+            <StudioSelect
+              className="set-grow"
+              value={sb.bash}
+              disabled={busy}
+              onChange={(value) => void setSandbox({ bash: value })}
+              options={[
+                { value: "enforce", label: t("settings.bashEnforce") },
+                { value: "off", label: t("settings.bashOff") },
+              ]}
+            />
+          </div>
+          <label className="set-check">
+            <input type="checkbox" checked={sb.network} disabled={busy} onChange={(e) => void setSandbox({ network: e.target.checked })} />
+            {t("settings.allowNetwork")}
+          </label>
+          <div className="set-row">
+            <label className="set-label">{t("settings.workspaceRoot")}</label>
+            <input
+              className="mem-input set-grow"
+              placeholder={t("settings.workspaceDefault")}
+              value={root}
+              disabled={busy}
+              onChange={(e) => setRoot(e.target.value)}
+              onBlur={() => root !== sb.workspaceRoot && void setSandbox({ workspaceRoot: root })}
+            />
+          </div>
+          <RuleList
+            collapsible
+            list="allow_write"
+            rules={sb.allowWrite}
+            busy={busy}
+            title={t("settings.permissions.allowWrite")}
+            placeholder={t("settings.permissions.allowWritePlaceholder")}
+            onAdd={(dir) => setSandbox({ allowWrite: [...sb.allowWrite, dir] })}
+            onRemove={(dir) => setSandbox({ allowWrite: sb.allowWrite.filter((x) => x !== dir) })}
+          />
+        </div>
+      </SettingsBlock>
+
+      <SettingsBlock title={t("settings.permissions.previewTitle")}>
+        <div className="settings-block__form">
+          <ProjectPreviewSettings
+            busy={busy}
+            previewStrict={previewStrict}
+            onPreviewStrictChange={setPreviewStrict}
+            previewHosts={previewHosts}
+            onPreviewHostsChange={setPreviewHosts}
+            previewPorts={previewPorts}
+            onPreviewPortsChange={setPreviewPorts}
+          />
+          <div className="settings-permissions-preview-save">
+            <SettingsSaveChip disabled={busy || !previewDirty} ready={previewDirty} onClick={savePreview}>
+              {t("settings.permissions.savePreview")}
+            </SettingsSaveChip>
+          </div>
+        </div>
+      </SettingsBlock>
+    </>
   );
 }
 
 function AppearanceSection({
   theme,
+  themeStyle,
+  backgroundPreset,
+  foregroundPreset,
   textSize,
+  codeFontSize,
+  diffMarker,
   onTheme,
+  onThemeStyle,
+  onBackgroundPreset,
+  onForegroundPreset,
   onTextSize,
+  onCodeFontSize,
+  onDiffMarker,
 }: {
   theme: Theme;
+  themeStyle: ThemeStyle;
+  backgroundPreset: BackgroundPreset;
+  foregroundPreset: ForegroundPreset;
   textSize: TextSize;
+  codeFontSize: CodeFontSize;
+  diffMarker: DiffMarkerStyle;
   onTheme: (t: Theme) => void;
+  onThemeStyle: (style: ThemeStyle) => void;
+  onBackgroundPreset: (preset: BackgroundPreset) => void;
+  onForegroundPreset: (preset: ForegroundPreset) => void;
   onTextSize: (size: TextSize) => void;
+  onCodeFontSize: (size: CodeFontSize) => void;
+  onDiffMarker: (style: DiffMarkerStyle) => void;
 }) {
   const t = useT();
   const themeOptions: Theme[] = ["auto", "light", "dark"];
+  const accentOptions = stylesForTheme(theme);
+  const resolvedTheme = getResolvedTheme(theme);
+  const backgroundIds = backgroundPresetsForTheme(resolvedTheme);
+  const safeBackground = backgroundIds.includes(backgroundPreset) ? backgroundPreset : backgroundIds[0]!;
+  const foregroundIds = foregroundPresetsForBackground(safeBackground);
+  const safeForeground = foregroundIds.includes(foregroundPreset) ? foregroundPreset : foregroundIds[0]!;
+  const backgroundOptions = backgroundIds.map((id) => ({
+    value: id,
+    label: backgroundPresetName(id, t),
+    icon: colorSwatch(backgroundColorFor(id)),
+  }));
+  const foregroundOptions = foregroundIds.map((id) => ({
+    value: id,
+    label: foregroundPresetName(id, t),
+    icon: colorSwatch(foregroundColorFor(id)),
+  }));
+
   return (
-    <section className="mem-section">
-      <div className="mem-section__title">{t("settings.appearance")}</div>
-      <div className="set-row">
-        <label className="set-label">{t("settings.theme")}</label>
-        <div className="set-seg">
+    <>
+      <SettingsBlock title={t("settings.theme")}>
+        <div className="set-seg set-seg--compact">
           {themeOptions.map((opt) => (
             <button
               key={opt}
+              type="button"
               className={`set-seg__btn${theme === opt ? " set-seg__btn--on" : ""}`}
               onClick={() => onTheme(opt)}
             >
@@ -1108,13 +1861,43 @@ function AppearanceSection({
             </button>
           ))}
         </div>
-      </div>
-      <div className="set-row">
-        <label className="set-label">{t("settings.textSize")}</label>
-        <div className="set-seg">
+      </SettingsBlock>
+      <SettingsBlock title={t("settings.themeStyle")}>
+        <div className="settings-accent-grid">
+          {accentOptions.map((style) => (
+            <button
+              key={style}
+              type="button"
+              className={`settings-accent-swatch${themeStyle === style ? " settings-accent-swatch--on" : ""}`}
+              data-style={style}
+              onClick={() => onThemeStyle(style)}
+            >
+              <span className="settings-accent-swatch__dot" />
+              {themeStyleName(style, t)}
+            </button>
+          ))}
+        </div>
+      </SettingsBlock>
+      <SettingsBlock title={t("settings.backgroundColor")}>
+        <StudioSelect
+          value={safeBackground}
+          onChange={(value) => onBackgroundPreset(value as BackgroundPreset)}
+          options={backgroundOptions}
+        />
+      </SettingsBlock>
+      <SettingsBlock title={t("settings.foregroundColor")}>
+        <StudioSelect
+          value={safeForeground}
+          onChange={(value) => onForegroundPreset(value as ForegroundPreset)}
+          options={foregroundOptions}
+        />
+      </SettingsBlock>
+      <SettingsBlock title={t("settings.uiFontSize")}>
+        <div className="set-seg set-seg--compact">
           {TEXT_SIZES.map((size) => (
             <button
               key={size}
+              type="button"
               className={`set-seg__btn${textSize === size ? " set-seg__btn--on" : ""}`}
               onClick={() => onTextSize(size)}
             >
@@ -1122,9 +1905,82 @@ function AppearanceSection({
             </button>
           ))}
         </div>
-      </div>
-    </section>
+      </SettingsBlock>
+      <SettingsBlock title={t("settings.codeFontSize")}>
+        <div className="set-seg set-seg--compact">
+          {CODE_FONT_SIZES.map((size) => (
+            <button
+              key={size}
+              type="button"
+              className={`set-seg__btn${codeFontSize === size ? " set-seg__btn--on" : ""}`}
+              onClick={() => onCodeFontSize(size)}
+            >
+              {textSizeName(size, t)}
+            </button>
+          ))}
+        </div>
+      </SettingsBlock>
+      <SettingsBlock title={t("settings.diffMarker")}>
+        <p className="settings-block__card-lead">{t("settings.diffMarkerHint")}</p>
+        <div className="set-seg set-seg--compact">
+          {DIFF_MARKER_STYLES.map((style) => (
+            <button
+              key={style}
+              type="button"
+              className={`set-seg__btn${diffMarker === style ? " set-seg__btn--on" : ""}`}
+              onClick={() => onDiffMarker(style)}
+            >
+              {diffMarkerName(style, t)}
+            </button>
+          ))}
+        </div>
+      </SettingsBlock>
+    </>
   );
+}
+
+function colorSwatch(hex: string) {
+  return <span className="settings-color-swatch" style={{ background: hex }} aria-hidden />;
+}
+
+function backgroundPresetName(id: BackgroundPreset, t: ReturnType<typeof useT>): string {
+  return t(`settings.bg.${id}`);
+}
+
+function foregroundPresetName(id: ForegroundPreset, t: ReturnType<typeof useT>): string {
+  return t(`settings.fg.${id}`);
+}
+
+function diffMarkerName(style: DiffMarkerStyle, t: ReturnType<typeof useT>): string {
+  switch (style) {
+    case "background":
+      return t("settings.diffMarkerBackground");
+    case "signs":
+      return t("settings.diffMarkerSigns");
+  }
+}
+
+function themeStyleName(style: ThemeStyle, t: ReturnType<typeof useT>): string {
+  switch (style) {
+    case "graphite":
+      return t("settings.style.graphite");
+    case "ember":
+      return t("settings.style.ember");
+    case "aurora":
+      return t("settings.style.aurora");
+    case "midnight":
+      return t("settings.style.midnight");
+    case "cobalt":
+      return t("settings.style.cobalt");
+    case "sandstone":
+      return t("settings.style.sandstone");
+    case "porcelain":
+      return t("settings.style.porcelain");
+    case "linen":
+      return t("settings.style.linen");
+    case "glacier":
+      return t("settings.style.glacier");
+  }
 }
 
 function themeName(theme: Theme, t: ReturnType<typeof useT>): string {
@@ -1169,8 +2025,8 @@ function UpdatesSection({ configPath }: { configPath: string }) {
     status.kind === "checking" || status.kind === "downloading" || status.kind === "verifying" || status.kind === "applying";
 
   return (
-    <section className="mem-section">
-      <div className="mem-section__title">{t("updater.title")}</div>
+    <SettingsBlock title={t("updater.title")}>
+      <div className="settings-block__form">
       <div className="set-row">
         <label className="set-label">{t("updater.currentVersion", { v: version || "…" })}</label>
         <span className="prov-card__spacer" />
@@ -1209,6 +2065,7 @@ function UpdatesSection({ configPath }: { configPath: string }) {
           {t("settings.config", { path: configPath })}
         </Tooltip>
       )}
-    </section>
+      </div>
+    </SettingsBlock>
   );
 }

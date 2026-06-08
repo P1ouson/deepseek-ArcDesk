@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/control"
+	"arcdesk/internal/control"
 )
 
 func testTab(id, root string) *WorkspaceTab {
@@ -77,7 +77,7 @@ model = "deepseek-v4-flash"
 api_key_env = "PROJECT_API_KEY"
 effort = "max"
 `
-	if err := os.WriteFile(filepath.Join(projectRoot, "reasonix.toml"), []byte(configBody), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(projectRoot, "arcdesk.toml"), []byte(configBody), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -153,7 +153,7 @@ func TestSaveTabsDoesNotPersistYoloMode(t *testing.T) {
 
 func userConfigPathForTest() string {
 	if dir, err := os.UserConfigDir(); err == nil {
-		return dir + "/reasonix/reasonix.toml"
+		return dir + "/arcdesk/ARCDESK.toml"
 	}
 	return ""
 }

@@ -1,7 +1,7 @@
-// Command reasonix-desktop is the Wails shell around the Reasonix kernel: a native
+// Command ARCDESK-desktop is the Wails shell around the ARCDESK kernel: a native
 // window hosting a webview frontend, with the Go-side control.Controller bound
 // directly to the UI (no HTTP hop — bindings in, runtime events out). It lives in
-// a nested module (reasonix/desktop) so the CGO/WebKit desktop build never touches
+// a nested module (arcdesk/desktop) so the CGO/WebKit desktop build never touches
 // the CLI's CGO_ENABLED=0 single-static-binary guarantee, while still importing
 // the same internal/* kernel.
 package main
@@ -17,10 +17,10 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 
 	// Blank imports wire compile-time built-ins into their registries, exactly as
-	// cmd/reasonix does — boot.Build resolves providers/tools from these registries.
-	_ "reasonix/internal/provider/anthropic"
-	_ "reasonix/internal/provider/openai"
-	_ "reasonix/internal/tool/builtin"
+	// cmd/ARCDESK does — boot.Build resolves providers/tools from these registries.
+	_ "arcdesk/internal/provider/anthropic"
+	_ "arcdesk/internal/provider/openai"
+	_ "arcdesk/internal/tool/builtin"
 )
 
 // assets embeds the built frontend. `all:` so dotfiles (e.g. the dist .gitkeep
@@ -31,7 +31,7 @@ import (
 var assets embed.FS
 
 // version is injected at build time via `wails build -ldflags "-X main.version=..."`,
-// mirroring cmd/reasonix/main.go. The auto-updater reads it (App.Version) to compare
+// mirroring cmd/arcdesk/main.go. The auto-updater reads it (App.Version) to compare
 // against the published manifest; an un-injected dev build stays "dev" and never
 // prompts to update.
 var version = "dev"
@@ -51,7 +51,7 @@ func main() {
 	}
 
 	err := wails.Run(&options.App{
-		Title:     "Reasonix",
+		Title:     "arcdesk",
 		Width:     width,
 		Height:    height,
 		MinWidth:  760,
@@ -94,7 +94,7 @@ func main() {
 			Theme: windows.SystemDefault,
 		},
 		Linux: &linux.Options{
-			ProgramName: "Reasonix",
+			ProgramName: "arcdesk",
 			// WebKitGTK GPU compositing is inconsistent across distros/drivers and
 			// is the one real cross-platform rough edge for a Go+webview stack:
 			// "always" can yield blank or flickering webviews on some setups, so

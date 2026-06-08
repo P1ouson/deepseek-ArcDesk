@@ -21,12 +21,15 @@ function base64ToBytes(data: string): Uint8Array {
   return out;
 }
 
+let mockTerminalSeq = 0;
+
 export async function startTerminal(): Promise<TerminalStartResult> {
   const bindings = realApp();
   if (bindings?.StartTerminal) {
     return bindings.StartTerminal();
   }
-  return { id: "mock-term-1", shell: "mock-shell", err: "" };
+  mockTerminalSeq += 1;
+  return { id: `mock-term-${mockTerminalSeq}`, shell: "mock-shell", err: "" };
 }
 
 export function writeTerminal(sessionId: string, data: string): void {

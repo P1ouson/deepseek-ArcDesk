@@ -3,7 +3,7 @@ package event
 import (
 	"sync"
 
-	"reasonix/internal/nilutil"
+	"arcdesk/internal/nilutil"
 )
 
 // Sync wraps a Sink so concurrent Emit calls are serialized. The base Sink

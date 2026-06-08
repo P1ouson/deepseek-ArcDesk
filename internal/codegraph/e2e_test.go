@@ -9,31 +9,31 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/plugin"
-	"reasonix/internal/tool"
+	"arcdesk/internal/plugin"
+	"arcdesk/internal/tool"
 )
 
 // TestE2ECodegraphMCP drives the whole integration against a real CodeGraph
 // bundle: index a fixture project, connect via the MCP client pinned to that
 // project (Spec.Dir), and actually call codegraph_search. It is gated on
-// REASONIX_CODEGRAPH_E2E so the normal `go test ./...` skips it (no network, no
+// ARCDESK_CODEGRAPH_E2E so the normal `go test ./...` skips it (no network, no
 // external binary), yet it still compiles every build so it can't bit-rot.
 //
 // Run it with `make e2e-codegraph` (fetches the matching bundle), or manually:
 //
-//	REASONIX_CODEGRAPH_E2E=1 REASONIX_CODEGRAPH_BIN=/path/to/codegraph \
+//	ARCDESK_CODEGRAPH_E2E=1 ARCDESK_CODEGRAPH_BIN=/path/to/codegraph \
 //	  go test ./internal/codegraph/ -run E2E -v -count=1
 //
-// With REASONIX_CODEGRAPH_BIN unset it falls back to Resolve("") (bundle / PATH).
+// With ARCDESK_CODEGRAPH_BIN unset it falls back to Resolve("") (bundle / PATH).
 func TestE2ECodegraphMCP(t *testing.T) {
-	if os.Getenv("REASONIX_CODEGRAPH_E2E") == "" {
-		t.Skip("set REASONIX_CODEGRAPH_E2E=1 to run the CodeGraph MCP end-to-end test")
+	if os.Getenv("arcdesk_CODEGRAPH_E2E") == "" {
+		t.Skip("set ARCDESK_CODEGRAPH_E2E=1 to run the CodeGraph MCP end-to-end test")
 	}
-	bin := os.Getenv("REASONIX_CODEGRAPH_BIN")
+	bin := os.Getenv("arcdesk_CODEGRAPH_BIN")
 	if bin == "" {
 		var ok bool
 		if bin, ok = Resolve(""); !ok {
-			t.Fatal("REASONIX_CODEGRAPH_E2E is set but no codegraph binary found — set REASONIX_CODEGRAPH_BIN to the launcher path")
+			t.Fatal("arcdesk_CODEGRAPH_E2E is set but no codegraph binary found — set ARCDESK_CODEGRAPH_BIN to the launcher path")
 		}
 	}
 	t.Logf("codegraph binary: %s", bin)

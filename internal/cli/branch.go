@@ -6,8 +6,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/control"
+	"arcdesk/internal/agent"
+	"arcdesk/internal/control"
 )
 
 func (m *chatTUI) showBranchTree() {

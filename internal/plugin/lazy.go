@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/tool"
+	"arcdesk/internal/tool"
 )
 
 // DefaultStartupBudget is the per-plugin latency budget used by boot when

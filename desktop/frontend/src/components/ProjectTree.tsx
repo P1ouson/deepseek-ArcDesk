@@ -712,7 +712,7 @@ export function ProjectTree({
             aria-expanded={hasChildren ? isExpanded : undefined}
           >
             {hasChildren ? (
-              isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />
+              <ChevronRight size={12} className={`project-tree__chevron${isExpanded ? " project-tree__chevron--open" : ""}`} />
             ) : (
               <span style={{ width: 12 }} />
             )}

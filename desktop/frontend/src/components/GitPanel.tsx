@@ -15,11 +15,16 @@ import {
   X,
 } from "lucide-react";
 import { app } from "../lib/bridge";
+import { isGitHubCliCheckEnabled } from "../lib/desktopGitPrefs";
+import { openGitHubCliSettings } from "../lib/gitHubCliSettingsNav";
+import { GitHubCliSetupModal, type GitHubCliSetupReason } from "./GitHubCliSetupModal";
 import { useT } from "../lib/i18n";
 import { shellQuote } from "../lib/shellQuote";
 import { useDismissOnClickOutside } from "../lib/useDismissOnClickOutside";
 import { useWorkspaceChanges } from "../lib/useWorkspaceChanges";
 import type { WorkspaceChangeView } from "../lib/types";
+import { buildCommitMessagePrompt, buildPRPrompt, ghPRMergeCommand } from "../lib/gitPrompts";
+import { probeGitHubCli, probeReasonKey, type GitHubCliProbe } from "../lib/gitHubCli";
 import { addWorkspaceFileContentToChat } from "../lib/workspaceAddToChat";
 import { basename, shortCwd } from "../lib/workspaceFilePreview";
 import { formatWorkspaceReference } from "../lib/workspaceDrag";
@@ -62,6 +67,12 @@ function gitStatusTone(status: string): GitStatusTone {
   return "mod";
 }
 
+function formatGitRowsForPrompt(rows: WorkspaceChangeView[], max = 12): string {
+  const list = rows.slice(0, max).map((row) => `- ${row.path}${row.gitStatus ? ` (${row.gitStatus})` : ""}`).join("\n");
+  const more = rows.length > max ? `\n… +${rows.length - max} more` : "";
+  return `${list}${more}`;
+}
+
 function summarizeOutput(text: string, max = 96): string {
   const line = text.trim().split("\n").find((part) => part.trim()) ?? "";
   if (line.length <= max) return line;
@@ -78,13 +89,41 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
   const [gitBusy, setGitBusy] = useState(false);
   const [lastStatus, setLastStatus] = useState<GitCommandStatus | null>(null);
   const [rowMenu, setRowMenu] = useState<{ x: number; y: number; row: WorkspaceChangeView } | null>(null);
+  const [ghProbe, setGhProbe] = useState<GitHubCliProbe | null>(null);
+  const [ghProbing, setGhProbing] = useState(false);
+  const [ghSetupModal, setGhSetupModal] = useState<{ reason: GitHubCliSetupReason } | null>(null);
 
   const gitAvailable = Boolean(changes?.gitAvailable);
 
   useEffect(() => {
     setQuery("");
     setLastStatus(null);
+    setGhProbe(null);
   }, [cwd]);
+
+  const refreshGhProbe = useCallback(async () => {
+    if (!gitAvailable) {
+      setGhProbe(null);
+      return;
+    }
+    setGhProbing(true);
+    try {
+      const probe = await probeGitHubCli((command) => app.RunShellQuiet(command));
+      setGhProbe(probe);
+    } finally {
+      setGhProbing(false);
+    }
+  }, [gitAvailable]);
+
+  useEffect(() => {
+    void refreshGhProbe();
+  }, [refreshGhProbe, refreshKey]);
+
+  useEffect(() => {
+    const onGitPrefs = () => void refreshGhProbe();
+    window.addEventListener("arcdesk:desktop-git-settings", onGitPrefs);
+    return () => window.removeEventListener("arcdesk:desktop-git-settings", onGitPrefs);
+  }, [refreshGhProbe]);
 
   useDismissOnClickOutside(Boolean(rowMenu), () => setRowMenu(null));
 
@@ -143,10 +182,40 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
 
   const suggestCommitMessage = () => {
     if (gitRows.length === 0) return;
-    const list = gitRows.slice(0, 12).map((row) => `- ${row.path}${row.gitStatus ? ` (${row.gitStatus})` : ""}`).join("\n");
-    const more = gitRows.length > 12 ? `\n… +${gitRows.length - 12} more` : "";
-    onAddToChat?.(t("git.suggestCommitPrompt", { files: `${list}${more}` }));
+    onAddToChat?.(buildCommitMessagePrompt(formatGitRowsForPrompt(gitRows), t));
   };
+
+  const suggestPullRequest = () => {
+    if (gitRows.length === 0) return;
+    onAddToChat?.(buildPRPrompt(formatGitRowsForPrompt(gitRows), t));
+  };
+
+  const mergePullRequest = () => {
+    if (ghProbe?.canMerge) {
+      void runGit(ghPRMergeCommand()).then((result) => {
+        if (!result?.err) void refreshGhProbe();
+      });
+      return;
+    }
+    const reason: GitHubCliSetupReason =
+      !isGitHubCliCheckEnabled() ? "setup_required" : (ghProbe?.reason ?? "no_pr");
+    setGhSetupModal({ reason });
+  };
+
+  const mergeTooltip = useMemo(() => {
+    if (ghProbing) return t("git.ghProbing");
+    if (ghProbe?.canMerge && ghProbe.prNumber != null) {
+      return t("git.ghPrReady", {
+        number: String(ghProbe.prNumber),
+        title: ghProbe.prTitle ?? "",
+      });
+    }
+    const key = probeReasonKey(ghProbe?.reason ?? null);
+    if (key) return t(key);
+    return t("git.mergePR");
+  }, [ghProbe, ghProbing, t]);
+
+  const ghBannerKey = useMemo(() => probeReasonKey(ghProbe?.reason ?? null), [ghProbe?.reason]);
 
   const openRowMenu = (event: ReactMouseEvent<HTMLElement>, row: WorkspaceChangeView) => {
     event.preventDefault();
@@ -191,6 +260,10 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
         <p className="dock-panel__banner dock-panel__banner--warn">{t("workspace.gitUnavailable")}</p>
       )}
 
+      {gitAvailable && ghBannerKey && (
+        <p className="dock-panel__banner dock-panel__banner--warn">{t(ghBannerKey)}</p>
+      )}
+
       {gitAvailable && (
         <section className="git-panel__workflow" aria-label={t("rightDock.tab.git")}>
           <div className="git-panel__remote">
@@ -203,6 +276,18 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
               <ArrowUpFromLine size={14} strokeWidth={1.75} />
               {t("git.push")}
             </button>
+            <span className="git-panel__remote-sep" aria-hidden="true" />
+            <Tooltip label={mergeTooltip}>
+              <button
+                type="button"
+                className="git-panel__remote-btn"
+                onClick={mergePullRequest}
+                disabled={gitBusy || ghProbing}
+              >
+                <GitCommitHorizontal size={14} strokeWidth={1.75} />
+                {t("git.mergePR")}
+              </button>
+            </Tooltip>
           </div>
 
           <div className="git-panel__commit">
@@ -237,6 +322,15 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
                 >
                   <Sparkles size={12} strokeWidth={1.75} />
                   {t("git.suggestCommit")}
+                </button>
+                <button
+                  type="button"
+                  className="git-panel__text-btn"
+                  onClick={suggestPullRequest}
+                  disabled={gitBusy || gitRows.length === 0}
+                >
+                  <Sparkles size={12} strokeWidth={1.75} />
+                  {t("git.suggestPR")}
                 </button>
               </div>
               <button
@@ -330,7 +424,7 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
       </section>
 
       {rowMenu && gitAvailable && (
-        <FloatingMenu x={rowMenu.x} y={rowMenu.y} estimatedHeight={ROW_MENU_HEIGHT} className="workspace-tree-menu">
+        <FloatingMenu x={rowMenu.x} y={rowMenu.y} estimatedHeight={ROW_MENU_HEIGHT} className="workspace-tree-menu" onClose={() => setRowMenu(null)}>
           <FloatingMenuItems
             items={[
               {
@@ -361,6 +455,15 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
             ]}
           />
         </FloatingMenu>
+      )}
+
+      {ghSetupModal && (
+        <GitHubCliSetupModal
+          reason={ghSetupModal.reason}
+          checkEnabled={isGitHubCliCheckEnabled()}
+          onClose={() => setGhSetupModal(null)}
+          onOpenSettings={() => openGitHubCliSettings({ runCheck: true, enableCheck: true })}
+        />
       )}
     </div>
   );

@@ -10,8 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
+	"arcdesk/internal/event"
+	"arcdesk/internal/provider"
 )
 
 // Compaction is a low-frequency cache-reset point: the prompt grows append-only

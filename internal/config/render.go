@@ -16,7 +16,7 @@ const (
 	RenderScopeProject RenderScope = "project"
 )
 
-// RenderTOML renders the config as annotated TOML in the `reasonix setup` house style:
+// RenderTOML renders the config as annotated TOML in the `ARCDESK setup` house style:
 // comments preserved, system_prompt as a multi-line string, helpful hints. The
 // output round-trips back through Load (see render_test.go).
 func RenderTOML(c *Config) string {
@@ -25,7 +25,7 @@ func RenderTOML(c *Config) string {
 
 // RenderTOMLForScope renders an annotated TOML file for a specific persistence
 // target. User configs can carry desktop and account-level preferences; project
-// reasonix.toml stays focused on project behavior and intentionally excludes
+// ARCDESK.toml stays focused on project behavior and intentionally excludes
 // desktop-only preferences.
 func RenderTOMLForScope(c *Config, scope RenderScope) string {
 	if c == nil {
@@ -39,26 +39,26 @@ func RenderTOMLForScope(c *Config, scope RenderScope) string {
 	defaults := Default()
 	var b strings.Builder
 
-	b.WriteString("# Reasonix configuration.\n")
-	b.WriteString("# Resolution order: flag > ./reasonix.toml > ~/.config/reasonix/config.toml > built-in defaults.\n")
+	b.WriteString("# ARCDESK configuration.\n")
+	b.WriteString("# Resolution order: flag > ./ARCDESK.toml > ~/.config/arcdesk/config.toml > built-in defaults.\n")
 	b.WriteString("# Secrets come from the environment via api_key_env; never put keys here.\n\n")
 
 	fmt.Fprintf(&b, "config_version = %d   # schema marker for diagnostics; old versions may ignore it\n", configVersion(c))
 	fmt.Fprintf(&b, "default_model = %q\n", c.DefaultModel)
 	if c.Language != "" {
-		fmt.Fprintf(&b, "language      = %q   # ui/model language; empty = auto-detect from $LANG / $REASONIX_LANG\n", c.Language)
+		fmt.Fprintf(&b, "language      = %q   # ui/model language; empty = auto-detect from $LANG / $ARCDESK_LANG\n", c.Language)
 	} else {
-		b.WriteString("# language      = \"zh\"   # ui/model language; empty = auto-detect from $LANG / $REASONIX_LANG\n")
+		b.WriteString("# language      = \"zh\"   # ui/model language; empty = auto-detect from $LANG / $ARCDESK_LANG\n")
 	}
 	b.WriteString("\n")
 
 	if shouldRenderUI(c, defaults, scope) {
 		b.WriteString("[ui]\n")
-		fmt.Fprintf(&b, "theme = %q   # auto|dark|light; CLI colors only; REASONIX_THEME can override per run\n", c.UITheme())
+		fmt.Fprintf(&b, "theme = %q   # auto|dark|light; CLI colors only; ARCDESK_THEME can override per run\n", c.UITheme())
 		if style := c.UIThemeStyle(); style != "" {
-			fmt.Fprintf(&b, "theme_style = %q   # CLI accent palette; REASONIX_THEME_STYLE can override per run\n", style)
+			fmt.Fprintf(&b, "theme_style = %q   # CLI accent palette; ARCDESK_THEME_STYLE can override per run\n", style)
 		} else {
-			b.WriteString("# theme_style = \"graphite\"   # graphite|ember|aurora|midnight|sandstone|porcelain|linen|glacier\n")
+			b.WriteString("# theme_style = \"glacier\"   # graphite|ember|aurora|midnight|cobalt|sandstone|porcelain|linen|glacier\n")
 		}
 		if strings.TrimSpace(c.UI.CloseBehavior) != "" && scope == RenderScopeProject {
 			fmt.Fprintf(&b, "close_behavior = %q   # legacy desktop close behavior; prefer [desktop].close_behavior in user config\n", c.DesktopCloseBehavior())
@@ -77,9 +77,60 @@ func RenderTOMLForScope(c *Config, scope RenderScope) string {
 		if style := c.DesktopThemeStyle(); style != "" {
 			fmt.Fprintf(&b, "theme_style = %q   # desktop accent palette\n", style)
 		} else {
-			b.WriteString("# theme_style = \"graphite\"   # graphite|ember|aurora|midnight|sandstone|porcelain|linen|glacier\n")
+			b.WriteString("# theme_style = \"glacier\"   # graphite|ember|aurora|midnight|cobalt|sandstone|porcelain|linen|glacier\n")
 		}
 		fmt.Fprintf(&b, "close_behavior = %q   # desktop: quit|background when the window close button is clicked\n", c.DesktopCloseBehavior())
+		if shell := c.DesktopTerminalShell(); shell != "" {
+			fmt.Fprintf(&b, "terminal_shell = %q   # integrated terminal: powershell|cmd|git-bash|wsl\n", shell)
+		} else {
+			b.WriteString("# terminal_shell = \"powershell\"   # integrated terminal: powershell|cmd|git-bash|wsl\n")
+		}
+		git := c.DesktopGitSettings()
+		b.WriteString("\n[desktop.git]\n")
+		fmt.Fprintf(&b, "pr_merge_method = %q   # merge|squash|rebase\n", git.PRMergeMethod)
+		fmt.Fprintf(&b, "check_github_cli = %t\n", git.CheckGitHubCli)
+		fmt.Fprintf(&b, "sync_repo_merge_to_github = %t\n", git.SyncRepoMergeToGitHub)
+		if git.CommitInstructions != "" {
+			fmt.Fprintf(&b, "commit_instructions = %q\n", git.CommitInstructions)
+		} else {
+			b.WriteString("# commit_instructions = \"\"   # extra guidance for commit-message generation\n")
+		}
+		if git.PRInstructions != "" {
+			fmt.Fprintf(&b, "pr_instructions = %q\n", git.PRInstructions)
+		} else {
+			b.WriteString("# pr_instructions = \"\"   # extra guidance for PR title/body generation\n")
+		}
+		appearance := c.DesktopAppearanceSettings()
+		b.WriteString("\n[desktop.appearance]\n")
+		if appearance.BackgroundPreset != "" {
+			fmt.Fprintf(&b, "background_preset = %q\n", appearance.BackgroundPreset)
+		} else {
+			b.WriteString("# background_preset = \"linen\"   # paper|white|fog|linen|charcoal|graphite|slate|midnight\n")
+		}
+		if appearance.ForegroundPreset != "" {
+			fmt.Fprintf(&b, "foreground_preset = %q\n", appearance.ForegroundPreset)
+		} else {
+			b.WriteString("# foreground_preset = \"charcoal\"   # ink|charcoal|slate|snow|silver|white\n")
+		}
+		if appearance.TextSize != "" {
+			fmt.Fprintf(&b, "text_size = %q\n", appearance.TextSize)
+		} else {
+			b.WriteString("# text_size = \"default\"   # small|default|large|xlarge\n")
+		}
+		if appearance.CodeFontSize != "" {
+			fmt.Fprintf(&b, "code_font_size = %q\n", appearance.CodeFontSize)
+		} else {
+			b.WriteString("# code_font_size = \"default\"   # small|default|large|xlarge\n")
+		}
+		if appearance.DiffMarker != "" {
+			fmt.Fprintf(&b, "diff_marker = %q\n", appearance.DiffMarker)
+		} else {
+			b.WriteString("# diff_marker = \"background\"   # background|signs\n")
+		}
+		codeReview := c.DesktopCodeReviewSettings()
+		b.WriteString("\n[desktop.code_review]\n")
+		fmt.Fprintf(&b, "default_scope = %q   # all|session|git\n", codeReview.DefaultScope)
+		fmt.Fprintf(&b, "security_by_default = %t\n", codeReview.SecurityByDefault)
 		b.WriteString("\n")
 	}
 
@@ -120,7 +171,7 @@ func RenderTOMLForScope(c *Config, scope RenderScope) string {
 		if c.Network.Proxy.Password != "" {
 			fmt.Fprintf(&b, "password = %q   # supports ${VAR} expansion\n", c.Network.Proxy.Password)
 		} else {
-			b.WriteString("# password = \"${REASONIX_PROXY_PASSWORD}\"   # optional; supports ${VAR} expansion\n")
+			b.WriteString("# password = \"${ARCDESK_PROXY_PASSWORD}\"   # optional; supports ${VAR} expansion\n")
 		}
 		b.WriteString("\n")
 	}
@@ -245,7 +296,7 @@ func RenderTOMLForScope(c *Config, scope RenderScope) string {
 	if c.Codegraph.Path != "" {
 		fmt.Fprintf(&b, "path         = %q   # optional launcher override\n", c.Codegraph.Path)
 	} else {
-		b.WriteString("# path       = \"\"   # empty = cache, then PATH, then a bundle beside reasonix\n")
+		b.WriteString("# path       = \"\"   # empty = cache, then PATH, then a bundle beside ARCDESK\n")
 	}
 	if strings.TrimSpace(c.Codegraph.Tier) != "" {
 		fmt.Fprintf(&b, "tier         = %q   # lazy|background|eager\n", c.Codegraph.ResolvedTier())
@@ -314,7 +365,7 @@ func RenderTOMLForScope(c *Config, scope RenderScope) string {
 	if len(c.Plugins) == 0 {
 		b.WriteString("# [[plugins]]\n")
 		b.WriteString("# name    = \"example\"\n")
-		b.WriteString("# command = \"reasonix-plugin-example\"\n")
+		b.WriteString("# command = \"arcdesk-plugin-example\"\n")
 		b.WriteString("# [[plugins]]                                  # a remote server over Streamable HTTP\n")
 		b.WriteString("# name    = \"stripe\"\n")
 		b.WriteString("# type    = \"http\"\n")
@@ -424,7 +475,7 @@ func renderStringMap(m map[string]string) string {
 }
 
 // renderRuleList emits a permission rule list. A populated list renders as an
-// active TOML array; an empty one renders as a commented example so `reasonix setup`
+// active TOML array; an empty one renders as a commented example so `ARCDESK setup`
 // scaffolds discoverable guidance without imposing surprising rules.
 func renderRuleList(key string, rules []string, example string) string {
 	if len(rules) == 0 {

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/plugin"
+	"arcdesk/internal/plugin"
 )
 
 const mcpMaxItemsPerSection = 6

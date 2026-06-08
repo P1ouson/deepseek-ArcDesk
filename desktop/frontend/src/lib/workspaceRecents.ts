@@ -1,4 +1,4 @@
-const STORAGE_KEY = "reasonix.workspaceRecents.v1";
+const STORAGE_KEY = "ARCDESK.workspaceRecents.v1";
 const MAX_STORED = 12;
 
 function readRecents(): string[] {

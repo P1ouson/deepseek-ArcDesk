@@ -1,7 +1,7 @@
 ---
 description: UI 容器扁平化——禁止三层及以上圆角矩形嵌套
 globs: desktop/frontend/**/*.{tsx,css}
-alwaysApply: false
+alwaysApply: true
 ---
 
 # UI 容器扁平化

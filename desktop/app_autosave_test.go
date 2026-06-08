@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/control"
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"arcdesk/internal/agent"
+	"arcdesk/internal/control"
+	"arcdesk/internal/event"
+	"arcdesk/internal/provider"
+	"arcdesk/internal/tool"
 )
 
 type stubProvider struct{}

@@ -29,8 +29,8 @@ func (a *App) startTray() {
 
 	t.end = startDesktopTray(func() {
 		systray.SetIcon(trayIconBytes)
-		systray.SetTitle("Reasonix")
-		systray.SetTooltip("Reasonix")
+		systray.SetTitle("arcdesk")
+		systray.SetTooltip("arcdesk")
 		systray.SetOnTapped(func() { a.showFromTray() })
 
 		labels := trayMenuLabels(a.trayLocale())
@@ -115,15 +115,15 @@ func trayMenuLabels(locale string) trayLabels {
 	if locale == "zh" {
 		return trayLabels{
 			openTitle:   "打开",
-			openTooltip: "打开 Reasonix 窗口",
+			openTooltip: "打开 ARCDESK 窗口",
 			quitTitle:   "退出",
-			quitTooltip: "退出 Reasonix",
+			quitTooltip: "退出 ARCDESK",
 		}
 	}
 	return trayLabels{
 		openTitle:   "Open",
-		openTooltip: "Open the Reasonix window",
+		openTooltip: "Open the ARCDESK window",
 		quitTitle:   "Quit",
-		quitTooltip: "Quit Reasonix",
+		quitTooltip: "Quit ARCDESK",
 	}
 }

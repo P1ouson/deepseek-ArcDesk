@@ -8,10 +8,10 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"reasonix/internal/control"
-	"reasonix/internal/fileref"
-	"reasonix/internal/i18n"
-	"reasonix/internal/skill"
+	"arcdesk/internal/control"
+	"arcdesk/internal/fileref"
+	"arcdesk/internal/i18n"
+	"arcdesk/internal/skill"
 )
 
 // compKind distinguishes the two completion menus.

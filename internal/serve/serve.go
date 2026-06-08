@@ -19,13 +19,13 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/boot"
-	"reasonix/internal/config"
-	"reasonix/internal/control"
-	"reasonix/internal/event"
-	"reasonix/internal/nilutil"
-	"reasonix/internal/provider"
+	"arcdesk/internal/agent"
+	"arcdesk/internal/boot"
+	"arcdesk/internal/config"
+	"arcdesk/internal/control"
+	"arcdesk/internal/event"
+	"arcdesk/internal/nilutil"
+	"arcdesk/internal/provider"
 )
 
 //go:embed index.html

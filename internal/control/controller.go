@@ -25,25 +25,25 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/billing"
-	"reasonix/internal/checkpoint"
-	"reasonix/internal/codegraph"
-	"reasonix/internal/command"
-	"reasonix/internal/config"
-	"reasonix/internal/diff"
-	"reasonix/internal/event"
-	"reasonix/internal/hook"
-	"reasonix/internal/i18n"
-	"reasonix/internal/jobs"
-	"reasonix/internal/memory"
-	"reasonix/internal/nilutil"
-	"reasonix/internal/permission"
-	"reasonix/internal/plugin"
-	"reasonix/internal/provider"
-	"reasonix/internal/sandbox"
-	"reasonix/internal/skill"
-	"reasonix/internal/tool"
+	"arcdesk/internal/agent"
+	"arcdesk/internal/billing"
+	"arcdesk/internal/checkpoint"
+	"arcdesk/internal/codegraph"
+	"arcdesk/internal/command"
+	"arcdesk/internal/config"
+	"arcdesk/internal/diff"
+	"arcdesk/internal/event"
+	"arcdesk/internal/hook"
+	"arcdesk/internal/i18n"
+	"arcdesk/internal/jobs"
+	"arcdesk/internal/memory"
+	"arcdesk/internal/nilutil"
+	"arcdesk/internal/permission"
+	"arcdesk/internal/plugin"
+	"arcdesk/internal/provider"
+	"arcdesk/internal/sandbox"
+	"arcdesk/internal/skill"
+	"arcdesk/internal/tool"
 )
 
 // Controller drives one chat session. Construct with New; drive with the command
@@ -696,7 +696,7 @@ func (c *Controller) notice(text string) {
 }
 
 // Run executes a turn synchronously, returning the agent's error. Used by the
-// headless `reasonix run` path, where the Sink renders to stdout and the caller
+// headless `ARCDESK run` path, where the Sink renders to stdout and the caller
 // just needs the exit status — no TurnDone event, no cancel bookkeeping.
 func (c *Controller) Run(ctx context.Context, input string) error {
 	c.maybeSessionStart(ctx)
@@ -1488,7 +1488,7 @@ func (c *Controller) AddMCPServer(e config.PluginEntry) (int, error) {
 
 // ConnectMCPServer connects an MCP server entry for this session without writing
 // it to config. Desktop owns config placement so it can keep user-level settings
-// out of project reasonix.toml while preserving the CLI AddMCPServer semantics.
+// out of project ARCDESK.toml while preserving the CLI AddMCPServer semantics.
 func (c *Controller) ConnectMCPServer(e config.PluginEntry) (int, error) {
 	return c.connectMCPServer(e)
 }
@@ -1753,7 +1753,7 @@ func (c *Controller) Bypass() bool {
 // is disabled.
 
 // QuickAdd appends a one-line note to the doc-memory file for scope (project
-// REASONIX.md by default) — the write side of "#<note>". Returns the file written.
+// ARCDESK.md by default) — the write side of "#<note>". Returns the file written.
 func (c *Controller) QuickAdd(scope memory.Scope, note string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

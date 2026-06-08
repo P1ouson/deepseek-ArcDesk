@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/provider"
+	"arcdesk/internal/provider"
 )
 
 // --- Kind constants ---

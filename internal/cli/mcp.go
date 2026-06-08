@@ -5,11 +5,11 @@ import (
 	"os"
 	"strings"
 
-	"reasonix/internal/codegraph"
-	"reasonix/internal/config"
+	"arcdesk/internal/codegraph"
+	"arcdesk/internal/config"
 )
 
-// mcp.go holds the MCP server-management surface shared by the `reasonix mcp`
+// mcp.go holds the MCP server-management surface shared by the `ARCDESK mcp`
 // subcommand (config-only; takes effect next session) and the in-chat `/mcp add`
 // / `/mcp remove` slash commands (which hot-connect via the controller). Both
 // parse arguments through parseMCPAdd so the grammar is identical everywhere.
@@ -148,7 +148,7 @@ func tokenizeArgs(s string) []string {
 	return out
 }
 
-// mcpCommand implements `reasonix mcp <add|remove|list>`. It edits config only
+// mcpCommand implements `ARCDESK mcp <add|remove|list>`. It edits config only
 // (validate → UpsertPlugin/RemovePlugin → Save); the server connects on the next
 // session start. For a live connect inside an open chat, use `/mcp add`.
 func mcpCommand(args []string) int {
@@ -187,7 +187,7 @@ func mcpList() int {
 	if bin, ok := codegraph.Resolve(cfg.Codegraph.Path); ok {
 		fmt.Printf("%-16s (stdio, built-in)%s  %s serve --mcp\n", "codegraph", codegraphMeta, bin)
 	} else {
-		fmt.Printf("%-16s (built-in, not installed)%s  run `reasonix codegraph install`", "codegraph", codegraphMeta)
+		fmt.Printf("%-16s (built-in, not installed)%s  run `ARCDESK codegraph install`", "codegraph", codegraphMeta)
 		if cfg.Codegraph.Enabled && cfg.Codegraph.AutoInstall {
 			fmt.Print(" (or let auto_install fetch it on next startup)")
 		}
@@ -242,7 +242,7 @@ func mcpAddCLI(args []string) int {
 
 func mcpRemoveCLI(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: reasonix mcp remove <name>")
+		fmt.Fprintln(os.Stderr, "usage: ARCDESK mcp remove <name>")
 		return 2
 	}
 	name := args[0]
@@ -264,14 +264,14 @@ func mcpRemoveCLI(args []string) int {
 }
 
 func mcpUsage() {
-	fmt.Println(`Manage MCP servers (persisted to reasonix.toml).
+	fmt.Println(`Manage MCP servers (persisted to ARCDESK.toml).
 
 Usage:
-  reasonix mcp list
-  reasonix mcp add <name> <command> [args...]        stdio server
-  reasonix mcp add <name> --http <url> [--header K=V] remote (Streamable HTTP)
-  reasonix mcp add <name> --sse  <url>               remote (legacy SSE)
-  reasonix mcp remove <name>
+  ARCDESK mcp list
+  ARCDESK mcp add <name> <command> [args...]        stdio server
+  ARCDESK mcp add <name> --http <url> [--header K=V] remote (Streamable HTTP)
+  ARCDESK mcp add <name> --sse  <url>               remote (legacy SSE)
+  ARCDESK mcp remove <name>
 
 Flags for add:
   --http <url> | --sse <url>   remote transport (omit for a stdio command)
@@ -279,8 +279,8 @@ Flags for add:
   --header K=V                 set an HTTP header (repeatable, remote)
 
 Examples:
-  reasonix mcp add fs npx -y @modelcontextprotocol/server-filesystem .
-  reasonix mcp add stripe --http https://mcp.stripe.com --header "Authorization=Bearer $STRIPE_KEY"
+  ARCDESK mcp add fs npx -y @modelcontextprotocol/server-filesystem .
+  ARCDESK mcp add stripe --http https://mcp.stripe.com --header "Authorization=Bearer $STRIPE_KEY"
 
 Changes take effect on the next session; inside a running chat, use /mcp add to
 connect a server live.`)

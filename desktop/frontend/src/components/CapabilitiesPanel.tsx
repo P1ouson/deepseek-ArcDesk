@@ -5,6 +5,7 @@ import { useT } from "../lib/i18n";
 import type { CapabilitiesView, MCPServerInput, ServerView, SkillRootSkillView, SkillRootView, SkillView } from "../lib/types";
 import { InlineConfirmButton } from "./InlineConfirmButton";
 import { ResizableDrawer } from "./ResizableDrawer";
+import { StudioSelect } from "./StudioSelect";
 import { Tooltip } from "./Tooltip";
 
 // CapabilitiesPanel is the desktop MCP & Skills drawer — the GUI counterpart to
@@ -1046,11 +1047,16 @@ function EditServerForm({
         </div>
         <label className="cap-detail cap-detail--select">
           <span className="cap-detail__label">{t("caps.transport")}</span>
-          <select className="mem-select" value={transport} disabled={busy} onChange={(e) => setTransport(e.target.value)}>
-            <option value="stdio">stdio</option>
-            <option value="http">http</option>
-            <option value="sse">sse</option>
-          </select>
+          <StudioSelect
+            value={transport}
+            disabled={busy}
+            onChange={setTransport}
+            options={[
+              { value: "stdio", label: "stdio" },
+              { value: "http", label: "http" },
+              { value: "sse", label: "sse" },
+            ]}
+          />
         </label>
         {isStdio ? (
           <label className="cap-detail cap-detail--wide">
@@ -1340,11 +1346,15 @@ function AddServerForm({
     <div className="prov-card prov-card--edit">
       <input className="mem-input" placeholder={t("caps.namePlaceholder")} value={name} onChange={(e) => setName(e.target.value)} />
       <label className="set-label">{t("caps.transport")}</label>
-      <select className="mem-select" value={transport} onChange={(e) => setTransport(e.target.value)}>
-        <option value="stdio">stdio</option>
-        <option value="http">http</option>
-        <option value="sse">sse</option>
-      </select>
+      <StudioSelect
+        value={transport}
+        onChange={setTransport}
+        options={[
+          { value: "stdio", label: "stdio" },
+          { value: "http", label: "http" },
+          { value: "sse", label: "sse" },
+        ]}
+      />
       {isStdio ? (
         <input className="mem-input" placeholder={t("caps.commandPlaceholder")} value={command} onChange={(e) => setCommand(e.target.value)} />
       ) : (

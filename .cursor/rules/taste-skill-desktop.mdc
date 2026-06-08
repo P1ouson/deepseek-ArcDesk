@@ -9,7 +9,7 @@ alwaysApply: true
 
 **本项目的 Design Read：** 现有桌面工作台的 **redesign-preserve**；语言为 **Linear / VS Code 式编辑型极简**；密度 **cockpit（4–5）**；动效 **低（2–4）**。
 
-与 [karpathy-guidelines](karpathy-guidelines.mdc) 和 [ui-flat-containers](ui-flat-containers.mdc) 同时生效。
+与 [karpathy-guidelines](karpathy-guidelines.mdc)、[ui-flat-containers](ui-flat-containers.mdc)、[impeccable-always](impeccable-always.mdc) 同时生效。
 
 ## 先读场景再动手
 

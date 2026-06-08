@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/tool"
+	"arcdesk/internal/tool"
 )
 
 func TestResolveIn(t *testing.T) {

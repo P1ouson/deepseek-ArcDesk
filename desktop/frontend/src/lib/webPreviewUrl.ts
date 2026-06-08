@@ -16,7 +16,39 @@ function isLocalHost(hostname: string): boolean {
 }
 
 export function defaultPreviewUrl(): string {
+  if (typeof window !== "undefined") {
+    const { protocol, hostname, port } = window.location;
+    const host = hostname.toLowerCase();
+    const onLocalDev =
+      (host === "localhost" || host === "127.0.0.1") &&
+      (port === "5173" || port === "5174" || port === "4173");
+    if (onLocalDev && (protocol === "http:" || protocol === "https:")) {
+      return window.location.origin;
+    }
+  }
   return DEFAULT_PREVIEW_URL;
+}
+
+/** Best-effort probe — false when nothing is listening (e.g. pnpm dev not running). */
+export async function probePreviewReachable(raw: string, timeoutMs = 2800): Promise<boolean> {
+  const trimmed = raw.trim();
+  if (!trimmed) return false;
+  let href: string;
+  try {
+    href = new URL(trimmed.includes("://") ? trimmed : `http://${trimmed}`).href;
+  } catch {
+    return false;
+  }
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    await fetch(href, { method: "GET", signal: ctrl.signal, cache: "no-store" });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 export function validatePreviewUrl(raw: string): WebPreviewValidation {

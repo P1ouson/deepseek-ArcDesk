@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/config"
-	"reasonix/internal/control"
-	"reasonix/internal/event"
-	"reasonix/internal/plugin"
-	"reasonix/internal/provider"
+	"arcdesk/internal/agent"
+	"arcdesk/internal/config"
+	"arcdesk/internal/control"
+	"arcdesk/internal/event"
+	"arcdesk/internal/plugin"
+	"arcdesk/internal/provider"
 )
 
 // setTestCtrl creates a minimal workspace tab (if needed) and sets its
@@ -138,7 +138,7 @@ func TestSettingsUsesUserDesktopPreferencesNotProjectConfig(t *testing.T) {
 	isolateDesktopUserDirs(t)
 
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "reasonix.toml"), []byte(`
+	if err := os.WriteFile(filepath.Join(project, "arcdesk.toml"), []byte(`
 [desktop]
 language = "zh"
 theme = "light"
@@ -178,7 +178,7 @@ func TestSettingsSeedsMissingUserConfigFromLegacyProjectConfig(t *testing.T) {
 	isolateDesktopUserDirs(t)
 
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "reasonix.toml"), []byte(`
+	if err := os.WriteFile(filepath.Join(project, "arcdesk.toml"), []byte(`
 default_model = "legacy-provider/legacy-model"
 
 [desktop]
@@ -464,7 +464,7 @@ func TestForkCreatesActiveTabWithoutSwitchingSourceController(t *testing.T) {
 	isolateDesktopUserDirs(t)
 
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, "reasonix.toml"), []byte("[codegraph]\nenabled = false\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "arcdesk.toml"), []byte("[codegraph]\nenabled = false\n"), 0o644); err != nil {
 		t.Fatalf("write workspace config: %v", err)
 	}
 	dir := config.SessionDir()
@@ -558,7 +558,7 @@ func TestCapabilitiesShowsLazyMCPAsDeferredNotDisabled(t *testing.T) {
 	isolateDesktopUserDirs(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
-	if err := os.WriteFile(filepath.Join(dir, "reasonix.toml"), []byte(`
+	if err := os.WriteFile(filepath.Join(dir, "arcdesk.toml"), []byte(`
 [codegraph]
 enabled = false
 
@@ -624,7 +624,7 @@ func TestCapabilitiesMarksDeferredRemoteMCPAuthPossible(t *testing.T) {
 	isolateDesktopUserDirs(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
-	if err := os.WriteFile(filepath.Join(dir, "reasonix.toml"), []byte(`
+	if err := os.WriteFile(filepath.Join(dir, "arcdesk.toml"), []byte(`
 [codegraph]
 enabled = false
 
@@ -657,7 +657,7 @@ func TestCapabilitiesDoesNotMarkRemoteMCPWithAuthHeaderPossible(t *testing.T) {
 	isolateDesktopUserDirs(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
-	if err := os.WriteFile(filepath.Join(dir, "reasonix.toml"), []byte(`
+	if err := os.WriteFile(filepath.Join(dir, "arcdesk.toml"), []byte(`
 [codegraph]
 enabled = false
 
@@ -691,7 +691,7 @@ func TestCapabilitiesMarksAuthFailureRequired(t *testing.T) {
 	isolateDesktopUserDirs(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
-	if err := os.WriteFile(filepath.Join(dir, "reasonix.toml"), []byte(`
+	if err := os.WriteFile(filepath.Join(dir, "arcdesk.toml"), []byte(`
 [codegraph]
 enabled = false
 
@@ -726,7 +726,7 @@ func TestClearMCPServerAuthenticationClearsConfigAndFailure(t *testing.T) {
 	isolateDesktopUserDirs(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
-	if err := os.WriteFile(filepath.Join(dir, "reasonix.toml"), []byte(`
+	if err := os.WriteFile(filepath.Join(dir, "arcdesk.toml"), []byte(`
 [codegraph]
 enabled = false
 
@@ -789,7 +789,7 @@ func TestUpdateMCPServerKeepsLazyMCPDeferred(t *testing.T) {
 	isolateDesktopUserDirs(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
-	if err := os.WriteFile(filepath.Join(dir, "reasonix.toml"), []byte(`
+	if err := os.WriteFile(filepath.Join(dir, "arcdesk.toml"), []byte(`
 [codegraph]
 enabled = false
 
@@ -837,7 +837,7 @@ env = { TOKEN = "${PLAYWRIGHT_TOKEN}" }
 	if userPlugin.Command != "node" || userPlugin.Env["TOKEN"] != "${PLAYWRIGHT_TOKEN}" {
 		t.Fatalf("user plugin after migration = %+v", userPlugin)
 	}
-	projectCfg := config.LoadForEdit(filepath.Join(dir, "reasonix.toml"))
+	projectCfg := config.LoadForEdit(filepath.Join(dir, "arcdesk.toml"))
 	if _, ok := findPluginEntry(projectCfg.Plugins, "playwright"); ok {
 		t.Fatalf("project plugin should be removed after desktop migration: %+v", projectCfg.Plugins)
 	}
@@ -860,7 +860,7 @@ func TestUpdateMCPServerRecordsReconnectFailure(t *testing.T) {
 	isolateDesktopUserDirs(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
-	if err := os.WriteFile(filepath.Join(dir, "reasonix.toml"), []byte(`
+	if err := os.WriteFile(filepath.Join(dir, "arcdesk.toml"), []byte(`
 [codegraph]
 enabled = false
 
@@ -879,7 +879,7 @@ tier = "lazy"
 	if err := app.UpdateMCPServer("broken", MCPServerInput{
 		Name:      "broken",
 		Transport: "stdio",
-		Command:   "reasonix-missing-mcp-binary",
+		Command:   "arcdesk-missing-mcp-binary",
 		Tier:      "background",
 	}); err != nil {
 		t.Fatalf("UpdateMCPServer should persist config even when reconnect fails: %v", err)
@@ -888,7 +888,7 @@ tier = "lazy"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.Plugins[0].Command; got != "reasonix-missing-mcp-binary" {
+	if got := cfg.Plugins[0].Command; got != "arcdesk-missing-mcp-binary" {
 		t.Fatalf("updated command = %q, want missing binary", got)
 	}
 	if got := cfg.Plugins[0].Tier; got != "background" {
@@ -903,7 +903,7 @@ tier = "lazy"
 			if s.Status != "failed" {
 				t.Fatalf("server status = %q, want failed; server = %+v", s.Status, s)
 			}
-			if s.Command != "reasonix-missing-mcp-binary" || s.Tier != "background" {
+			if s.Command != "arcdesk-missing-mcp-binary" || s.Tier != "background" {
 				t.Fatalf("server config not refreshed after failed reconnect: %+v", s)
 			}
 			return
@@ -916,13 +916,13 @@ func TestSetMCPServerTierRecordsConnectFailure(t *testing.T) {
 	isolateDesktopUserDirs(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
-	if err := os.WriteFile(filepath.Join(dir, "reasonix.toml"), []byte(`
+	if err := os.WriteFile(filepath.Join(dir, "arcdesk.toml"), []byte(`
 [codegraph]
 enabled = false
 
 [[plugins]]
 name = "broken"
-command = "reasonix-missing-mcp-binary"
+command = "arcdesk-missing-mcp-binary"
 tier = "lazy"
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -954,7 +954,7 @@ tier = "lazy"
 	if userPlugin.Tier != "background" {
 		t.Fatalf("user plugin tier = %q, want background", userPlugin.Tier)
 	}
-	projectCfg := config.LoadForEdit(filepath.Join(dir, "reasonix.toml"))
+	projectCfg := config.LoadForEdit(filepath.Join(dir, "arcdesk.toml"))
 	if _, ok := findPluginEntry(projectCfg.Plugins, "broken"); ok {
 		t.Fatalf("project plugin should be removed after desktop migration: %+v", projectCfg.Plugins)
 	}
@@ -982,10 +982,10 @@ func TestSetMCPServerTierPersistsCodegraphConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("AppData", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
-	t.Setenv("REASONIX_CACHE_DIR", t.TempDir()) // isolate the codegraph bundle cache so Resolve fails deterministically
+	t.Setenv("arcdesk_CACHE_DIR", t.TempDir()) // isolate the codegraph bundle cache so Resolve fails deterministically
 	dir := t.TempDir()
 	t.Chdir(dir)
-	if err := os.WriteFile(filepath.Join(dir, "reasonix.toml"), []byte(`
+	if err := os.WriteFile(filepath.Join(dir, "arcdesk.toml"), []byte(`
 [codegraph]
 enabled = false
 auto_install = true
@@ -1039,7 +1039,7 @@ func TestSetMCPServerEnabledPersistsCodegraphOff(t *testing.T) {
 	isolateDesktopUserDirs(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
-	if err := os.WriteFile(filepath.Join(dir, "reasonix.toml"), []byte(`
+	if err := os.WriteFile(filepath.Join(dir, "arcdesk.toml"), []byte(`
 [codegraph]
 enabled = true
 tier = "lazy"
@@ -1081,13 +1081,13 @@ func TestCapabilitiesKeepsFailedMCPConfiguredTierAfterRestart(t *testing.T) {
 	isolateDesktopUserDirs(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
-	if err := os.WriteFile(filepath.Join(dir, "reasonix.toml"), []byte(`
+	if err := os.WriteFile(filepath.Join(dir, "arcdesk.toml"), []byte(`
 [codegraph]
 enabled = false
 
 [[plugins]]
 name = "broken"
-command = "reasonix-missing-mcp-binary"
+command = "arcdesk-missing-mcp-binary"
 tier = "eager"
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -1098,7 +1098,7 @@ tier = "eager"
 	defer app.activeCtrl().Close()
 	recordMCPFailure(app.activeCtrl(), config.PluginEntry{
 		Name:    "broken",
-		Command: "reasonix-missing-mcp-binary",
+		Command: "arcdesk-missing-mcp-binary",
 		Tier:    "eager",
 	}, errors.New("connect: missing binary"))
 

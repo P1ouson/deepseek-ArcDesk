@@ -7,22 +7,22 @@ import (
 	"os"
 	"os/signal"
 
-	"reasonix/internal/acp"
-	"reasonix/internal/agent"
-	"reasonix/internal/boot"
-	"reasonix/internal/command"
-	"reasonix/internal/config"
-	"reasonix/internal/control"
-	"reasonix/internal/event"
-	"reasonix/internal/i18n"
-	"reasonix/internal/permission"
-	"reasonix/internal/plugin"
-	"reasonix/internal/sandbox"
-	"reasonix/internal/tool"
-	"reasonix/internal/tool/builtin"
+	"arcdesk/internal/acp"
+	"arcdesk/internal/agent"
+	"arcdesk/internal/boot"
+	"arcdesk/internal/command"
+	"arcdesk/internal/config"
+	"arcdesk/internal/control"
+	"arcdesk/internal/event"
+	"arcdesk/internal/i18n"
+	"arcdesk/internal/permission"
+	"arcdesk/internal/plugin"
+	"arcdesk/internal/sandbox"
+	"arcdesk/internal/tool"
+	"arcdesk/internal/tool/builtin"
 )
 
-// acpCommand runs Reasonix as an Agent Client Protocol agent: a stdio JSON-RPC
+// acpCommand runs ARCDESK as an Agent Client Protocol agent: a stdio JSON-RPC
 // server that editors and other host clients drive (initialize, session/new,
 // session/prompt, session/cancel). It keeps v2 wire-compatible with the many
 // tools that integrated with v1 over ACP.
@@ -60,7 +60,7 @@ func acpCommand(args []string, version string) int {
 	defer stop()
 
 	factory := &acpFactory{cfg: cfg, model: modelName}
-	info := acp.AgentInfo{Name: "reasonix", Version: version}
+	info := acp.AgentInfo{Name: "arcdesk", Version: version}
 	if err := acp.Serve(ctx, os.Stdin, os.Stdout, factory, info); err != nil {
 		fmt.Fprintln(os.Stderr, i18n.M.ErrorPrefix, err)
 		return 1

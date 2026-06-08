@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/config"
-	"reasonix/internal/control"
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
+	"arcdesk/internal/agent"
+	"arcdesk/internal/config"
+	"arcdesk/internal/control"
+	"arcdesk/internal/event"
+	"arcdesk/internal/provider"
 )
 
 func TestHistoryMessagesIncludeAssistantReasoning(t *testing.T) {

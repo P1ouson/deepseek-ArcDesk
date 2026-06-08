@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"reasonix/internal/provider"
+	"arcdesk/internal/provider"
 )
 
 func TestWithFreshSystemPromptReplacesExistingSystemMessage(t *testing.T) {

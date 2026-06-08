@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
+	"arcdesk/internal/event"
+	"arcdesk/internal/provider"
 )
 
 // --- toWire ---

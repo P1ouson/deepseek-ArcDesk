@@ -4,7 +4,7 @@ import (
 	"os"
 	"strings"
 
-	fileenc "reasonix/internal/fileutil/encoding"
+	fileenc "arcdesk/internal/fileutil/encoding"
 )
 
 // readFileEncoded reads a file and decodes its encoding to UTF-8.

@@ -1,0 +1,209 @@
+/*
+  ArcDesk motion — lightweight, GPU-friendly micro-interactions.
+  Same pattern per action type; respects prefers-reduced-motion.
+*/
+
+:root {
+  --motion-press-scale: 0.97;
+  --motion-surface-hover: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+
+@keyframes motion-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes motion-reveal-down {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes motion-panel-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes motion-panel-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* —— A: icon / ghost controls (hover darken + press) —— */
+.motion-surface,
+.dock-panel__ghost,
+.usage-chart-card__refresh,
+.studio-rail__btn,
+.studio-drawer__collapse-btn,
+.studio-drawer__action,
+.studio-header__rename,
+.right-dock__close,
+.right-dock__subtab,
+.browser-panel__chrome button,
+.right-dock__browser-bar button,
+.composer__btn,
+.composer-send-outer .composer__btn,
+.welcome--code .welcome__card,
+.project-tree__new-topic,
+.studio-tool-rail .topbar__hub-main,
+.studio-tool-rail .topbar__hub-menu {
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out);
+}
+
+.motion-surface:hover:not(:disabled),
+.dock-panel__ghost:hover:not(:disabled),
+.usage-chart-card__refresh:hover:not(:disabled),
+.studio-rail__btn:hover:not(:disabled),
+.studio-drawer__collapse-btn:hover:not(:disabled),
+.studio-drawer__action:hover:not(:disabled),
+.studio-header__rename:hover:not(:disabled),
+.right-dock__close:hover:not(:disabled),
+.right-dock__subtab:hover:not(:disabled),
+.browser-panel__chrome button:hover:not(:disabled),
+.right-dock__browser-bar button:hover:not(:disabled),
+.composer__btn:hover:not(:disabled),
+.project-tree__new-topic:hover:not(:disabled),
+.studio-tool-rail .topbar__hub-main:hover:not(:disabled),
+.studio-tool-rail .topbar__hub-menu:hover:not(:disabled) {
+  background-color: var(--sidebar-hover);
+}
+
+.motion-surface:active:not(:disabled),
+.dock-panel__ghost:active:not(:disabled),
+.usage-chart-card__refresh:active:not(:disabled),
+.studio-rail__btn:active:not(:disabled),
+.studio-drawer__collapse-btn:active:not(:disabled),
+.studio-drawer__action:active:not(:disabled),
+.studio-header__rename:active:not(:disabled),
+.right-dock__close:active:not(:disabled),
+.right-dock__subtab:active:not(:disabled),
+.browser-panel__chrome button:active:not(:disabled),
+.right-dock__browser-bar button:active:not(:disabled),
+.composer__btn:active:not(:disabled),
+.welcome--code .welcome__card:active:not(:disabled),
+.project-tree__new-topic:active:not(:disabled),
+.studio-tool-rail .topbar__hub-main:active:not(:disabled),
+.studio-tool-rail .topbar__hub-menu:active:not(:disabled) {
+  transform: scale(var(--motion-press-scale));
+}
+
+/* —— B: segmented toggles (sliding pill) —— */
+.motion-segment {
+  position: relative;
+  isolation: isolate;
+}
+
+.motion-segment::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / var(--motion-segment-count, 3));
+  border-radius: 999px;
+  background: var(--accent-soft);
+  box-shadow: var(--shadow-soft);
+  transform: translateX(calc(var(--motion-segment-index, 0) * 100%));
+  transition: transform var(--duration-normal) var(--ease-out);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.motion-segment > * {
+  position: relative;
+  z-index: 1;
+}
+
+.motion-segment .composer-modebar__item--active,
+.motion-segment .studio-drawer__mode-btn--active {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* —— C: list / tree expand (mount reveal) —— */
+.project-tree__children,
+.files-panel__branch {
+  animation: motion-reveal-down var(--duration-fast) var(--ease-out);
+}
+
+.project-tree__chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  flex: 0 0 12px;
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.project-tree__chevron--open {
+  transform: rotate(90deg);
+}
+
+.files-panel__chevron svg {
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.files-panel__node--open .files-panel__chevron svg {
+  transform: rotate(90deg);
+}
+
+/* —— D: side panels —— */
+.studio-drawer {
+  animation: motion-panel-in-left var(--duration-normal) var(--ease-out);
+}
+
+.workbench--studio .right-dock {
+  animation: motion-panel-in-right var(--duration-normal) var(--ease-out);
+}
+
+.workbench.workbench--studio {
+  transition: grid-template-columns var(--duration-normal) var(--ease-out);
+}
+
+.workbench--studio .workbench__body--dock-open .workbench__stack {
+  transition: flex var(--duration-normal) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-segment::before {
+    transition: none;
+  }
+
+  .project-tree__children,
+  .files-panel__branch,
+  .studio-drawer,
+  .workbench--studio .right-dock {
+    animation: none;
+  }
+
+  .workbench.workbench--studio {
+    transition: none;
+  }
+
+  .project-tree__chevron,
+  .files-panel__chevron svg {
+    transition: none;
+  }
+}

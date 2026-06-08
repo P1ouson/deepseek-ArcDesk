@@ -1,93 +1,190 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { MessageCircle, Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Check,
+  Cloud,
+  Copy,
+  Globe,
+  Loader2,
+  Power,
+  QrCode,
+  RefreshCw,
+  Smartphone,
+  Wifi,
+} from "lucide-react";
+import { asArray } from "../lib/array";
 import { app } from "../lib/bridge";
 import { useT } from "../lib/i18n";
-import type { ClawChannel, ClawMessage } from "../lib/types";
+import type { MobileConnectConfig, MobilePairingInfo, MobileTunnelStatus, ModelInfo } from "../lib/types";
 
-const CHANNEL_TYPES: ClawChannel["type"][] = ["feishu", "lark", "wechat", "webhook"];
-
-function emptyChannel(): ClawChannel {
-  return {
-    id: "",
-    name: "New channel",
-    type: "feishu",
-    enabled: true,
-    persona: "Be concise and practical.",
-    model: "deepseek-chat",
-    workspaceRoot: "",
-    webhookURL: "",
-  };
+function formatExpiry(ts: number, t: ReturnType<typeof useT>): string {
+  if (!ts) return "—";
+  const mins = Math.max(1, Math.round(Math.max(0, ts - Date.now()) / 60_000));
+  return t("phone.qrExpires", { n: mins });
 }
 
-function formatRelativeTime(ts?: number): string {
-  if (!ts) return "just now";
-  const delta = Math.max(0, Date.now() - ts);
-  if (delta < 60_000) return `${Math.max(1, Math.round(delta / 1000))}s ago`;
-  if (delta < 3_600_000) return `${Math.round(delta / 60_000)}m ago`;
-  return `${Math.round(delta / 3_600_000)}h ago`;
+function modeMeta(mode: string | undefined, t: ReturnType<typeof useT>) {
+  switch (mode) {
+    case "tunnel":
+      return { label: t("phone.modeTunnel"), icon: Cloud, ok: true };
+    case "relay":
+      return { label: t("phone.modeRelay"), icon: Cloud, ok: true };
+    case "lan":
+      return { label: t("phone.modeLan"), icon: Wifi, ok: true };
+    default:
+      return { label: t("phone.modeNone"), icon: Globe, ok: false };
+  }
+}
+
+function basename(path: string): string {
+  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  const parts = normalized.split("/").filter(Boolean);
+  return parts[parts.length - 1] || path || "—";
 }
 
 export interface ConnectPhoneViewProps {
   workspaceRoot: string;
+  activeTabId?: string;
+  tabLabel?: string;
+  workspaceName?: string;
 }
 
-export function ConnectPhoneView({ workspaceRoot }: ConnectPhoneViewProps) {
+export function ConnectPhoneView({
+  workspaceRoot,
+  activeTabId,
+  tabLabel,
+  workspaceName,
+}: ConnectPhoneViewProps) {
   const t = useT();
-  const [channels, setChannels] = useState<ClawChannel[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<ClawChannel>(emptyChannel());
-  const [messages, setMessages] = useState<ClawMessage[]>([]);
-  const [message, setMessage] = useState("");
+  const [pairing, setPairing] = useState<MobilePairingInfo | null>(null);
+  const [tunnel, setTunnel] = useState<MobileTunnelStatus>({ running: false, url: "" });
+  const [sessions, setSessions] = useState<{ id: string; createdAt: number; lastSeen: number }[]>([]);
+  const [currentModel, setCurrentModel] = useState("");
+  const [config, setConfig] = useState<MobileConnectConfig>(() => ({
+    enabled: true,
+    model: "",
+    persona: "",
+    workspaceRoot,
+    relayBaseURL: "",
+  }));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<"pair" | "tunnel" | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
 
   const reload = useCallback(async () => {
-    const items = await app.GetClawChannels().catch(() => [] as ClawChannel[]);
-    setChannels(items);
-    return items;
-  }, []);
-
-  const reloadMessages = useCallback(async (channelId: string | null) => {
-    if (!channelId) {
-      setMessages([]);
-      return;
+    const [info, cfg, tunnelStatus, deviceList, models] = await Promise.all([
+      app.GetMobilePairingInfo().catch(() => null),
+      app.GetMobileConnectConfig().catch(() => null),
+      app.GetMobileTunnelStatus().catch(() => ({ running: false, url: "" })),
+      app.ListMobileSessions().catch(() => []),
+      (activeTabId ? app.ModelsForTab(activeTabId) : app.Models()).catch((): ModelInfo[] => []),
+    ]);
+    if (info) setPairing(info);
+    if (cfg) {
+      setConfig({
+        ...cfg,
+        workspaceRoot,
+        relayBaseURL: cfg.relayBaseURL ?? "",
+      });
     }
-    const items = await app.GetClawMessages(channelId).catch(() => [] as ClawMessage[]);
-    setMessages(items);
-  }, []);
+    const active = asArray(models).find((m: ModelInfo) => m.current);
+    setCurrentModel(active?.ref ?? active?.model ?? "");
+    setTunnel(tunnelStatus);
+    setSessions(deviceList);
+  }, [activeTabId, workspaceRoot]);
 
   useEffect(() => {
-    void reload().then((items) => {
-      if (items[0] && !selectedId) {
-        setSelectedId(items[0].id);
+    void reload();
+    const timer = window.setInterval(() => void reload(), 5_000);
+    return () => window.clearInterval(timer);
+  }, [reload]);
+
+  useEffect(() => {
+    if (!tunnel.running || tunnel.url) return;
+    const timer = window.setInterval(() => void reload(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [tunnel.running, tunnel.url, reload]);
+
+  useEffect(() => {
+    const off = window.runtime?.EventsOn?.("mobile:message", () => void reload());
+    return () => off?.();
+  }, [reload]);
+
+  const mode = useMemo(() => modeMeta(pairing?.connectMode, t), [pairing?.connectMode, t]);
+  const ModeIcon = mode.icon;
+  const tunnelReady = Boolean(tunnel.url || pairing?.tunnelUrl);
+  const tunnelUrl = tunnel.url || pairing?.tunnelUrl || "";
+  const lanAddress = pairing?.lanIp ? `${pairing.lanIp}:${pairing.port}` : "—";
+  const displayWorkspace = workspaceName || basename(workspaceRoot) || workspaceRoot || "—";
+  const displayTab = tabLabel?.trim() || "—";
+
+  const copyText = async (text: string, field: "pair" | "tunnel") => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = window.setTimeout(() => setCopiedField(null), 2000);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  const toggleEnabled = async (enabled: boolean) => {
+    const prev = config.enabled;
+    const nextConfig = {
+      ...config,
+      enabled,
+      workspaceRoot,
+      relayBaseURL: config.relayBaseURL?.trim() ?? "",
+    };
+    setConfig(nextConfig);
+    setBusy(true);
+    setErr(null);
+    try {
+      await app.SaveMobileConnectConfig(nextConfig);
+      setNotice(t("phone.saved"));
+      await reload();
+    } catch (e) {
+      setConfig((v) => ({ ...v, enabled: prev }));
+      setErr(String((e as Error)?.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const refreshQR = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      setPairing(await app.RefreshMobilePairing());
+      setNotice(t("phone.qrRefreshed"));
+    } catch (e) {
+      setErr(String((e as Error)?.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startTunnel = async () => {
+    setBusy(true);
+    setErr(null);
+    setNotice(null);
+    try {
+      const status = await app.StartMobileTunnel();
+      setTunnel(status);
+      if (status.err) {
+        setErr(status.err);
+        return;
       }
-    });
-  }, [reload, selectedId]);
-
-  useEffect(() => {
-    const selected = channels.find((channel) => channel.id === selectedId);
-    if (selected) setDraft(selected);
-    void reloadMessages(selectedId);
-  }, [channels, selectedId, reloadMessages]);
-
-  const selected = useMemo(() => channels.find((channel) => channel.id === selectedId), [channels, selectedId]);
-
-  const lastActivity = useMemo(() => {
-    const last = messages[messages.length - 1];
-    return last?.createdAt;
-  }, [messages]);
-
-  const save = async () => {
-    setBusy(true);
-    setErr(null);
-    try {
-      const next: ClawChannel = {
-        ...draft,
-        id: draft.id || `ch-${Date.now()}`,
-        workspaceRoot: draft.workspaceRoot || workspaceRoot,
-      };
-      await app.SaveClawChannel(next);
-      setSelectedId(next.id);
+      setNotice(t("phone.tunnelStarting"));
       await reload();
     } catch (e) {
       setErr(String((e as Error)?.message ?? e));
@@ -96,169 +193,204 @@ export function ConnectPhoneView({ workspaceRoot }: ConnectPhoneViewProps) {
     }
   };
 
-  const remove = async (id: string) => {
+  const stopTunnel = async () => {
     setBusy(true);
     setErr(null);
     try {
-      await app.DeleteClawChannel(id);
-      if (selectedId === id) setSelectedId(null);
+      setTunnel(await app.StopMobileTunnel());
       await reload();
+      setNotice(t("phone.tunnelStopped"));
     } catch (e) {
       setErr(String((e as Error)?.message ?? e));
     } finally {
       setBusy(false);
     }
-  };
-
-  const sendMessage = async () => {
-    const trimmed = message.trim();
-    if (!trimmed || !selectedId) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      await app.SendClawMessage(selectedId, trimmed);
-      setMessage("");
-      await reloadMessages(selectedId);
-    } catch (e) {
-      setErr(String((e as Error)?.message ?? e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const createChannel = () => {
-    const next = { ...emptyChannel(), id: "", workspaceRoot };
-    setDraft(next);
-    setSelectedId(null);
   };
 
   return (
-    <div className="connect-phone">
-      <section className="connect-phone__column">
-        <header className="connect-phone__section-head">
-          <h3>{t("phone.channels")}</h3>
-          <button type="button" onClick={createChannel}>
-            <Plus size={14} />
-          </button>
-        </header>
-        <div className="connect-phone__list">
-          {channels.map((channel) => (
-            <button
-              key={channel.id}
-              type="button"
-              className={`connect-phone__channel${selectedId === channel.id ? " connect-phone__channel--active" : ""}`}
-              onClick={() => setSelectedId(channel.id)}
-            >
-              <div>
-                <strong>{channel.name}</strong>
-                <p>{selectedId === channel.id && lastActivity ? formatRelativeTime(lastActivity) : t("phone.noActivity")}</p>
+    <div className="connect-compact">
+      <header className="connect-compact__head">
+        <div>
+          <h2>{t("phone.title")}</h2>
+          <p>{t("phone.panelHint")}</p>
+        </div>
+        <div className="connect-compact__chips">
+          <span className={`connect-compact__chip${mode.ok ? " connect-compact__chip--ok" : ""}`}>
+            <ModeIcon size={12} /> {mode.label}
+          </span>
+          <span className="connect-compact__chip connect-compact__chip--ok">
+            <Smartphone size={12} /> {t("phone.pairedDevices", { n: pairing?.pairedCount ?? sessions.length })}
+          </span>
+          <span className={`connect-compact__chip${tunnelReady ? " connect-compact__chip--ok" : ""}`}>
+            <Cloud size={12} /> {tunnelReady ? t("phone.tunnelReadyShort") : tunnel.running ? t("phone.tunnelWaitingShort") : t("phone.tunnelIdle")}
+          </span>
+          <span className="connect-compact__chip">
+            <QrCode size={12} /> {formatExpiry(pairing?.expiresAt ?? 0, t)}
+          </span>
+        </div>
+      </header>
+
+      {err ? <div className="connect-compact__banner connect-compact__banner--error">{err}</div> : null}
+      {notice ? <div className="connect-compact__banner connect-compact__banner--ok">{notice}</div> : null}
+
+      <div className="connect-compact__body">
+        <section className="connect-compact__qr-panel">
+          <div className="connect-compact__qr-head">
+            <strong>{t("phone.scanTitle")}</strong>
+            <button type="button" className="connect-compact__icon-btn" disabled={busy} onClick={() => void refreshQR()} title={t("phone.refreshQr")}>
+              <RefreshCw size={13} />
+            </button>
+          </div>
+          <div className="connect-compact__qr-box">
+            {pairing?.qrDataUrl ? (
+              <img className="connect-compact__qr" src={pairing.qrDataUrl} alt={t("phone.qrAlt")} />
+            ) : (
+              <div className="connect-compact__qr-empty">{t("phone.qrUnavailable")}</div>
+            )}
+          </div>
+          {pairing?.pairUrl ? <code className="connect-compact__url">{pairing.pairUrl}</code> : null}
+          <div className="connect-compact__tunnel">
+            {tunnel.running ? (
+              <button type="button" className="connect-compact__btn connect-compact__btn--danger" disabled={busy} onClick={() => void stopTunnel()}>
+                {busy ? <Loader2 size={13} className="spin" /> : <Power size={13} />}
+                {t("phone.tunnelStop")}
+              </button>
+            ) : (
+              <button type="button" className="connect-compact__btn connect-compact__btn--primary" disabled={busy} onClick={() => void startTunnel()}>
+                {busy ? <Loader2 size={13} className="spin" /> : <Cloud size={13} />}
+                {t("phone.tunnelStart")}
+              </button>
+            )}
+          </div>
+        </section>
+
+        <section className="connect-compact__status">
+          <div className="connect-compact__status-top">
+            <div className="connect-compact__panel-head">
+              <strong>{t("phone.statusTitle")}</strong>
+              <p>{t("phone.statusHint")}</p>
+            </div>
+
+            <label className="connect-compact__switch-row">
+              <span className="connect-compact__switch-copy">
+                <strong>{t("phone.enabled")}</strong>
+                <small>{t("phone.agentEnableHint")}</small>
+              </span>
+              <input
+                type="checkbox"
+                className="connect-compact__switch"
+                checked={config.enabled}
+                disabled={busy}
+                onChange={(e) => void toggleEnabled(e.target.checked)}
+              />
+            </label>
+          </div>
+
+          <div className="connect-compact__status-main">
+            <div className="connect-compact__block">
+              <div className="connect-compact__kv-grid">
+                <div className="connect-compact__kv">
+                  <span className="connect-compact__kv-label">{t("phone.connectStatus")}</span>
+                  <span className="connect-compact__kv-value">
+                    <ModeIcon size={13} /> {mode.label}
+                  </span>
+                </div>
+                <div className="connect-compact__kv">
+                  <span className="connect-compact__kv-label">{t("phone.lanAddress")}</span>
+                  <span className="connect-compact__kv-value">{lanAddress}</span>
+                </div>
+                {pairing?.pairUrl ? (
+                  <div className="connect-compact__kv connect-compact__kv--full">
+                    <span className="connect-compact__kv-label">{t("phone.pairAddress")}</span>
+                    <div className="connect-compact__url-row">
+                      <code>{pairing.pairUrl}</code>
+                      <button
+                        type="button"
+                        className={`connect-compact__copy-btn${copiedField === "pair" ? " connect-compact__copy-btn--ok" : ""}`}
+                        onClick={() => void copyText(pairing.pairUrl, "pair")}
+                        title={copiedField === "pair" ? t("phone.copied") : t("common.copy")}
+                        aria-label={copiedField === "pair" ? t("phone.copied") : t("common.copy")}
+                      >
+                        {copiedField === "pair" ? <Check size={12} /> : <Copy size={12} />}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                {tunnelUrl ? (
+                  <div className="connect-compact__kv connect-compact__kv--full">
+                    <span className="connect-compact__kv-label">{t("phone.tunnelAddress")}</span>
+                    <div className="connect-compact__url-row">
+                      <code>{tunnelUrl}</code>
+                      <button
+                        type="button"
+                        className={`connect-compact__copy-btn${copiedField === "tunnel" ? " connect-compact__copy-btn--ok" : ""}`}
+                        onClick={() => void copyText(tunnelUrl, "tunnel")}
+                        title={copiedField === "tunnel" ? t("phone.copied") : t("common.copy")}
+                        aria-label={copiedField === "tunnel" ? t("phone.copied") : t("common.copy")}
+                      >
+                        {copiedField === "tunnel" ? <Check size={12} /> : <Copy size={12} />}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                {pairing?.relayUrl ? (
+                  <div className="connect-compact__kv connect-compact__kv--full">
+                    <span className="connect-compact__kv-label">{t("phone.relayBaseURL")}</span>
+                    <span className={`connect-compact__kv-value${pairing.relayConnected ? " connect-compact__kv-value--ok" : ""}`}>
+                      {pairing.relayConnected ? t("phone.relayOnline") : t("phone.relayOffline")}
+                    </span>
+                  </div>
+                ) : null}
               </div>
-              <span className={`connect-phone__dot connect-phone__dot--${channel.enabled ? "ok" : "muted"}`} />
-            </button>
-          ))}
-        </div>
-      </section>
+            </div>
 
-      <section className="connect-phone__column connect-phone__column--center">
-        <header className="connect-phone__section-head">
-          <h3>
-            <MessageCircle size={15} /> {t("phone.chat")}
-          </h3>
-          <span>{selected?.name ?? t("phone.noChannel")}</span>
-        </header>
-        <div className="connect-phone__chatlog">
-          {!selectedId ? (
-            <div className="connect-phone__empty">{t("phone.selectChannel")}</div>
-          ) : messages.length ? (
-            messages.map((entry) => (
-              <article
-                key={entry.id}
-                className={`connect-phone__bubble connect-phone__bubble--${entry.outgoing ? "outgoing" : "incoming"}`}
-              >
-                {entry.text}
-              </article>
-            ))
-          ) : (
-            <div className="connect-phone__empty">{t("phone.noMessages")}</div>
-          )}
-        </div>
-        <div className="connect-phone__composer">
-          <textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder={t("phone.replyPlaceholder")}
-            rows={2}
-            disabled={!selectedId || busy}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void sendMessage();
-              }
-            }}
-          />
-          <button type="button" disabled={!message.trim() || !selectedId || busy} onClick={() => void sendMessage()}>
-            {t("phone.send")}
-          </button>
-        </div>
-      </section>
+            <div className="connect-compact__block connect-compact__block--session">
+              <strong className="connect-compact__block-title">{t("phone.desktopSessionTitle")}</strong>
+              <p className="connect-compact__block-hint">{t("phone.desktopSessionHint")}</p>
+              <div className="connect-compact__kv-grid">
+                <div className="connect-compact__kv">
+                  <span className="connect-compact__kv-label">{t("phone.desktopTab")}</span>
+                  <span className="connect-compact__kv-value">{displayTab}</span>
+                </div>
+                <div className="connect-compact__kv">
+                  <span className="connect-compact__kv-label">{t("phone.desktopModel")}</span>
+                  <span className="connect-compact__kv-value">{currentModel || "—"}</span>
+                </div>
+                <div className="connect-compact__kv connect-compact__kv--full">
+                  <span className="connect-compact__kv-label">{t("phone.desktopWorkspace")}</span>
+                  <span className="connect-compact__kv-value" title={workspaceRoot}>
+                    {displayWorkspace}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
 
-      <section className="connect-phone__column">
-        <header className="connect-phone__section-head">
-          <h3>{t("phone.settings")}</h3>
-        </header>
-        {err ? <div className="connect-phone__banner connect-phone__banner--error">{err}</div> : null}
-        <div className="connect-phone__form">
-          <label>
-            {t("phone.name")}
-            <input value={draft.name} onChange={(e) => setDraft((v) => ({ ...v, name: e.target.value }))} />
-          </label>
-          <label>
-            {t("phone.type")}
-            <select value={draft.type} onChange={(e) => setDraft((v) => ({ ...v, type: e.target.value as ClawChannel["type"] }))}>
-              {CHANNEL_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            {t("phone.persona")}
-            <textarea value={draft.persona} onChange={(e) => setDraft((v) => ({ ...v, persona: e.target.value }))} />
-          </label>
-          <label>
-            {t("phone.model")}
-            <input value={draft.model} onChange={(e) => setDraft((v) => ({ ...v, model: e.target.value }))} />
-          </label>
-          <label>
-            {t("phone.workspaceRoot")}
-            <input value={draft.workspaceRoot || workspaceRoot} onChange={(e) => setDraft((v) => ({ ...v, workspaceRoot: e.target.value }))} />
-          </label>
-          <label>
-            {t("phone.webhook")}
-            <input value={draft.webhookURL} onChange={(e) => setDraft((v) => ({ ...v, webhookURL: e.target.value }))} />
-          </label>
-          <label className="connect-phone__checkbox">
-            <input
-              type="checkbox"
-              checked={draft.enabled}
-              onChange={(e) => setDraft((v) => ({ ...v, enabled: e.target.checked }))}
-            />
-            {t("phone.enabled")}
-          </label>
-        </div>
-        <div className="connect-phone__actions">
-          <button type="button" disabled={busy} onClick={() => void save()}>
-            {t("phone.save")}
-          </button>
-          {selected ? (
-            <button type="button" className="connect-phone__danger" disabled={busy} onClick={() => void remove(selected.id)}>
-              <Trash2 size={14} />
-              {t("phone.delete")}
-            </button>
-          ) : null}
-        </div>
-      </section>
+          <footer className="connect-compact__status-foot">
+            <p className="connect-compact__footnote">{t("phone.remoteNote")}</p>
+          </footer>
+        </section>
+
+        <section className="connect-compact__devices">
+          <div className="connect-compact__panel-head">
+            <strong>{t("phone.devicesTitle")}</strong>
+            <p>{t("phone.devicesHint")}</p>
+          </div>
+          <ul>
+            {sessions.length ? (
+              sessions.slice(0, 4).map((item) => (
+                <li key={item.id}>
+                  <span>{item.id.slice(0, 8)}…</span>
+                  <time>{new Date(item.lastSeen).toLocaleTimeString()}</time>
+                </li>
+              ))
+            ) : (
+              <li className="connect-compact__devices-empty">{t("phone.noDevices")}</li>
+            )}
+          </ul>
+          <p>{t("phone.tunnelHint")}</p>
+        </section>
+      </div>
     </div>
   );
 }

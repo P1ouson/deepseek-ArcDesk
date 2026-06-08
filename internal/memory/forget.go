@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"reasonix/internal/tool"
+	"arcdesk/internal/tool"
 )
 
 // forgetTool deletes a saved memory the model judges wrong or stale. Like

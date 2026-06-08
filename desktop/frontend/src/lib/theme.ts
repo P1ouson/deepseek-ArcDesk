@@ -1,5 +1,5 @@
-// theme.ts — System / Light / Dark appearance for Reasonix Desktop.
-// Applies data-theme on <html> and syncs native Wails window chrome.
+// theme.ts — System / Light / Dark appearance for ArcDesk Desktop.
+// Applies data-theme + data-theme-style on <html> and syncs native Wails window chrome.
 
 import {
   WindowSetDarkTheme,
@@ -7,14 +7,40 @@ import {
   WindowSetSystemDefaultTheme,
   WindowSetBackgroundColour,
 } from "../../wailsjs/runtime/runtime";
+import { applyAppearancePrefs, syncSurfacePresetsToTheme } from "./appearancePrefs";
 
 export type Theme = "auto" | "light" | "dark";
 export type ResolvedTheme = Exclude<Theme, "auto">;
 
+export const THEME_STYLES = [
+  "graphite",
+  "ember",
+  "aurora",
+  "midnight",
+  "cobalt",
+  "sandstone",
+  "porcelain",
+  "linen",
+  "glacier",
+] as const;
+
+export type ThemeStyle = (typeof THEME_STYLES)[number];
+
 const DEFAULT_THEME: Theme = "light";
-const THEME_KEY = "reasonix-theme";
+const DEFAULT_DARK_STYLE: ThemeStyle = "graphite";
+const DEFAULT_LIGHT_STYLE: ThemeStyle = "glacier";
+const THEME_KEY = "arcdesk-theme";
+const STYLE_KEY = "arcdesk-theme-style";
 let currentTheme: Theme = DEFAULT_THEME;
+let currentStyle: ThemeStyle = DEFAULT_LIGHT_STYLE;
 let systemThemeListenerInstalled = false;
+
+const DARK_STYLES = new Set<ThemeStyle>(["graphite", "ember", "aurora", "midnight", "cobalt"]);
+const LIGHT_STYLES = new Set<ThemeStyle>(["sandstone", "porcelain", "linen", "glacier"]);
+
+export function isThemeStyle(value: unknown): value is ThemeStyle {
+  return typeof value === "string" && (THEME_STYLES as readonly string[]).includes(value);
+}
 
 function resolveTheme(theme: Theme): ResolvedTheme {
   if (theme === "light" || theme === "dark") return theme;
@@ -22,10 +48,14 @@ function resolveTheme(theme: Theme): ResolvedTheme {
   return "dark";
 }
 
+function defaultStyleForResolved(resolved: ResolvedTheme): ThemeStyle {
+  return resolved === "light" ? DEFAULT_LIGHT_STYLE : DEFAULT_DARK_STYLE;
+}
+
 function syncSystemTheme(theme: Theme): void {
   if (typeof document === "undefined") return;
   if (theme !== "auto") return;
-  document.documentElement.setAttribute("data-theme", resolveTheme(theme));
+  applyTheme("auto", getThemeStyle(), { syncSurfaces: true });
 }
 
 function installSystemThemeListener(): void {
@@ -58,14 +88,6 @@ export function normalizeThemePreference(value: unknown): Theme {
   }
 }
 
-/** @deprecated Theme styles removed — kept for Settings migration compatibility. */
-export type ThemeStyle = "default";
-export const THEME_STYLES = ["default"] as const;
-
-export function isThemeStyle(_value: unknown): _value is ThemeStyle {
-  return false;
-}
-
 export function getTheme(): Theme {
   return currentTheme;
 }
@@ -74,48 +96,84 @@ export function getResolvedTheme(theme: Theme = getTheme()): ResolvedTheme {
   return resolveTheme(theme);
 }
 
-export function defaultStyleForTheme(_theme: Theme): ThemeStyle {
-  return "default";
+export function defaultStyleForTheme(theme: Theme): ThemeStyle {
+  return defaultStyleForResolved(resolveTheme(theme));
 }
 
-export function themeForStyle(_style: ThemeStyle): ResolvedTheme {
+export function themeForStyle(style: ThemeStyle): ResolvedTheme {
+  if (LIGHT_STYLES.has(style)) return "light";
+  if (DARK_STYLES.has(style)) return "dark";
   return getResolvedTheme();
 }
 
-export function getThemeStyle(_theme: Theme = getTheme()): ThemeStyle {
-  return "default";
-}
-
-export function normalizeThemeStyleForTheme(_style: string | undefined, _theme: Theme): ThemeStyle {
-  return "default";
-}
-
-export function applyTheme(theme: Theme, _style?: ThemeStyle, _options: { persist?: boolean } = {}): void {
-  if (typeof document === "undefined") return;
-  const root = document.documentElement;
-  root.removeAttribute("data-theme-style");
+export function getThemeStyle(theme: Theme = getTheme()): ThemeStyle {
   const resolved = resolveTheme(theme);
+  if (resolved === "light" && LIGHT_STYLES.has(currentStyle)) return currentStyle;
+  if (resolved === "dark" && DARK_STYLES.has(currentStyle)) return currentStyle;
+  return defaultStyleForResolved(resolved);
+}
+
+export function normalizeThemeStyleForTheme(style: string | undefined, theme: Theme): ThemeStyle {
+  const normalized = typeof style === "string" ? style.trim().toLowerCase() : "";
+  if (isThemeStyle(normalized)) {
+    const resolved = resolveTheme(theme);
+    if (resolved === "light" && LIGHT_STYLES.has(normalized)) return normalized;
+    if (resolved === "dark" && DARK_STYLES.has(normalized)) return normalized;
+  }
+  return defaultStyleForTheme(theme);
+}
+
+export function stylesForTheme(theme: Theme): ThemeStyle[] {
+  return resolveTheme(theme) === "light"
+    ? ["glacier", "sandstone", "porcelain", "linen"]
+    : ["graphite", "ember", "aurora", "midnight", "cobalt"];
+}
+
+export type ApplyThemeOptions = {
+  persist?: boolean;
+  /** When true (default), align bg/fg presets with the resolved light/dark theme. */
+  syncSurfaces?: boolean;
+};
+
+export function applyTheme(theme: Theme, style?: ThemeStyle, options: ApplyThemeOptions = {}): void {
+  if (typeof document === "undefined") return;
+  const { syncSurfaces = true } = options;
+  const root = document.documentElement;
+  const resolved = resolveTheme(theme);
+  const nextStyle =
+    style !== undefined ? normalizeThemeStyleForTheme(style, theme) : normalizeThemeStyleForTheme(currentStyle, theme);
+
+  if (syncSurfaces) {
+    syncSurfacePresetsToTheme(resolved);
+  }
+
   root.setAttribute("data-theme", resolved);
+  root.setAttribute("data-theme-style", nextStyle);
   currentTheme = theme;
+  currentStyle = nextStyle;
 
   if (typeof window !== "undefined" && window.runtime) {
     if (theme === "auto") WindowSetSystemDefaultTheme();
     else if (theme === "light") WindowSetLightTheme();
     else WindowSetDarkTheme();
+    if (resolved === "light") WindowSetBackgroundColour(251, 252, 254, 255);
+    else WindowSetBackgroundColour(16, 16, 16, 255);
   }
 
-  if (theme === "auto") syncSystemTheme(theme);
+  applyAppearancePrefs();
 }
 
 export function readLegacyThemePreference(): { theme: Theme; style: ThemeStyle; hasValue: boolean } {
-  if (typeof localStorage === "undefined") return { theme: DEFAULT_THEME, style: "default", hasValue: false };
+  if (typeof localStorage === "undefined") {
+    return { theme: DEFAULT_THEME, style: DEFAULT_LIGHT_STYLE, hasValue: false };
+  }
   let rawTheme: string | null = null;
   let rawStyle: string | null = null;
   try {
     rawTheme = localStorage.getItem(THEME_KEY);
-    rawStyle = localStorage.getItem("reasonix-theme-style");
+    rawStyle = localStorage.getItem(STYLE_KEY);
   } catch {
-    return { theme: DEFAULT_THEME, style: "default", hasValue: false };
+    return { theme: DEFAULT_THEME, style: DEFAULT_LIGHT_STYLE, hasValue: false };
   }
   const hasValue = rawTheme !== null || rawStyle !== null;
   let theme = DEFAULT_THEME;
@@ -126,28 +184,20 @@ export function readLegacyThemePreference(): { theme: Theme; style: ThemeStyle; 
       theme = normalizeThemePreference(rawTheme);
     }
   }
-  return { theme, style: "default", hasValue };
+  const style = normalizeThemeStyleForTheme(rawStyle ?? undefined, theme);
+  return { theme, style, hasValue };
 }
 
 export function clearLegacyThemePreference(): void {
   try {
     localStorage.removeItem(THEME_KEY);
-    localStorage.removeItem("reasonix-theme-style");
+    localStorage.removeItem(STYLE_KEY);
   } catch {
     /* ignore */
   }
 }
 
 export function initTheme(): void {
-  applyTheme(getTheme(), "default", { persist: false });
+  applyTheme(getTheme(), getThemeStyle(), { syncSurfaces: false });
   installSystemThemeListener();
-
-  if (typeof window !== "undefined" && window.runtime) {
-    const resolved = getResolvedTheme(getTheme());
-    if (resolved === "light") {
-      WindowSetBackgroundColour(251, 252, 254, 255);
-    } else {
-      WindowSetBackgroundColour(16, 16, 16, 255);
-    }
-  }
 }

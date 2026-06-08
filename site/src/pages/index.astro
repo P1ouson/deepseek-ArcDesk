@@ -2,7 +2,7 @@
 import Base from '../layouts/Base.astro';
 const R2BASE = 'https://pub-147fb53b9c1e4bbf891a257968619ea7.r2.dev';
 const R2 = `${R2BASE}/latest`;
-const repo = 'https://github.com/esengine/DeepSeek-Reasonix';
+const repo = 'https://github.com/esengine/DeepSeek-ARCDESK';
 const DT053 = `${R2BASE}/desktop-v0.53.0`;
 
 // v1.x (Go preview) version, resolved from the published manifest at build time
@@ -14,12 +14,12 @@ try {
 } catch {}
 ---
 <Base
-  title="Reasonix — DeepSeek-native coding agent for your terminal"
+  title="ARCDESK — DeepSeek-native coding agent for your terminal"
   description="Open-source AI coding agent for your terminal, engineered around DeepSeek's byte-stable prefix cache. Long sessions hold 90%+ cache hit and input-token cost collapses to ~1/5. A single Go binary. npm · Homebrew · desktop. MIT.">
 
   <nav id="nav">
     <div class="wrap nav">
-      <a class="brand" href="#top"><span class="mk">R</span>Reasonix</a>
+      <a class="brand" href="#top"><span class="mk">R</span>ARCDESK</a>
       <div class="nav-links">
         <a href="#top" data-en>Install</a><a href="#top" data-zh>安装</a>
         <a href="#features" data-en>Features</a><a href="#features" data-zh>特性</a>
@@ -54,37 +54,37 @@ try {
         <div class="hpanel on" data-h="npm">
           <div class="cmdgroup">
             <div class="cmdtag ok">latest · v0.53</div>
-            <div class="cmdrow"><span class="hcmd"><span class="p">$ </span>npm i -g reasonix</span><button class="cp" data-copy="npm i -g reasonix"><span data-en>Copy</span><span data-zh>复制</span></button></div>
-            <div class="cmdrow"><span class="hcmd"><span class="p">$ </span>reasonix code</span><button class="cp" data-copy="reasonix code"><span data-en>Copy</span><span data-zh>复制</span></button></div>
+            <div class="cmdrow"><span class="hcmd"><span class="p">$ </span>npm i -g ARCDESK</span><button class="cp" data-copy="npm i -g ARCDESK"><span data-en>Copy</span><span data-zh>复制</span></button></div>
+            <div class="cmdrow"><span class="hcmd"><span class="p">$ </span>ARCDESK code</span><button class="cp" data-copy="ARCDESK code"><span data-en>Copy</span><span data-zh>复制</span></button></div>
           </div>
           <div class="cmdgroup">
             <div class="cmdtag pre">next · v<span class="rxv">{goVer}</span></div>
-            <div class="cmdrow"><span class="hcmd"><span class="p">$ </span>npm i -g reasonix@next</span><button class="cp" data-copy="npm i -g reasonix@next"><span data-en>Copy</span><span data-zh>复制</span></button></div>
-            <div class="cmdrow"><span class="hcmd"><span class="p">$ </span>reasonix</span><button class="cp" data-copy="reasonix"><span data-en>Copy</span><span data-zh>复制</span></button></div>
+            <div class="cmdrow"><span class="hcmd"><span class="p">$ </span>npm i -g ARCDESK@next</span><button class="cp" data-copy="npm i -g ARCDESK@next"><span data-en>Copy</span><span data-zh>复制</span></button></div>
+            <div class="cmdrow"><span class="hcmd"><span class="p">$ </span>ARCDESK</span><button class="cp" data-copy="ARCDESK"><span data-en>Copy</span><span data-zh>复制</span></button></div>
           </div>
         </div>
         <div class="hpanel" data-h="brew">
           <div class="cmdgroup">
             <div class="cmdtag pre"><span data-en>v<span class="rxv">{goVer}</span> only</span><span data-zh>仅 v<span class="rxv">{goVer}</span></span></div>
-            <div class="cmdrow"><span class="hcmd"><span class="p">$ </span>brew install esengine/reasonix/reasonix</span><button class="cp" data-copy="brew install esengine/reasonix/reasonix"><span data-en>Copy</span><span data-zh>复制</span></button></div>
-            <div class="cmdrow"><span class="hcmd"><span class="p">$ </span>reasonix</span><button class="cp" data-copy="reasonix"><span data-en>Copy</span><span data-zh>复制</span></button></div>
+            <div class="cmdrow"><span class="hcmd"><span class="p">$ </span>brew install esengine/ARCDESK/ARCDESK</span><button class="cp" data-copy="brew install esengine/ARCDESK/ARCDESK"><span data-en>Copy</span><span data-zh>复制</span></button></div>
+            <div class="cmdrow"><span class="hcmd"><span class="p">$ </span>ARCDESK</span><button class="cp" data-copy="ARCDESK"><span data-en>Copy</span><span data-zh>复制</span></button></div>
           </div>
         </div>
         <div class="hpanel" data-h="dl">
           <div class="dlgroup">
             <div class="dllabel"><span class="dot ok"></span><span data-en>Stable · v0.53</span><span data-zh>稳定版 · v0.53</span></div>
             <div class="dlrow">
-              <a class="hdl" href={`${DT053}/Reasonix_0.53.0_universal.dmg`}>macOS</a>
-              <a class="hdl" href={`${DT053}/Reasonix_0.53.0_x64-setup.exe`}>Windows</a>
-              <a class="hdl" href={`${DT053}/Reasonix_0.53.0_amd64.AppImage`}>Linux</a>
+              <a class="hdl" href={`${DT053}/ARCDESK_0.53.0_universal.dmg`}>macOS</a>
+              <a class="hdl" href={`${DT053}/ARCDESK_0.53.0_x64-setup.exe`}>Windows</a>
+              <a class="hdl" href={`${DT053}/ARCDESK_0.53.0_amd64.AppImage`}>Linux</a>
             </div>
           </div>
           <div class="dlgroup">
             <div class="dllabel"><span class="dot pre"></span><span data-en>v<span class="rxv">{goVer}</span> · Go rewrite — preview</span><span data-zh>v<span class="rxv">{goVer}</span> · Go 重写(预览)</span></div>
             <div class="dlrow">
-              <a class="hdl" href={`${R2}/Reasonix-darwin-universal.dmg`} download>macOS</a>
-              <a class="hdl" href={`${R2}/Reasonix-windows-amd64-installer.exe`} download>Windows</a>
-              <a class="hdl" href={`${R2}/Reasonix-linux-amd64.tar.gz`} download>Linux</a>
+              <a class="hdl" href={`${R2}/ARCDESK-darwin-universal.dmg`} download>macOS</a>
+              <a class="hdl" href={`${R2}/ARCDESK-windows-amd64-installer.exe`} download>Windows</a>
+              <a class="hdl" href={`${R2}/ARCDESK-linux-amd64.tar.gz`} download>Linux</a>
             </div>
           </div>
         </div>
@@ -97,8 +97,8 @@ try {
     <a class="ghlink" href={repo}><span data-en>★ Star on GitHub</span><span data-zh>★ 在 GitHub 点星</span></a>
 
     <div class="term" id="term">
-      <div class="tbar"><i></i><i></i><i></i><span>~/app — reasonix chat</span></div>
-      <div class="tbody" id="tbody"><span class="ln"><span class="u">$</span> reasonix chat</span><span class="ln"><span class="i">reasonix v<span class="rxv">{goVer}</span> · model deepseek-v4-flash · ~/app</span></span><span class="ln"><span class="d">cache 94.2% hit · session 18m · cost $0.043</span></span><span class="ln"><span class="u">›</span> add retry with backoff to the http client</span><span class="ln"><span class="e">edit</span>  internal/net/client.go        <span class="c">+24 −3</span></span><span class="ln"><span class="e">edit</span>  internal/net/client_test.go   <span class="c">+41 −0</span></span><span class="ln"><span class="k">✓</span> go test ./internal/net/   ok  0.21s</span><span class="ln"><span class="d">2 files · cache 94.2% → 95.1%</span><span class="caret"></span></span></div>
+      <div class="tbar"><i></i><i></i><i></i><span>~/app — ARCDESK chat</span></div>
+      <div class="tbody" id="tbody"><span class="ln"><span class="u">$</span> ARCDESK chat</span><span class="ln"><span class="i">ARCDESK v<span class="rxv">{goVer}</span> · model deepseek-v4-flash · ~/app</span></span><span class="ln"><span class="d">cache 94.2% hit · session 18m · cost $0.043</span></span><span class="ln"><span class="u">›</span> add retry with backoff to the http client</span><span class="ln"><span class="e">edit</span>  internal/net/client.go        <span class="c">+24 −3</span></span><span class="ln"><span class="e">edit</span>  internal/net/client_test.go   <span class="c">+41 −0</span></span><span class="ln"><span class="k">✓</span> go test ./internal/net/   ok  0.21s</span><span class="ln"><span class="d">2 files · cache 94.2% → 95.1%</span><span class="caret"></span></span></div>
     </div>
   </header>
 
@@ -123,7 +123,7 @@ try {
       <div>
         <div class="lab" data-en>Why DeepSeek</div><div class="lab" data-zh>为何 DeepSeek</div>
         <h2><span data-en>The cheapness is the point.</span><span data-zh>便宜,就是核心。</span></h2>
-        <p class="sub"><span data-en>Most agents pay full price for the same growing prompt every turn. Reasonix keeps the prefix byte-identical so DeepSeek's cache does the heavy lifting.</span><span data-zh>多数 agent 每回合都为同一段不断增长的 prompt 付全价。Reasonix 让前缀逐字节稳定,让 DeepSeek 的缓存替你扛下来。</span></p>
+        <p class="sub"><span data-en>Most agents pay full price for the same growing prompt every turn. ARCDESK keeps the prefix byte-identical so DeepSeek's cache does the heavy lifting.</span><span data-zh>多数 agent 每回合都为同一段不断增长的 prompt 付全价。ARCDESK 让前缀逐字节稳定,让 DeepSeek 的缓存替你扛下来。</span></p>
       </div>
       <div class="nums">
         <div class="num"><div class="v">90%+</div><div class="l"><span data-en>cache hit on long sessions</span><span data-zh>长会话缓存命中</span></div></div>
@@ -137,16 +137,16 @@ try {
     <div class="band">
       <h2><span data-en>Start in one line.</span><span data-zh>一行开始。</span></h2>
       <p class="sub"><span data-en>Point it at api.deepseek.com and leave it running.</span><span data-zh>对接 api.deepseek.com,留它一直跑着。</span></p>
-      <div class="run"><span><span class="p">$ </span>npm i -g reasonix</span><button class="cp" data-copy="npm i -g reasonix"><span data-en>Copy</span><span data-zh>复制</span></button></div>
+      <div class="run"><span><span class="p">$ </span>npm i -g ARCDESK</span><button class="cp" data-copy="npm i -g ARCDESK"><span data-en>Copy</span><span data-zh>复制</span></button></div>
     </div>
   </section>
 
   <footer>
     <div class="wrap foot">
-      <div>© 2026 Reasonix · <span data-en>MIT licensed</span><span data-zh>MIT 许可</span></div>
+      <div>© 2026 ARCDESK · <span data-en>MIT licensed</span><span data-zh>MIT 许可</span></div>
       <div class="foot-links">
         <a href={repo}>GitHub</a>
-        <a href="https://www.npmjs.com/package/reasonix">npm</a>
+        <a href="https://www.npmjs.com/package/ARCDESK">npm</a>
         <a href="https://platform.deepseek.com" target="_blank" rel="noreferrer">DeepSeek</a>
         <a href={`${repo}/releases/latest`}><span data-en>Releases</span><span data-zh>下载</span></a>
       </div>

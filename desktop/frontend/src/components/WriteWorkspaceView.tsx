@@ -1,36 +1,115 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, SyntheticEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import {
+  Download,
+  FileText,
+  ListTree,
+  Loader2,
+  Minimize2,
+  PenLine,
+  Save,
+  Sparkles,
+  TextQuote,
+  Wand2,
+} from "lucide-react";
 import { app } from "../lib/bridge";
 import { useT } from "../lib/i18n";
+import type { ComposerWriteContext } from "../lib/types";
+import type { WriteTurn } from "../lib/writeConversation";
+import { latestWriteAssistant } from "../lib/writeConversation";
+import { exportDocxFile, exportHtmlFile, exportMarkdownFile, exportPdfFile } from "../lib/writeExport";
+import { writeActionPromptKey } from "../lib/writePrompts";
+import { basename, parentPath } from "../lib/workspaceFilePreview";
+import { closeStudioSelect, openStudioSelect } from "../lib/studioSelectRegistry";
+import { AnchoredPopover } from "./AnchoredPopover";
+import { Tooltip } from "./Tooltip";
+import { WriteConversationThread } from "./WriteConversationThread";
 
 export type WriteViewMode = "source" | "split" | "preview";
+export type WriteApplyMode = "selection" | "append" | "replace";
 
 export interface WriteWorkspaceViewProps {
   filePath?: string;
   onSaved?: () => void;
-  onPrompt?: (text: string) => void;
+  onFilePathChange?: (path: string) => void;
+  onDraftComposer?: (context: ComposerWriteContext) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  conversationTurns?: WriteTurn[];
+  agentRunning?: boolean;
 }
 
 const QUICK_ACTION_KEYS = [
-  { key: "write.action.summarize", prompt: "write.action.summarizePrompt" },
-  { key: "write.action.outline", prompt: "write.action.outlinePrompt" },
-  { key: "write.action.polish", prompt: "write.action.polishPrompt" },
-  { key: "write.action.expand", prompt: "write.action.expandPrompt" },
+  { key: "write.action.summarize", icon: TextQuote },
+  { key: "write.action.outline", icon: ListTree },
+  { key: "write.action.polish", icon: Wand2 },
+  { key: "write.action.expand", icon: PenLine },
+  { key: "write.action.shorten", icon: Minimize2 },
+  { key: "write.action.proofread", icon: Sparkles },
 ] as const;
 
-export function WriteWorkspaceView({ filePath, onSaved, onPrompt }: WriteWorkspaceViewProps) {
+const VIEW_MODES: WriteViewMode[] = ["source", "split", "preview"];
+const APPLY_MODES: WriteApplyMode[] = ["selection", "append", "replace"];
+const AUTO_SAVE_MS = 2500;
+
+function countWritingStats(text: string): { chars: number; words: number; readingMin: number } {
+  const trimmed = text.trim();
+  if (!trimmed) return { chars: 0, words: 0, readingMin: 0 };
+  const words = trimmed.split(/\s+/).filter(Boolean).length;
+  return {
+    chars: trimmed.length,
+    words,
+    readingMin: Math.max(1, Math.ceil(words / 200)),
+  };
+}
+
+export function WriteWorkspaceView({
+  filePath,
+  onSaved,
+  onFilePathChange,
+  onDraftComposer,
+  onDirtyChange,
+  conversationTurns = [],
+  agentRunning = false,
+}: WriteWorkspaceViewProps) {
   const t = useT();
-  const [viewMode, setViewMode] = useState<WriteViewMode>("split");
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const exportAnchorRef = useRef<HTMLButtonElement>(null);
+  const [viewMode, setViewMode] = useState<WriteViewMode>("source");
   const [content, setContent] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [autoSaved, setAutoSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [selectionText, setSelectionText] = useState("");
+  const [stagedAction, setStagedAction] = useState<(typeof QUICK_ACTION_KEYS)[number]["key"] | null>(null);
+  const [applyMode, setApplyMode] = useState<WriteApplyMode>("selection");
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const closeExportMenu = useCallback(() => setExportMenuOpen(false), []);
+  const [fimSuggestion, setFimSuggestion] = useState("");
+  const [fimBusy, setFimBusy] = useState(false);
+
+  const latestAssistant = useMemo(() => latestWriteAssistant(conversationTurns), [conversationTurns]);
+  const agentReply = latestAssistant?.text ?? "";
+  const agentReplyStreaming = latestAssistant?.streaming ?? false;
+
+  const setDirtyState = useCallback(
+    (next: boolean) => {
+      setDirty(next);
+      if (next) setAutoSaved(false);
+      onDirtyChange?.(next);
+    },
+    [onDirtyChange],
+  );
 
   const load = useCallback(async () => {
     if (!filePath) {
       setContent("");
-      setDirty(false);
+      setDirtyState(false);
+      setSelectionText("");
+      setStagedAction(null);
+      setFimSuggestion("");
       return;
     }
     setBusy(true);
@@ -38,135 +117,375 @@ export function WriteWorkspaceView({ filePath, onSaved, onPrompt }: WriteWorkspa
     try {
       const body = await app.ReadWriteFile(filePath);
       setContent(body);
-      setDirty(false);
+      setDirtyState(false);
+      setSelectionText("");
+      setStagedAction(null);
+      setFimSuggestion("");
     } catch (e) {
       setErr(String((e as Error)?.message ?? e));
     } finally {
       setBusy(false);
     }
-  }, [filePath]);
+  }, [filePath, setDirtyState]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const wordCount = useMemo(() => content.trim().split(/\s+/).filter(Boolean).length, [content]);
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    openStudioSelect(closeExportMenu);
+    return () => closeStudioSelect(closeExportMenu);
+  }, [exportMenuOpen, closeExportMenu]);
 
-  const save = async () => {
-    if (!filePath) return;
+  const save = useCallback(async () => {
+    let targetPath = filePath?.trim() ?? "";
+    if (!targetPath) {
+      const stamp = new Date().toISOString().slice(0, 10);
+      const picked = await app.PickSaveFilePath(`untitled-${stamp}.md`);
+      if (!picked?.trim()) return;
+      targetPath = picked.trim();
+      onFilePathChange?.(targetPath);
+    }
     setBusy(true);
     setErr(null);
     try {
-      await app.WriteWriteFile(filePath, content);
-      setDirty(false);
+      await app.WriteWriteFile(targetPath, content);
+      setDirtyState(false);
+      setAutoSaved(true);
       onSaved?.();
     } catch (e) {
       setErr(String((e as Error)?.message ?? e));
     } finally {
       setBusy(false);
     }
+  }, [content, filePath, onFilePathChange, onSaved, setDirtyState]);
+
+  useEffect(() => {
+    if (!dirty || busy) return;
+    const id = window.setTimeout(() => {
+      void save();
+    }, AUTO_SAVE_MS);
+    return () => window.clearTimeout(id);
+  }, [busy, content, dirty, save]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (dirty && !busy) void save();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [busy, dirty, save]);
+
+  const stats = useMemo(() => countWritingStats(content), [content]);
+  const fileName = filePath ? basename(filePath) : "";
+  const fileDir = filePath ? parentPath(filePath) : "";
+  const hasSelection = selectionText.trim().length > 0;
+
+  const requestFim = useCallback(async () => {
+    const el = editorRef.current;
+    if (!el || !filePath || fimBusy) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const before = el.value.slice(0, start);
+    const after = el.value.slice(end);
+    if (!before.trim() && !after.trim()) return;
+    setFimBusy(true);
+    try {
+      const suggestion = await app.CompleteWriteInline(before, after);
+      setFimSuggestion(suggestion.trim());
+    } catch {
+      setFimSuggestion("");
+    } finally {
+      setFimBusy(false);
+    }
+  }, [filePath, fimBusy]);
+
+  const acceptFim = () => {
+    const el = editorRef.current;
+    if (!el || !fimSuggestion) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const next = `${el.value.slice(0, start)}${fimSuggestion}${el.value.slice(end)}`;
+    setContent(next);
+    setDirtyState(true);
+    setFimSuggestion("");
+    window.requestAnimationFrame(() => {
+      const pos = start + fimSuggestion.length;
+      el.focus();
+      el.setSelectionRange(pos, pos);
+    });
   };
 
-  const exportMarkdown = () => {
-    if (!filePath || !content) return;
-    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filePath.split(/[/\\]/).pop() || "draft.md";
-    anchor.click();
-    URL.revokeObjectURL(url);
+  const syncSelection = (event: SyntheticEvent<HTMLTextAreaElement>) => {
+    const el = event.currentTarget;
+    const text = el.value.slice(el.selectionStart, el.selectionEnd).trim();
+    setSelectionText(text);
+    setFimSuggestion("");
+  };
+
+  const stageQuickAction = (actionKey: (typeof QUICK_ACTION_KEYS)[number]["key"]) => {
+    if (!onDraftComposer || !filePath) return;
+    const excerpt = selectionText.trim() || content.trim();
+    if (!excerpt) return;
+    const scope = hasSelection ? "selection" : "document";
+    onDraftComposer({
+      actionKey,
+      actionLabel: t(actionKey),
+      instruction: t(writeActionPromptKey(actionKey, scope) as "write.action.summarizePromptSelection"),
+      scope,
+      filePath: hasSelection ? undefined : filePath,
+      fileName,
+      selection: hasSelection ? selectionText.trim() : undefined,
+    });
+    setStagedAction(actionKey);
+  };
+
+  const applyAgentReply = () => {
+    const text = agentReply?.trim();
+    if (!text || !filePath) return;
+    const el = editorRef.current;
+    if (applyMode === "replace") {
+      setContent(text);
+    } else if (applyMode === "append") {
+      setContent((prev) => (prev.trim() ? `${prev.trimEnd()}\n\n${text}` : text));
+    } else if (el && hasSelection) {
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      setContent(el.value.slice(0, start) + text + el.value.slice(end));
+    } else {
+      setContent((prev) => (prev.trim() ? `${prev.trimEnd()}\n\n${text}` : text));
+    }
+    setDirtyState(true);
+    setSelectionText("");
+  };
+
+  const onEditorKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+      event.preventDefault();
+      if (dirty && !busy) void save();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.code === "Space") {
+      event.preventDefault();
+      void requestFim();
+      return;
+    }
+    if (event.key === "Tab" && fimSuggestion && !event.shiftKey) {
+      event.preventDefault();
+      acceptFim();
+      return;
+    }
+    if (event.key === "Escape") {
+      setFimSuggestion("");
+    }
   };
 
   const showEditor = viewMode === "source" || viewMode === "split";
   const showPreview = viewMode === "preview" || viewMode === "split";
 
   return (
-    <div className="write-workspace">
-      <div className="write-workspace__primary">
-        <div className="write-workspace__toolbar">
-          <div className="write-workspace__exports">
-            <button type="button" disabled={!filePath || !content.trim()} onClick={exportMarkdown}>
-              {t("write.export.markdown")}
-            </button>
-            <button type="button" disabled title={t("write.export.soon")}>{t("write.export.html")}</button>
-            <button type="button" disabled title={t("write.export.soon")}>{t("write.export.pdf")}</button>
-            <button type="button" disabled title={t("write.export.soon")}>{t("write.export.docx")}</button>
-          </div>
-          <div className="write-workspace__tabs">
-            <button type="button" className="write-workspace__tab write-workspace__tab--disabled" disabled title="Live editor coming soon">
-              {t("write.tab.live")}
-            </button>
-            {(["source", "split", "preview"] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                className={`write-workspace__tab${viewMode === mode ? " write-workspace__tab--active" : ""}`}
-                onClick={() => setViewMode(mode)}
-              >
-                {t(`write.tab.${mode}` as "write.tab.source")}
-              </button>
-            ))}
-          </div>
-          <button type="button" className="write-workspace__save" disabled={!filePath || busy || !dirty} onClick={() => void save()}>
-            {t("write.save")}
-          </button>
+    <div className="write-workspace write-studio write-studio--split">
+      {err ? <div className="write-workspace__banner write-workspace__banner--error">{err}</div> : null}
+
+      {!filePath ? (
+        <div className="write-studio__empty">
+          <FileText size={28} strokeWidth={1.5} />
+          <strong>{t("write.emptyTitle")}</strong>
+          <p>{t("write.emptySelect")}</p>
         </div>
-
-        {err ? <div className="write-workspace__banner write-workspace__banner--error">{err}</div> : null}
-
-        {!filePath ? (
-          <div className="write-workspace__empty">{t("write.emptySelect")}</div>
-        ) : (
-          <div className={`write-workspace__pane write-workspace__pane--${viewMode}`}>
-            {showEditor ? (
-              <textarea
-                className="write-workspace__editor"
-                value={content}
-                disabled={busy}
-                onChange={(e) => {
-                  setContent(e.target.value);
-                  setDirty(true);
-                }}
-                spellCheck
-              />
-            ) : null}
-            {showPreview ? (
-              <div className="write-workspace__preview">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || t("write.previewEmpty")}</ReactMarkdown>
+      ) : (
+        <div className="write-studio__split">
+          <div className="write-studio__editor-column">
+            <header className="write-studio__editor-toolbar wails-no-drag">
+              <div className="write-studio__doc">
+                <span className="write-studio__doc-icon" aria-hidden="true">
+                  <FileText size={16} />
+                </span>
+                <div className="write-studio__doc-copy">
+                  <strong>{fileName}</strong>
+                  {fileDir ? <span>{fileDir}</span> : null}
+                </div>
               </div>
-            ) : null}
+
+              <div className="write-studio__segments" role="tablist" aria-label={t("write.viewMode")}>
+                {VIEW_MODES.map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="tab"
+                    aria-selected={viewMode === mode}
+                    className={`write-studio__segment${viewMode === mode ? " write-studio__segment--active" : ""}`}
+                    onClick={() => setViewMode(mode)}
+                  >
+                    {t(`write.tab.${mode}` as "write.tab.source")}
+                  </button>
+                ))}
+              </div>
+
+              <div className="write-studio__toolbar-actions">
+                <button
+                  ref={exportAnchorRef}
+                  type="button"
+                  className="write-studio__icon-btn"
+                  disabled={!content.trim()}
+                  onClick={() => setExportMenuOpen((open) => !open)}
+                  aria-label={t("write.export.menu")}
+                >
+                  <Download size={15} />
+                </button>
+                <AnchoredPopover
+                  open={exportMenuOpen}
+                  anchorRef={exportAnchorRef}
+                  onClose={closeExportMenu}
+                  className="write-studio__export-popover"
+                  align="end"
+                  placement="bottom"
+                >
+                  <div className="write-studio__export-menu">
+                    {(
+                      [
+                        ["markdown", () => exportMarkdownFile(content, fileName)],
+                        ["html", () => exportHtmlFile(content, fileName)],
+                        ["pdf", () => exportPdfFile(content, fileName)],
+                        ["docx", () => exportDocxFile(content, fileName)],
+                      ] as const
+                    ).map(([kind, run]) => (
+                      <button
+                        key={kind}
+                        type="button"
+                        className="write-studio__export-item"
+                        onClick={() => {
+                          run();
+                          setExportMenuOpen(false);
+                        }}
+                      >
+                        {t(`write.export.${kind}` as "write.export.markdown")}
+                      </button>
+                    ))}
+                  </div>
+                </AnchoredPopover>
+                <button
+                  type="button"
+                  className="write-studio__save"
+                  disabled={busy || (!dirty && Boolean(filePath))}
+                  onClick={() => void save()}
+                >
+                  <Save size={14} />
+                  {t("write.save")}
+                </button>
+              </div>
+            </header>
+
+            <div className={`write-workspace__pane write-workspace__pane--${viewMode} write-studio__pane`}>
+              {showEditor ? (
+                <div className="write-studio__editor-wrap">
+                  <textarea
+                    ref={editorRef}
+                    className="write-workspace__editor write-studio__editor"
+                    value={content}
+                    disabled={busy}
+                    onChange={(e) => {
+                      setContent(e.target.value);
+                      setDirtyState(true);
+                      setFimSuggestion("");
+                    }}
+                    onSelect={syncSelection}
+                    onKeyUp={syncSelection}
+                    onMouseUp={syncSelection}
+                    onKeyDown={onEditorKeyDown}
+                    spellCheck
+                  />
+                  {fimSuggestion ? <div className="write-studio__fim-ghost">{fimSuggestion}</div> : null}
+                </div>
+              ) : null}
+              {showPreview ? (
+                <div className={`write-workspace__preview write-studio__preview${viewMode === "preview" ? " write-studio__preview--live" : ""}`}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || t("write.previewEmpty")}</ReactMarkdown>
+                </div>
+              ) : null}
+            </div>
+
+            <footer className="write-workspace__footer write-studio__footer">
+              <span>{t("write.chars", { n: stats.chars })}</span>
+              <span>{t("write.words", { n: stats.words })}</span>
+              {dirty ? <span className="write-workspace__dirty">{t("write.unsaved")}</span> : null}
+              {!dirty && autoSaved ? <span className="write-studio__autosaved">{t("write.autoSaved")}</span> : null}
+              <span className="write-workspace__fim">
+                {fimBusy ? t("write.fimLoading") : fimSuggestion ? t("write.fimHint") : t("write.fimEmpty")}
+              </span>
+              <span className="write-studio__hint">{t("write.saveShortcut")}</span>
+            </footer>
           </div>
-        )}
 
-        <footer className="write-workspace__footer">
-          <span>{t("write.words", { n: wordCount })}</span>
-          {dirty ? <span className="write-workspace__dirty">{t("write.unsaved")}</span> : null}
-          <span className="write-workspace__fim">{t("write.fimTodo")}</span>
-        </footer>
-      </div>
+          <aside className="write-studio__assistant-panel" aria-label={t("write.assistant")}>
+            <header className="write-studio__panel-head">
+              <div className="write-studio__panel-title">
+                <Sparkles size={15} />
+                <h3>{t("write.assistant")}</h3>
+              </div>
+              {agentRunning ? (
+                <span className="write-studio__panel-badge write-studio__panel-badge--busy">
+                  <Loader2 size={12} className="dock-panel__spin" />
+                  {t("write.assistantWorking")}
+                </span>
+              ) : null}
+            </header>
 
-      <aside className="write-workspace__aside">
-        <section className="write-workspace__card">
-          <h3>{t("write.assistant")}</h3>
-          <div className="write-workspace__quickgrid">
-            {QUICK_ACTION_KEYS.map(({ key, prompt }) => (
+            <div className="write-studio__action-tabs" role="tablist" aria-label={t("write.actionsTitle")}>
+              {QUICK_ACTION_KEYS.map(({ key, icon: Icon }) => (
+                <Tooltip key={key} label={t(`${key}Hint`)}>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={stagedAction === key}
+                    className={`write-studio__action-tab${stagedAction === key ? " write-studio__action-tab--active" : ""}`}
+                    disabled={!onDraftComposer || agentRunning || (!selectionText && !content.trim())}
+                    onClick={() => stageQuickAction(key)}
+                  >
+                    <Icon size={13} />
+                    {t(key)}
+                  </button>
+                </Tooltip>
+              ))}
+            </div>
+
+            <div className="write-studio__panel-reply">
+              <div className="write-studio__reply-head">
+                <span>{t("write.conversationTitle")}</span>
+              </div>
+              <WriteConversationThread turns={conversationTurns} running={agentRunning} variant="panel" />
+            </div>
+
+            <footer className="write-studio__panel-foot">
+              <div className="write-studio__apply-modes" role="group" aria-label={t("write.applyModeLabel")}>
+                {APPLY_MODES.map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={`write-studio__apply-mode${applyMode === mode ? " write-studio__apply-mode--active" : ""}`}
+                    disabled={mode === "selection" && !hasSelection}
+                    onClick={() => setApplyMode(mode)}
+                  >
+                    {t(`write.applyMode.${mode}` as "write.applyMode.selection")}
+                  </button>
+                ))}
+              </div>
               <button
-                key={key}
                 type="button"
-                disabled={!filePath || !onPrompt}
-                onClick={() => onPrompt?.(t(prompt))}
+                className="write-studio__apply-primary"
+                disabled={!agentReply?.trim() || agentReplyStreaming || (applyMode === "selection" && !hasSelection)}
+                onClick={applyAgentReply}
               >
-                {t(key)}
+                {t("write.applyReply")}
               </button>
-            ))}
-          </div>
-        </section>
-        <section className="write-workspace__card">
-          <h3>{t("write.inlineAgent")}</h3>
-          <p className="write-workspace__hint">{t("write.inlineHint")}</p>
-        </section>
-      </aside>
+            </footer>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

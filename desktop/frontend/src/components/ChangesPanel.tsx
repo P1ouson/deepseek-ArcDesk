@@ -10,15 +10,25 @@ import { basename, shortCwd } from "../lib/workspaceFilePreview";
 import { formatWorkspaceReference, WORKSPACE_REF_DRAG_TYPE } from "../lib/workspaceDrag";
 import { FloatingMenu, FloatingMenuItems } from "./FloatingMenu";
 import { Tooltip } from "./Tooltip";
+import { CodeReviewSection, type CodeReviewState } from "./CodeReviewSection";
+import type { ReviewMode, ReviewScope } from "../lib/codeReview";
+import {
+  getCodeReviewDefaultScope,
+  getCodeReviewSecurityByDefault,
+} from "../lib/codeReviewPrefs";
 
-type SourceFilter = "all" | "session" | "git" | "both";
+type SourceFilter = ReviewScope;
 
 interface ChangesPanelProps {
   cwd?: string;
   refreshKey?: number;
   activeFilePath?: string | null;
+  running?: boolean;
+  review?: CodeReviewState;
   onOpenFile?: (path: string) => void;
   onAddToChat?: (text: string) => void;
+  onRunReview?: (mode: ReviewMode, scope: ReviewScope, paths: string[]) => void;
+  onClearReview?: () => void;
 }
 
 function isDeletedChange(row: WorkspaceChangeView): boolean {
@@ -61,32 +71,58 @@ function changeDetail(row: WorkspaceChangeView): string {
 
 const WORKSPACE_CONTEXT_MENU_FILE_HEIGHT = 92;
 
-export function ChangesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToChat }: ChangesPanelProps) {
+export function ChangesPanel({
+  cwd,
+  refreshKey,
+  activeFilePath,
+  running = false,
+  review,
+  onOpenFile,
+  onAddToChat,
+  onRunReview,
+  onClearReview,
+}: ChangesPanelProps) {
   const t = useT();
   const { changes, loading: loadingChanges, loadChanges } = useWorkspaceChanges(cwd, refreshKey);
   const [query, setQuery] = useState("");
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>(() => getCodeReviewDefaultScope());
+  const [reviewMode, setReviewMode] = useState<ReviewMode>(() =>
+    getCodeReviewSecurityByDefault() ? "security" : "standard",
+  );
   const [rowMenu, setRowMenu] = useState<{ x: number; y: number; path: string } | null>(null);
 
   useEffect(() => {
+    const syncFromSettings = () => {
+      setSourceFilter(getCodeReviewDefaultScope());
+      setReviewMode(getCodeReviewSecurityByDefault() ? "security" : "standard");
+    };
+    window.addEventListener("arcdesk:code-review-settings", syncFromSettings);
+    return () => window.removeEventListener("arcdesk:code-review-settings", syncFromSettings);
+  }, []);
+
+  useEffect(() => {
     setQuery("");
-    setSourceFilter("all");
+    setSourceFilter(getCodeReviewDefaultScope());
   }, [cwd]);
 
   useDismissOnClickOutside(Boolean(rowMenu), () => setRowMenu(null));
 
   const allRows = useMemo(() => sortChanges(changes?.files ?? []), [changes?.files]);
 
+  const scopeRows = useMemo(
+    () => allRows.filter((row) => matchesSourceFilter(row, sourceFilter)),
+    [allRows, sourceFilter],
+  );
+
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return allRows.filter((row) => {
-      if (!matchesSourceFilter(row, sourceFilter)) return false;
-      if (!q) return true;
-      return `${row.path} ${row.oldPath ?? ""} ${row.gitStatus ?? ""} ${row.latestPrompt ?? ""} ${(row.turns ?? []).join(" ")}`
+    if (!q) return scopeRows;
+    return scopeRows.filter((row) =>
+      `${row.path} ${row.oldPath ?? ""} ${row.gitStatus ?? ""} ${row.latestPrompt ?? ""} ${(row.turns ?? []).join(" ")}`
         .toLowerCase()
-        .includes(q);
-    });
-  }, [allRows, query, sourceFilter]);
+        .includes(q),
+    );
+  }, [scopeRows, query]);
 
   const openFile = (path: string) => {
     onOpenFile?.(path);
@@ -117,13 +153,6 @@ export function ChangesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAd
     await addWorkspaceFileContentToChat(path, onAddToChat, t("workspace.truncated"));
   };
 
-  const sourceFilters: { id: SourceFilter; labelKey: "changes.filterAll" | "changes.filterSession" | "changes.filterGit" | "changes.filterBoth" }[] = [
-    { id: "all", labelKey: "changes.filterAll" },
-    { id: "session", labelKey: "changes.filterSession" },
-    { id: "git", labelKey: "changes.filterGit" },
-    { id: "both", labelKey: "changes.filterBoth" },
-  ];
-
   return (
     <div className="dock-panel changes-panel">
       <header className="dock-panel__head">
@@ -144,10 +173,30 @@ export function ChangesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAd
         <p className="dock-panel__banner dock-panel__banner--warn">{t("workspace.gitUnavailable")}</p>
       )}
 
+      <CodeReviewSection
+        scope={sourceFilter}
+        fileCount={scopeRows.length}
+        running={running}
+        mode={reviewMode}
+        review={{
+          status: review?.status ?? "idle",
+          mode: reviewMode,
+          scope: sourceFilter,
+          text: review?.text,
+          error: review?.error,
+          finishedAt: review?.finishedAt,
+        }}
+        onScopeChange={setSourceFilter}
+        onModeChange={setReviewMode}
+        onRun={() => onRunReview?.(reviewMode, sourceFilter, scopeRows.map((row) => row.path))}
+        onClear={() => onClearReview?.()}
+        onOpenFile={(path) => openFile(path)}
+      />
+
       <div className="dock-panel__section-head">
         <div className="dock-panel__section-title">
           <span>{t("changes.listHeading")}</span>
-          <span className="dock-panel__count">{allRows.length}</span>
+          <span className="dock-panel__count">{scopeRows.length}</span>
         </div>
         <label className="dock-panel__filter-wrap">
           <Search size={13} strokeWidth={1.75} className="dock-panel__filter-ico" aria-hidden="true" />
@@ -161,28 +210,13 @@ export function ChangesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAd
         </label>
       </div>
 
-      <div className="dock-panel__seg" role="tablist" aria-label={t("changes.sourceFilter")}>
-        {sourceFilters.map(({ id, labelKey }) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={sourceFilter === id}
-            className={`dock-panel__seg-btn${sourceFilter === id ? " dock-panel__seg-btn--active" : ""}`}
-            onClick={() => setSourceFilter(id)}
-          >
-            {t(labelKey)}
-          </button>
-        ))}
-      </div>
-
       <ul className="dock-panel__list">
         {loadingChanges && !changes ? (
           <li className="dock-panel__empty">{t("workspace.loadingChanges")}</li>
         ) : filteredRows.length === 0 ? (
-          <li className={`dock-panel__empty${allRows.length > 0 ? " dock-panel__search-empty" : ""}`}>
-            <span>{allRows.length > 0 ? t("workspace.noSearchResults") : t("workspace.noChanges")}</span>
-            <small>{allRows.length > 0 ? t("workspace.noSearchResultsHint") : t("changes.emptyHint")}</small>
+          <li className={`dock-panel__empty${scopeRows.length > 0 ? " dock-panel__search-empty" : ""}`}>
+            <span>{scopeRows.length > 0 ? t("workspace.noSearchResults") : t("workspace.noChanges")}</span>
+            <small>{scopeRows.length > 0 ? t("workspace.noSearchResultsHint") : t("changes.emptyHint")}</small>
           </li>
         ) : (
           filteredRows.map((row) => {
@@ -225,6 +259,7 @@ export function ChangesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAd
           y={rowMenu.y}
           estimatedHeight={WORKSPACE_CONTEXT_MENU_FILE_HEIGHT}
           className="workspace-tree-menu"
+          onClose={() => setRowMenu(null)}
         >
           <FloatingMenuItems
             items={[

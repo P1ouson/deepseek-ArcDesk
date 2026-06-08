@@ -22,7 +22,11 @@ import type {
   HistoryMessage,
   JobView,
   ClawChannel,
+  ClawCallbackInfo,
   ClawMessage,
+  MobileConnectConfig,
+  MobilePairingInfo,
+  MobileTunnelStatus,
   MCPCatalogEntry,
   MCPServerInput,
   MemoryView,
@@ -31,6 +35,7 @@ import type {
   NetworkView,
   ProjectNode,
   ProviderView,
+  ProviderModelsResult,
   QuestionAnswer,
   ServerView,
   SessionMeta,
@@ -38,12 +43,19 @@ import type {
   SettingsView,
   SkillRootView,
   SkillView,
+  AgentSettingsInput,
+  OutputStyleView,
+  DesktopAppearanceView,
+  DesktopCodeReviewView,
+  DesktopLocalPrefsMigrationInput,
+  ProjectPreviewSettingsInput,
   SlashArgsResult,
   TabMeta,
   TopicMeta,
   UpdateInfo,
   UpdateProgress,
   ShellRunResult,
+  CodeReviewResult,
   TerminalStartResult,
   ProjectSandboxStatus,
   ConfigureProjectSandboxInput,
@@ -128,6 +140,8 @@ export interface AppBindings {
   RenameSession(path: string, title: string): Promise<void>;
   ListWorkspaces(): Promise<WorkspaceView[]>;
   PickWorkspace(): Promise<string>;
+  PickFilePath(): Promise<string>;
+  PickSaveFilePath(defaultName: string): Promise<string>;
   SwitchWorkspace(path: string): Promise<string>;
   RemoveWorkspace(path: string): Promise<void>;
   ContextUsage(): Promise<ContextInfo>;
@@ -159,6 +173,7 @@ export interface AppBindings {
   ReadFile(rel: string): Promise<FilePreview>;
   ReadWorkspaceFileDataURL(rel: string): Promise<string>;
   WorkspaceChanges(): Promise<WorkspaceChangesView>;
+  RunCodeReview(mode: string, scope: string, paths: string[]): Promise<CodeReviewResult>;
   OpenWorkspacePath(rel: string): Promise<void>;
   RevealWorkspacePath(rel: string): Promise<void>;
   RevealPath(path: string): Promise<void>;
@@ -183,6 +198,7 @@ export interface AppBindings {
   SetPlannerModel(ref: string): Promise<void>;
   SetAutoPlan(mode: string): Promise<void>;
   SaveProvider(p: ProviderView): Promise<void>;
+  SyncProviderModels(providerName: string): Promise<ProviderModelsResult>;
   DeleteProvider(name: string): Promise<void>;
   SetProviderKey(apiKeyEnv: string, value: string): Promise<void>;
   SetPermissionMode(mode: string): Promise<void>;
@@ -192,8 +208,16 @@ export interface AppBindings {
   SetNetwork(n: NetworkView): Promise<void>;
   SetCloseBehavior(mode: string): Promise<void>;
   SetDesktopLanguage(lang: string): Promise<void>;
+  SetDesktopTerminalShell(shell: string): Promise<void>;
+  SetDesktopGitSettings(git: SettingsView["desktopGit"]): Promise<void>;
   SetDesktopAppearance(theme: string, style: string): Promise<void>;
+  SetDesktopAppearancePrefs(prefs: DesktopAppearanceView): Promise<void>;
+  SetDesktopCodeReviewSettings(prefs: DesktopCodeReviewView): Promise<void>;
+  MigrateDesktopLocalPrefs(input: DesktopLocalPrefsMigrationInput): Promise<void>;
+  SaveProjectPreviewSettings(input: ProjectPreviewSettingsInput): Promise<void>;
   MigrateDesktopPreferences(language: string, theme: string, style: string): Promise<void>;
+  SetAgentSettings(agent: AgentSettingsInput): Promise<void>;
+  ListOutputStyles(): Promise<OutputStyleView[]>;
   SetAgentParams(temperature: number, maxSteps: number, systemPrompt: string): Promise<void>;
   SetTrayLocale(locale: "en" | "zh"): Promise<void>;
   // SetBypass toggles YOLO mode (auto-approve every tool call this session; deny
@@ -224,14 +248,28 @@ export interface AppBindings {
   ReadWriteFile(path: string): Promise<string>;
   WriteWriteFile(path: string, content: string): Promise<void>;
   DeleteWriteFile(path: string): Promise<void>;
+  RenameWriteFile(oldPath: string, newPath: string): Promise<void>;
+  CompleteWriteInline(textBefore: string, textAfter: string): Promise<string>;
   ListWriteWorkspaces(): Promise<string[]>;
   AddWriteWorkspace(root: string): Promise<void>;
   RemoveWriteWorkspace(root: string): Promise<void>;
+  DefaultWriteWorkspace(): Promise<string>;
+  EnsureBundledSkills(): Promise<void>;
   GetClawChannels(): Promise<ClawChannel[]>;
   SaveClawChannel(channel: ClawChannel): Promise<void>;
   DeleteClawChannel(id: string): Promise<void>;
   GetClawMessages(channelID: string): Promise<ClawMessage[]>;
   SendClawMessage(channelID: string, text: string): Promise<ClawMessage>;
+  GetClawCallbackInfo(channelID: string): Promise<ClawCallbackInfo>;
+  TestClawWeComChannel(channel: ClawChannel): Promise<string>;
+  GetMobilePairingInfo(): Promise<MobilePairingInfo>;
+  RefreshMobilePairing(): Promise<MobilePairingInfo>;
+  GetMobileConnectConfig(): Promise<MobileConnectConfig>;
+  SaveMobileConnectConfig(config: MobileConnectConfig): Promise<void>;
+  ListMobileSessions(): Promise<{ id: string; createdAt: number; lastSeen: number }[]>;
+  GetMobileTunnelStatus(): Promise<MobileTunnelStatus>;
+  StartMobileTunnel(): Promise<MobileTunnelStatus>;
+  StopMobileTunnel(): Promise<MobileTunnelStatus>;
   GetScheduledTasks(): Promise<ScheduledTask[]>;
   SaveScheduledTask(task: ScheduledTask): Promise<void>;
   DeleteScheduledTask(id: string): Promise<void>;
@@ -418,8 +456,8 @@ function makeMockApp(): AppBindings {
   let pendingAskPreview = false;
   let pendingApprovalPreview = false;
   let cwd = "~/projects/joyquant-db"; // mutable so PickWorkspace is visible in dev
-  const globalWorkspaceRoot = "~/Library/Application Support/reasonix/global-workspace";
-  let workspaces = ["~/projects/joyquant-db", "~/projects/joyquant-sys", "~/projects/reasonix", "~/projects/blade"];
+  const globalWorkspaceRoot = "~/Library/Application Support/arcdesk/global-workspace";
+  let workspaces = ["~/projects/joyquant-db", "~/projects/joyquant-sys", "~/projects/arcdesk", "~/projects/blade"];
   let mockEffort = "auto";
   const mockClawMessages: ClawMessage[] = [];
   const day = 86_400_000;
@@ -474,10 +512,17 @@ function makeMockApp(): AppBindings {
   const capSkills: SkillView[] = [
     { name: "explore", description: "Investigate the codebase in an isolated subagent", scope: "builtin", runAs: "subagent", enabled: true },
     { name: "review", description: "Review the staged diff", scope: "project", runAs: "inline", enabled: false },
-    { name: "init", description: "Scaffold a REASONIX.md for this repo", scope: "builtin", runAs: "inline", enabled: true },
+    { name: "init", description: "Scaffold a ARCDESK.md for this repo", scope: "builtin", runAs: "inline", enabled: true },
+    {
+      name: "copywriting",
+      description: "Write and improve marketing copy, articles, and persuasive 文案 (marketingskills)",
+      scope: "global",
+      runAs: "inline",
+      enabled: true,
+    },
   ];
   let capSkillRoots: SkillRootView[] = [
-    { dir: "~/projects/reasonix/.reasonix/skills", scope: "project", priority: 1, status: "missing", configured: false, skills: 0 },
+    { dir: "~/projects/arcdesk/.arcdesk/skills", scope: "project", priority: 1, status: "missing", configured: false, skills: 0 },
     {
       dir: "~/my-skills",
       scope: "custom",
@@ -488,7 +533,7 @@ function makeMockApp(): AppBindings {
       skillItems: [{ name: "review", description: "Review the staged diff", scope: "custom", runAs: "inline" }],
     },
     {
-      dir: "~/.reasonix/skills",
+      dir: "~/.arcdesk/skills",
       scope: "global",
       priority: 6,
       status: "ok",
@@ -496,7 +541,7 @@ function makeMockApp(): AppBindings {
       skills: 2,
       skillItems: [
         { name: "explore", description: "Investigate the codebase in an isolated subagent", scope: "global", runAs: "subagent" },
-        { name: "init", description: "Scaffold a REASONIX.md for this repo", scope: "global", runAs: "inline" },
+        { name: "init", description: "Scaffold a ARCDESK.md for this repo", scope: "global", runAs: "inline" },
       ],
     },
   ];
@@ -646,7 +691,7 @@ function makeMockApp(): AppBindings {
       { name: "deepseek-flash", kind: "openai", baseUrl: "https://api.deepseek.com", models: ["deepseek-v4-flash"], default: "deepseek-v4-flash", apiKeyEnv: "DEEPSEEK_API_KEY", keySet: true, balanceUrl: "https://api.deepseek.com/user/balance", contextWindow: 1_000_000, supportedEfforts: [], defaultEffort: "" },
       { name: "mimo-pro", kind: "openai", baseUrl: "https://api.xiaomimimo.com/v1", models: ["mimo-v2.5-pro"], default: "mimo-v2.5-pro", apiKeyEnv: "MIMO_API_KEY", keySet: false, balanceUrl: "", contextWindow: 1_000_000, supportedEfforts: [], defaultEffort: "" },
     ],
-    permissions: { mode: "ask", allow: ["ls", "read_file"], ask: [], deny: ["bash(rm *)"] },
+    permissions: { mode: "ask", allow: ["ls", "read_file"], ask: [], deny: ["bash(rm -rf*)"] },
     sandbox: { bash: "enforce", network: true, workspaceRoot: "", allowWrite: [] },
     network: {
       proxyMode: "auto",
@@ -654,15 +699,59 @@ function makeMockApp(): AppBindings {
       noProxy: "",
       proxy: { type: "socks5", server: "127.0.0.1", port: 7890, username: "", password: "" },
     },
-    agent: { temperature: 0.2, maxSteps: 0, systemPrompt: "You are Reasonix, a coding agent." },
+    agent: {
+      temperature: 0.2,
+      maxSteps: 0,
+      systemPrompt: "You are ArcDesk, a coding agent.",
+      systemPromptFile: "",
+      outputStyle: "",
+      autoPlan: "off",
+      autoPlanClassifier: "",
+      softCompactRatio: 0.5,
+      compactRatio: 0.8,
+      compactForceRatio: 0.9,
+      subagentModel: "",
+      subagentModels: { explore: "deepseek-flash", review: "deepseek-flash" },
+      usesDefaultPrompt: true,
+      defaultSystemPrompt: `You are ArcDesk, a coding agent focused on executing code tasks.
+Use the provided tools to read and write files and run shell commands.
+Principles: understand the request before acting; verify with tools instead of
+guessing; keep changes minimal and correct; briefly summarize what you did.`,
+    },
     desktopLanguage: "",
-    desktopTheme: "dark",
-    desktopThemeStyle: "graphite",
+    desktopTheme: "light",
+    desktopThemeStyle: "glacier",
+    desktopTerminalShell: "",
+    desktopGit: {
+      prMergeMethod: "merge",
+      checkGitHubCli: false,
+      syncRepoMergeToGitHub: false,
+      commitInstructions: "",
+      prInstructions: "",
+    },
+    desktopAppearance: {
+      backgroundPreset: "studio",
+      foregroundPreset: "charcoal",
+      textSize: "default",
+      codeFontSize: "default",
+      diffMarker: "background",
+    },
+    desktopCodeReview: {
+      defaultScope: "all",
+      securityByDefault: false,
+    },
     closeBehavior: "background",
-    configPath: "~/projects/reasonix/reasonix.toml",
+    configPath: "~/projects/arcdesk/arcdesk.toml",
     providerKinds: ["openai"],
     bypass: false,
   };
+  const mockWriteFiles: Record<string, string> = {
+    "/workspace/writes/welcome.md": "# 欢迎\n\n在这里写文案、笔记或长文，与代码项目无关。\n",
+    "/workspace/README.md": "# README\n\nDraft content for README.\n",
+    "/workspace/notes/brief.md": "# Brief\n\nNotes for the brief.\n",
+  };
+  const mockWriteWorkspaces = ["/workspace", "/workspace/docs", "/workspace/notes"];
+  const mockWriteDirs = new Set(["/workspace/notes"]);
   const mockProjectTree: ProjectNode[] = [
     {
       key: "project_~/projects/joyquant-db",
@@ -766,6 +855,7 @@ function makeMockApp(): AppBindings {
 	      cwd: "~/projects/joyquant-db",
     },
   ];
+  let mockTerminalSeq = 0;
   return {
     async Platform() {
       // Mirror the OS the browser dev mock runs on.
@@ -882,6 +972,117 @@ function makeMockApp(): AppBindings {
         emit({ kind: "turn_done" });
         return;
       }
+      if (
+        trimmedInput === "/action-preview" ||
+        trimmedInput === "action preview" ||
+        trimmedInput === "操作流预览"
+      ) {
+        const ws = "~/projects/joyquant-db";
+        const emitReasoning = async (text: string) => {
+          for (const ch of text) {
+            if (cancelled) return;
+            emit({ kind: "reasoning", text: ch });
+            await delay(8);
+          }
+        };
+        const emitTool = async (
+          id: string,
+          name: string,
+          args: Record<string, unknown>,
+          output: string,
+          extra?: { readOnly?: boolean; fileDiff?: { diff: string; added: number; removed: number } },
+        ) => {
+          emit({
+            kind: "tool_dispatch",
+            tool: {
+              id,
+              name,
+              args: JSON.stringify(args),
+              readOnly: extra?.readOnly ?? name !== "edit_file",
+              fileDiff: extra?.fileDiff,
+            },
+          });
+          await delay(280);
+          if (cancelled) return;
+          emit({
+            kind: "tool_result",
+            tool: {
+              id,
+              name,
+              args: JSON.stringify(args),
+              output,
+              readOnly: extra?.readOnly ?? name !== "edit_file",
+              fileDiff: extra?.fileDiff,
+            },
+          });
+        };
+
+        await emitReasoning("Scanning the auth module and related handlers before editing.");
+        await emitTool(
+          "act-grep",
+          "grep",
+          { pattern: "login|session", path: `${ws}/internal/auth` },
+          [
+            `${ws}/internal/auth/login.go:42:func ValidateSession`,
+            `${ws}/internal/auth/session.go:18:type SessionStore`,
+            `${ws}/internal/handlers/auth_handler.go:91:func (h *Handler) Login`,
+          ].join("\n"),
+          { readOnly: true },
+        );
+        await emitTool(
+          "act-read",
+          "read_file",
+          { path: `${ws}/internal/auth/login.go` },
+          "package auth\n\nfunc ValidateSession(token string) error { ... }",
+          { readOnly: true },
+        );
+        await emitTool(
+          "act-bash",
+          "bash",
+          { command: "go test ./internal/auth/... -count=1" },
+          "$ go test ./internal/auth/... -count=1\nok  joyquant-db/internal/auth 0.412s\n",
+          { readOnly: false },
+        );
+        await emitTool(
+          "act-edit",
+          "edit_file",
+          {
+            path: `${ws}/internal/auth/login.go`,
+            old_string: 'return errors.New("invalid")',
+            new_string: 'return ErrInvalidSession',
+          },
+          "edited login.go",
+          {
+            readOnly: false,
+            fileDiff: {
+              diff: [
+                "@@ -40,7 +40,7 @@ func ValidateSession(token string) error {",
+                " \tif token == \"\" {",
+                "-\t\treturn errors.New(\"invalid\")",
+                "+\t\treturn ErrInvalidSession",
+                " \t}",
+                " \tif !store.Has(token) {",
+                "-\t\treturn errors.New(\"invalid\")",
+                "+\t\treturn ErrInvalidSession",
+                " \t}",
+              ].join("\n"),
+              added: 2,
+              removed: 2,
+            },
+          },
+        );
+
+        const reply =
+          "Updated session validation to use `ErrInvalidSession` and verified auth tests pass.\n";
+        for (const ch of reply) {
+          if (cancelled) break;
+          emit({ kind: "text", text: ch });
+          await delay(5);
+        }
+        emit({ kind: "message", text: reply });
+        emit({ kind: "turn_done" });
+        return;
+      }
       // Simulate the server's pre-first-token latency so the deferred user bubble
       // and the "un-send on Esc before any reply" path are observable in browser
       // dev. Bail if cancelled during the wait — nothing was streamed yet.
@@ -950,12 +1151,41 @@ function makeMockApp(): AppBindings {
           emit({ kind: "tool_result", tool: { id, name: "bash", output: `$ ${command}\n(mock output)\n`, readOnly: false } });
           emit({ kind: "turn_done" });
         },
-        async RunShellQuiet(_command) {
+        async RunShellQuiet(command) {
           await delay(120);
+          if (command.includes("branch --show-current")) {
+            return { output: "ui-redesign\n" };
+          }
+          if (command.startsWith("gh --version") || command.includes("gh --version")) {
+            return { output: "gh version 2.40.0 (mock)\n" };
+          }
+          if (command.includes("gh auth status")) {
+            return { output: "github.com\n  ✓ Logged in to github.com account mock-user (mock)\n" };
+          }
+          if (command.includes("gh pr view")) {
+            return {
+              output: JSON.stringify({
+                number: 42,
+                state: "OPEN",
+                title: "Mock pull request",
+                url: "https://github.com/owner/repo/pull/42",
+              }),
+            };
+          }
+          if (command.includes("gh pr merge")) {
+            return { output: "Merged pull request owner/repo#42\n" };
+          }
+          if (command.includes("gh repo view")) {
+            return { output: "owner/repo\n" };
+          }
+          if (command.includes("gh api repos/")) {
+            return { output: "{}\n" };
+          }
           return { output: "Already up to date.\n" };
         },
         async StartTerminal() {
-          return { id: "mock-term-1", shell: "powershell (mock)" };
+          mockTerminalSeq += 1;
+          return { id: `mock-term-${mockTerminalSeq}`, shell: "powershell (mock)" };
         },
         async WriteTerminal(_sessionID, _data) {},
         async ResizeTerminal(_sessionID, _cols, _rows) {},
@@ -963,12 +1193,13 @@ function makeMockApp(): AppBindings {
         async ProjectSandboxStatus() {
           return {
             configured: false,
-            workspaceRoot: "~/projects/reasonix",
+            workspaceRoot: "~/projects/arcdesk",
             bash: "enforce",
             network: true,
             allowWrite: [],
             previewHosts: ["localhost", "127.0.0.1"],
             previewPorts: [5173, 3000, 8080],
+            previewStrict: false,
             yoloRequired: false,
           };
         },
@@ -1134,7 +1365,14 @@ function makeMockApp(): AppBindings {
     async PickWorkspace() {
       // Browser dev has no native dialog; simulate picking a folder and re-root so
       // the topbar folder chip visibly changes.
-      return mockSwitchWorkspace(cwd.endsWith("another-project") ? "~/projects/reasonix" : "~/projects/another-project");
+      return mockSwitchWorkspace(cwd.endsWith("another-project") ? "~/projects/arcdesk" : "~/projects/another-project");
+    },
+    async PickFilePath() {
+      return `${cwd}/README.md`;
+    },
+    async PickSaveFilePath(defaultName: string) {
+      const base = defaultName.trim() || "untitled.md";
+      return `${cwd}/${base}`;
     },
     async SwitchWorkspace(path: string) {
       return mockSwitchWorkspace(path);
@@ -1380,8 +1618,8 @@ function makeMockApp(): AppBindings {
     },
     async ReadFile(rel: string) {
       const samples: Record<string, string> = {
-        "README.md": "# Reasonix\n\nBrowser-dev workspace preview.\n\n- Chat in the center\n- Browse files on the right\n- Keep sessions on the left\n",
-        "go.mod": "module reasonix\n\ngo 1.23\n",
+        "README.md": "# ArcDesk\n\nBrowser-dev workspace preview.\n\n- Chat in the center\n- Browse files on the right\n- Keep sessions on the left\n",
+        "go.mod": "module arcdesk\n\ngo 1.23\n",
         "desktop/file.go": "package desktop\n\nfunc main() {\n\tprintln(\"workspace preview\")\n}\n",
         "internal/event.go": "package internal\n\n// mock file used by the browser dev seam\n",
       };
@@ -1421,6 +1659,13 @@ function makeMockApp(): AppBindings {
         ],
       };
     },
+    async RunCodeReview(mode, scope, paths) {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      const label = mode === "security" ? "Security review" : "Code review";
+      return {
+        text: `**Verdict:** Minor nits, OK to ship after.\n\n- nit: ${paths[0] ?? "example.go"}:1 — mock ${label} (${scope}, ${paths.length} file(s)).`,
+      };
+    },
     async OpenWorkspacePath(rel: string) {
       console.info("mock OpenWorkspacePath", rel);
     },
@@ -1431,14 +1676,19 @@ function makeMockApp(): AppBindings {
       console.info("mock RevealPath", path);
     },
     async SavePastedImage(_dataUrl: string) {
-      return ".reasonix/attachments/mock.png";
+      return ".arcdesk/attachments/mock.png";
     },
     async SavePastedFile(name: string, _dataUrl: string) {
-      return `.reasonix/attachments/mock-${name}`;
+      return `.arcdesk/attachments/mock-${name}`;
     },
     async AttachDropped(path: string) {
-      const name = path.split(/[/\\]/).filter(Boolean).pop() ?? path;
-      return { kind: "attachment" as const, path: `.reasonix/attachments/mock-${name}` };
+      const normalized = path.replace(/\\/g, "/");
+      const name = normalized.split("/").filter(Boolean).pop() ?? path;
+      const looksAbsolute = /^([a-zA-Z]:|\/)/.test(normalized);
+      if (!looksAbsolute) {
+        return { kind: "workspace" as const, path: normalized, isDir: normalized.endsWith("/") };
+      }
+      return { kind: "attachment" as const, path: `.arcdesk/attachments/mock-${name}` };
     },
     async AttachmentDataURL(_path: string) {
       return "data:image/png;base64,iVBORw0KGgo=";
@@ -1471,15 +1721,15 @@ function makeMockApp(): AppBindings {
     async Memory() {
       return {
         available: true,
-        storeDir: "~/.config/reasonix/projects/-mock/memory",
+        storeDir: "~/.config/arcdesk/projects/-mock/memory",
         docs: [
           {
-            path: "REASONIX.md",
+            path: "ARCDESK.md",
             scope: "project",
-            body: "# Reasonix project memory\n\nMock doc shown in the browser dev seam.\n\n## Notes\n\n- prefers concise replies",
+            body: "# ArcDesk project memory\n\nMock doc shown in the browser dev seam.\n\n## Notes\n\n- prefers concise replies",
           },
           {
-            path: "~/.config/reasonix/REASONIX.md",
+            path: "~/.config/arcdesk/ARCDESK.md",
             scope: "user",
             body: t("mock.memoryBody"),
           },
@@ -1493,15 +1743,15 @@ function makeMockApp(): AppBindings {
           },
         ],
         scopes: [
-          { scope: "user", path: "~/.config/reasonix/REASONIX.md" },
-          { scope: "project", path: "REASONIX.md" },
-          { scope: "local", path: "REASONIX.local.md" },
+          { scope: "user", path: "~/.config/arcdesk/ARCDESK.md" },
+          { scope: "project", path: "ARCDESK.md" },
+          { scope: "local", path: "ARCDESK.local.md" },
         ],
       };
     },
     async Remember(scope: string, note: string) {
       emit({ kind: "notice", level: "info", text: `remembered → ${scope}` });
-      return `${scope} REASONIX.md (mock): ${note}`;
+      return `${scope} ARCDESK.md (mock): ${note}`;
     },
     async Forget(name: string) {
       emit({ kind: "notice", level: "info", text: `forgot → ${name}` });
@@ -1526,6 +1776,14 @@ function makeMockApp(): AppBindings {
       const i = settings.providers.findIndex((x) => x.name === p.name);
       if (i >= 0) settings.providers[i] = p;
       else settings.providers.push(p);
+    },
+    async SyncProviderModels(providerName: string): Promise<ProviderModelsResult> {
+      const provider = settings.providers.find((p) => p.name === providerName);
+      if (!provider) throw new Error(`provider ${providerName} not found`);
+      const models = ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash"];
+      provider.models = models;
+      provider.default = models[0];
+      return { provider: providerName, models };
     },
     async DeleteProvider(name: string) {
       settings.providers = settings.providers.filter((p) => p.name !== name);
@@ -1558,10 +1816,52 @@ function makeMockApp(): AppBindings {
         async SetDesktopLanguage(lang: string) {
           settings.desktopLanguage = lang === "en" || lang === "zh" ? lang : "";
         },
+        async SetDesktopTerminalShell(shell: string) {
+          settings.desktopTerminalShell =
+            shell === "powershell" || shell === "cmd" || shell === "git-bash" || shell === "wsl" ? shell : "";
+        },
+        async SetDesktopGitSettings(git) {
+          settings.desktopGit = {
+            prMergeMethod:
+              git.prMergeMethod === "squash" || git.prMergeMethod === "rebase" ? git.prMergeMethod : "merge",
+            checkGitHubCli: git.checkGitHubCli === true,
+            syncRepoMergeToGitHub: git.syncRepoMergeToGitHub === true,
+            commitInstructions: git.commitInstructions ?? "",
+            prInstructions: git.prInstructions ?? "",
+          };
+        },
         async SetDesktopAppearance(theme: string, style: string) {
           settings.desktopTheme = theme === "auto" || theme === "light" ? theme : "dark";
           settings.desktopThemeStyle = style;
         },
+        async SetDesktopAppearancePrefs(prefs: DesktopAppearanceView) {
+          settings.desktopAppearance = { ...prefs };
+        },
+        async SetDesktopCodeReviewSettings(prefs: DesktopCodeReviewView) {
+          settings.desktopCodeReview = {
+            defaultScope: prefs.defaultScope === "session" || prefs.defaultScope === "git" ? prefs.defaultScope : "all",
+            securityByDefault: prefs.securityByDefault === true,
+          };
+        },
+        async MigrateDesktopLocalPrefs(input: DesktopLocalPrefsMigrationInput) {
+          if (input.hasAppearance && !settings.desktopAppearance.backgroundPreset) {
+            settings.desktopAppearance = {
+              backgroundPreset: input.backgroundPreset,
+              foregroundPreset: input.foregroundPreset,
+              textSize: input.textSize || "default",
+              codeFontSize: input.codeFontSize || "default",
+              diffMarker: input.diffMarker || "background",
+            };
+          }
+          if (input.hasCodeReview && settings.desktopCodeReview.defaultScope === "all" && !settings.desktopCodeReview.securityByDefault) {
+            settings.desktopCodeReview = {
+              defaultScope:
+                input.codeReviewScope === "session" || input.codeReviewScope === "git" ? input.codeReviewScope : "all",
+              securityByDefault: input.codeReviewSecurity,
+            };
+          }
+        },
+        async SaveProjectPreviewSettings(_input: ProjectPreviewSettingsInput) {},
         async MigrateDesktopPreferences(language: string, theme: string, style: string) {
           if (!settings.desktopLanguage) settings.desktopLanguage = language === "en" || language === "zh" ? language : "";
           if (!settings.desktopTheme && !settings.desktopThemeStyle) {
@@ -1569,8 +1869,24 @@ function makeMockApp(): AppBindings {
             settings.desktopThemeStyle = style;
           }
         },
+    async SetAgentSettings(agent: AgentSettingsInput) {
+      settings.agent = {
+        ...settings.agent,
+        ...agent,
+        subagentModels: { ...agent.subagentModels },
+        usesDefaultPrompt: !agent.systemPrompt.trim(),
+      };
+      settings.autoPlan = agent.autoPlan;
+    },
+    async ListOutputStyles(): Promise<OutputStyleView[]> {
+      return [
+        { name: "explanatory", description: "Explain non-obvious implementation choices as you go", builtin: true },
+        { name: "learning", description: "Collaborate and leave TODO(human) stubs for the user to complete", builtin: true },
+        { name: "concise", description: "Terse replies: minimal prose, code and bullets only", builtin: true },
+      ];
+    },
     async SetAgentParams(temperature: number, maxSteps: number, systemPrompt: string) {
-      settings.agent = { temperature, maxSteps, systemPrompt };
+      settings.agent = { ...settings.agent, temperature, maxSteps, systemPrompt, usesDefaultPrompt: !systemPrompt.trim() };
     },
     async SetTrayLocale(_locale: "en" | "zh") {},
     async SetBypass(on: boolean) {
@@ -1607,7 +1923,7 @@ function makeMockApp(): AppBindings {
     },
     async OpenDownloadPage() {
       if (typeof window !== "undefined") {
-        window.open("https://github.com/esengine/reasonix/releases/latest", "_blank", "noopener");
+        window.open("https://github.com/esengine/arcdesk/releases/latest", "_blank", "noopener");
       }
     },
     // Dev seam: drives the overlay flow in the browser until ConnectKey sets the
@@ -1756,46 +2072,85 @@ function makeMockApp(): AppBindings {
       deleteMockTopic(topicID);
     },
     async ListWriteFiles(workspaceRoot: string) {
-      const root = workspaceRoot || "/workspace";
-      return [
-        { path: `${root}/README.md`, name: "README.md", isDir: false, size: 3820, modTime: Date.now() - 3_600_000 },
-        { path: `${root}/notes/brief.md`, name: "brief.md", isDir: false, size: 1280, modTime: Date.now() - 8_400_000 },
-        { path: `${root}/notes`, name: "notes", isDir: true, modTime: Date.now() - 18_400_000 },
-      ];
+      const root = (workspaceRoot || "/workspace").replace(/[/\\]+$/, "");
+      const entries: FileEntry[] = [];
+      const seenDirs = new Set<string>();
+      for (const path of Object.keys(mockWriteFiles)) {
+        if (!path.startsWith(root + "/") && path !== root) continue;
+        const rel = path.slice(root.length + 1);
+        const parts = rel.split("/");
+        let current = root;
+        for (let i = 0; i < parts.length - 1; i++) {
+          current = `${current}/${parts[i]}`;
+          if (!seenDirs.has(current)) {
+            seenDirs.add(current);
+            entries.push({ path: current, name: parts[i]!, isDir: true, modTime: Date.now() - 18_400_000 });
+          }
+        }
+        entries.push({
+          path,
+          name: baseName(path),
+          isDir: false,
+          size: mockWriteFiles[path]!.length,
+          modTime: Date.now() - 3_600_000,
+        });
+      }
+      for (const dir of mockWriteDirs) {
+        if (!dir.startsWith(root + "/")) continue;
+        if (!seenDirs.has(dir)) {
+          seenDirs.add(dir);
+          entries.push({ path: dir, name: baseName(dir), isDir: true, modTime: Date.now() - 18_400_000 });
+        }
+      }
+      return entries;
     },
     async ReadWriteFile(path: string) {
-      return path.endsWith(".md") ? `# ${baseName(path)}\n\nDraft content for ${baseName(path)}.\n` : "";
+      if (!(path in mockWriteFiles)) throw new Error(`file not found: ${path}`);
+      return mockWriteFiles[path]!;
     },
-    async WriteWriteFile(_path: string, _content: string) {},
-    async DeleteWriteFile(_path: string) {},
+    async WriteWriteFile(path: string, content: string) {
+      mockWriteFiles[path] = content;
+    },
+    async DeleteWriteFile(path: string) {
+      delete mockWriteFiles[path];
+    },
+    async RenameWriteFile(oldPath: string, newPath: string) {
+      if (!(oldPath in mockWriteFiles)) throw new Error(`file not found: ${oldPath}`);
+      mockWriteFiles[newPath] = mockWriteFiles[oldPath]!;
+      delete mockWriteFiles[oldPath];
+    },
+    async CompleteWriteInline(textBefore: string, _textAfter: string) {
+      const tail = textBefore.trim().split(/\s+/).slice(-6).join(" ");
+      return tail ? `${tail} …` : "Continue writing here…";
+    },
     async ListWriteWorkspaces() {
-      return ["/workspace", "/workspace/docs", "/workspace/notes"];
+      return [...mockWriteWorkspaces];
     },
-    async AddWriteWorkspace(_root: string) {},
-    async RemoveWriteWorkspace(_root: string) {},
-    async GetClawChannels() {
-      return [
-        {
-          id: "ch-feishu",
-          name: "Feishu",
-          type: "feishu",
+    async AddWriteWorkspace(root: string) {
+      const next = root.trim();
+      if (!next || mockWriteWorkspaces.includes(next)) return;
+      mockWriteWorkspaces.push(next);
+    },
+    async RemoveWriteWorkspace(root: string) {
+      const idx = mockWriteWorkspaces.indexOf(root);
+      if (idx >= 0) mockWriteWorkspaces.splice(idx, 1);
+    },
+    async DefaultWriteWorkspace() {
+      return "/workspace/writes";
+    },
+    async EnsureBundledSkills() {
+      if (!capSkills.some((s) => s.name === "copywriting")) {
+        capSkills.push({
+          name: "copywriting",
+          description: "Write and improve marketing copy, articles, and persuasive 文案 (marketingskills)",
+          scope: "global",
+          runAs: "inline",
           enabled: true,
-          persona: "Concise assistant",
-          model: "deepseek-chat",
-          workspaceRoot: "/workspace",
-          webhookURL: "https://example.com/webhook/ch-feishu",
-        },
-        {
-          id: "ch-webhook",
-          name: "Webhook",
-          type: "webhook",
-          enabled: false,
-          persona: "Status relay",
-          model: "deepseek-reasoner",
-          workspaceRoot: "/workspace/docs",
-          webhookURL: "https://example.com/webhook/ch-webhook",
-        },
-      ];
+        });
+      }
+    },
+    async GetClawChannels() {
+      return [];
     },
     async SaveClawChannel(_channel: ClawChannel) {},
     async DeleteClawChannel(_id: string) {},
@@ -1812,6 +2167,54 @@ function makeMockApp(): AppBindings {
       };
       mockClawMessages.push(message);
       return message;
+    },
+    async GetClawCallbackInfo(channelID: string) {
+      return {
+        baseUrl: "http://127.0.0.1:8787",
+        path: `/claw/wecom/${channelID}`,
+        url: `http://127.0.0.1:8787/claw/wecom/${channelID}`,
+        port: 8787,
+      };
+    },
+    async TestClawWeComChannel(_channel: ClawChannel) {
+      return "";
+    },
+    async GetMobilePairingInfo() {
+      return {
+        token: "dev-token",
+        pairUrl: "http://127.0.0.1:8788/mobile/p/dev-token",
+        lanPairUrl: "http://127.0.0.1:8787/mobile/p/dev-token",
+        relayUrl: "http://127.0.0.1:8788/mobile/p/dev-token",
+        lanIp: "127.0.0.1",
+        port: 8787,
+        expiresAt: Date.now() + 900_000,
+        pairedCount: 0,
+        enabled: true,
+        qrDataUrl: "",
+        relayConnected: false,
+        tunnelRunning: false,
+        tunnelUrl: "",
+        connectMode: "lan",
+      };
+    },
+    async RefreshMobilePairing() {
+      return this.GetMobilePairingInfo();
+    },
+    async GetMobileConnectConfig() {
+      return { enabled: true, model: "deepseek-chat", persona: "Be concise and practical.", workspaceRoot: "/workspace" };
+    },
+    async SaveMobileConnectConfig(_config: MobileConnectConfig) {},
+    async ListMobileSessions() {
+      return [];
+    },
+    async GetMobileTunnelStatus() {
+      return { running: false, url: "" };
+    },
+    async StartMobileTunnel() {
+      return { running: true, url: "" };
+    },
+    async StopMobileTunnel() {
+      return { running: false, url: "" };
     },
     async GetScheduledTasks() {
       const now = Date.now();
@@ -1848,7 +2251,7 @@ function makeMockApp(): AppBindings {
         sessionCurrency: "¥",
         sessionCostUsd: 0.018,
         readFiles: [
-          { path: "REASONIX.md", turn: 2, time: now - 34 * 60 * 1000 },
+          { path: "ARCDESK.md", turn: 2, time: now - 34 * 60 * 1000 },
           { path: "pyproject.toml", turn: 3, time: now - 30 * 60 * 1000 },
           { path: "docs/dev-standard.md", turn: 5, time: now - 13 * 60 * 1000, offset: 0, limit: 180 },
           { path: "scripts/db_migrate.sh", turn: 6, time: now - 4 * 60 * 1000, offset: 120, limit: 80, truncated: true },

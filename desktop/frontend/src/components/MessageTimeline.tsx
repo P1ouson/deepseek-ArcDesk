@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Info } from "lucide-react";
 import { VList, type VListHandle } from "virtua";
+import { buildTimelineRows } from "../lib/actionStream";
+import type { TimelineRow as BuiltTimelineRow } from "../lib/actionStream";
 import type { Item, LiveStream } from "../lib/useController";
 import { useT } from "../lib/i18n";
+import { ActionSegmentView, type ActionFileOpenRequest } from "./ActionStream";
 import { AssistantMessage, UserMessage } from "./Message";
-import { ToolCard } from "./ToolCard";
-import { SessionMetricsBar } from "./SessionMetricsBar";
 import { Welcome } from "./Welcome";
 import { CopyButton } from "./CopyButton";
 import type { CheckpointMeta, BalanceInfo, WireUsage } from "../lib/types";
@@ -30,6 +31,8 @@ export interface MessageTimelineProps {
   rewindDisabled?: boolean;
   onPrompt: (text: string) => void;
   onRewind?: (turn: number, scope: string) => void;
+  workspaceRoot?: string;
+  onOpenActionFile?: (req: ActionFileOpenRequest) => void;
 }
 
 function CompactionBlock({ item }: { item: Extract<Item, { kind: "compaction" }> }) {
@@ -51,7 +54,6 @@ function CompactionBlock({ item }: { item: Extract<Item, { kind: "compaction" }>
 function TimelineRow({
   item,
   live,
-  subcallsByParent,
   userTurn,
   checkpointsByTurn,
   openTurn,
@@ -62,7 +64,6 @@ function TimelineRow({
 }: {
   item: Item;
   live?: LiveStream;
-  subcallsByParent: Map<string, ToolItem[]>;
   userTurn: Map<string, number>;
   checkpointsByTurn: Map<number, CheckpointMeta>;
   openTurn: number | null;
@@ -100,10 +101,6 @@ function TimelineRow({
         </div>
       );
     }
-    case "tool":
-      if (item.parentId) return null;
-      if (item.name === "todo_write" || item.name === "exit_plan_mode") return null;
-      return <ToolCard item={item} subcalls={subcallsByParent.get(item.id)} />;
     case "phase":
       return (
         <div className="msg-system">
@@ -121,19 +118,21 @@ function TimelineRow({
 }
 
 export function MessageTimeline({
-  tabId,
+  tabId: _tabId,
   items,
   live,
-  usage,
-  sessionCost,
-  sessionCurrency,
-  balance,
+  usage: _usage,
+  sessionCost: _sessionCost,
+  sessionCurrency: _sessionCurrency,
+  balance: _balance,
   footerHeight = 0,
   checkpoints = [],
   actionPending = false,
   rewindDisabled = false,
   onPrompt,
   onRewind,
+  workspaceRoot = "",
+  onOpenActionFile,
 }: MessageTimelineProps) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -168,8 +167,13 @@ export function MessageTimeline({
 
   const checkpointsByTurn = useMemo(() => new Map(checkpoints.map((cp) => [cp.turn, cp])), [checkpoints]);
 
-  const rows = useMemo(() => items.filter((it) => !(it.kind === "tool" && it.parentId)), [items]);
-  const empty = rows.length === 0;
+  const rows = useMemo(
+    () => buildTimelineRows(items, subcallsByParent, live),
+    [items, subcallsByParent, live],
+  );
+  const empty = items.length === 0;
+
+  const rowKey = (row: BuiltTimelineRow) => (row.kind === "action-segment" ? row.segment.id : row.item.id);
 
   useEffect(() => {
     if (openTurn == null) return;
@@ -184,10 +188,17 @@ export function MessageTimeline({
   useEffect(() => {
     const el = containerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setListHeight(el.clientHeight));
+    let frame = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => setListHeight(el.clientHeight));
+    });
     ro.observe(el);
     setListHeight(el.clientHeight);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(frame);
+      ro.disconnect();
+    };
   }, [empty]);
 
   useEffect(() => {
@@ -213,16 +224,7 @@ export function MessageTimeline({
   if (empty) {
     return (
       <div className="timeline timeline--empty">
-        <div className="welcome-empty">
-          <SessionMetricsBar
-            tabId={tabId}
-            usage={usage}
-            sessionCost={sessionCost}
-            sessionCurrency={sessionCurrency}
-            balance={balance}
-          />
-          <Welcome onPrompt={onPrompt} variant="workbench" />
-        </div>
+        <Welcome onPrompt={onPrompt} variant="code" disabled={actionPending || rewindDisabled} />
       </div>
     );
   }
@@ -234,20 +236,27 @@ export function MessageTimeline({
         style={{ height: listHeight, padding: "16px 20px", paddingBottom: footerHeight + 8 }}
         onScroll={onScroll}
       >
-        {rows.map((item) => (
-          <div key={item.id} className="timeline__turn">
-            <TimelineRow
-              item={item}
-              live={live}
-              subcallsByParent={subcallsByParent}
-              userTurn={userTurn}
-              checkpointsByTurn={checkpointsByTurn}
-              openTurn={openTurn}
-              onToggleRewind={(turn) => setOpenTurn((cur) => (cur === turn ? null : turn))}
-              onRewind={onRewind}
-              actionPending={actionPending}
-              rewindDisabled={rewindDisabled}
-            />
+        {rows.map((row) => (
+          <div key={rowKey(row)} className="timeline__turn">
+            {row.kind === "action-segment" ? (
+              <ActionSegmentView
+                segment={row.segment}
+                workspaceRoot={workspaceRoot}
+                onOpenFile={onOpenActionFile}
+              />
+            ) : (
+              <TimelineRow
+                item={row.item}
+                live={live}
+                userTurn={userTurn}
+                checkpointsByTurn={checkpointsByTurn}
+                openTurn={openTurn}
+                onToggleRewind={(turn) => setOpenTurn((cur) => (cur === turn ? null : turn))}
+                onRewind={onRewind}
+                actionPending={actionPending}
+                rewindDisabled={rewindDisabled}
+              />
+            )}
           </div>
         ))}
       </VList>

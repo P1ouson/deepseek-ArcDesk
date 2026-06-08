@@ -7,16 +7,16 @@ import (
 	"runtime"
 	"strings"
 
-	"reasonix/internal/fileutil"
-	"reasonix/internal/mcpdiag"
-	"reasonix/internal/netclient"
-	"reasonix/internal/permission"
+	"arcdesk/internal/fileutil"
+	"arcdesk/internal/mcpdiag"
+	"arcdesk/internal/netclient"
+	"arcdesk/internal/permission"
 )
 
 // edit.go is the programmatic mutation surface a settings UI drives: change the
 // default model, add/remove a provider, set the planner, edit permission rules,
 // add/remove an MCP server — each validated, then persisted with SaveTo. It is
-// separate from the `reasonix setup` wizard (cli) so a GUI can apply one setting at a
+// separate from the `ARCDESK setup` wizard (cli) so a GUI can apply one setting at a
 // time without replaying the whole interactive flow. Every mutator works on the
 // in-memory *Config; nothing writes to disk until SaveTo/Save is called, so a UI
 // can stage several changes and commit once. Mutations round-trip through
@@ -69,6 +69,109 @@ func (c *Config) SetAutoPlan(mode string) error {
 	return nil
 }
 
+// AgentSettingsInput is the editable [agent] surface for the desktop settings panel.
+type AgentSettingsInput struct {
+	Temperature        float64
+	MaxSteps           int
+	SystemPrompt       string
+	SystemPromptFile   string
+	OutputStyle        string
+	AutoPlan           string
+	AutoPlanClassifier string
+	SoftCompactRatio   float64
+	CompactRatio       float64
+	CompactForceRatio  float64
+	SubagentModel      string
+	SubagentModels     map[string]string
+}
+
+func validateCompactRatio(name string, ratio float64) error {
+	if ratio <= 0 || ratio > 1 {
+		return fmt.Errorf("%s must be between 0 and 1 (exclusive of 0)", name)
+	}
+	return nil
+}
+
+func (c *Config) validateProviderName(name, field string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	if _, ok := c.Provider(name); !ok {
+		return fmt.Errorf("%s: no provider %q (configured: %s)", field, name, c.providerNames())
+	}
+	return nil
+}
+
+// ApplyAgentSettings updates the [agent] section from the desktop settings panel.
+func (c *Config) ApplyAgentSettings(in AgentSettingsInput) error {
+	if in.Temperature < 0 || in.Temperature > 2 {
+		return fmt.Errorf("temperature must be between 0 and 2")
+	}
+	if in.MaxSteps < 0 {
+		return fmt.Errorf("max_steps must be >= 0")
+	}
+	if err := validateCompactRatio("soft_compact_ratio", in.SoftCompactRatio); err != nil {
+		return err
+	}
+	if err := validateCompactRatio("compact_ratio", in.CompactRatio); err != nil {
+		return err
+	}
+	if err := validateCompactRatio("compact_force_ratio", in.CompactForceRatio); err != nil {
+		return err
+	}
+	if in.SoftCompactRatio > in.CompactRatio {
+		return fmt.Errorf("soft_compact_ratio must be <= compact_ratio")
+	}
+	if in.CompactRatio > in.CompactForceRatio {
+		return fmt.Errorf("compact_ratio must be <= compact_force_ratio")
+	}
+	if err := c.SetAutoPlan(in.AutoPlan); err != nil {
+		return err
+	}
+	if err := c.validateProviderName(in.AutoPlanClassifier, "auto_plan_classifier"); err != nil {
+		return err
+	}
+	if err := c.validateProviderName(in.SubagentModel, "subagent_model"); err != nil {
+		return err
+	}
+	c.Agent.Temperature = in.Temperature
+	c.Agent.MaxSteps = in.MaxSteps
+	c.Agent.SystemPrompt = strings.TrimSpace(in.SystemPrompt)
+	c.Agent.SystemPromptFile = strings.TrimSpace(in.SystemPromptFile)
+	c.Agent.OutputStyle = strings.TrimSpace(in.OutputStyle)
+	c.Agent.AutoPlanClassifier = strings.TrimSpace(in.AutoPlanClassifier)
+	c.Agent.SoftCompactRatio = in.SoftCompactRatio
+	c.Agent.CompactRatio = in.CompactRatio
+	c.Agent.CompactForceRatio = in.CompactForceRatio
+	c.Agent.SubagentModel = strings.TrimSpace(in.SubagentModel)
+	if in.SubagentModels == nil {
+		c.Agent.SubagentModels = nil
+	} else {
+		out := map[string]string{}
+		for skill, model := range in.SubagentModels {
+			skill = strings.TrimSpace(skill)
+			model = strings.TrimSpace(model)
+			if skill == "" {
+				continue
+			}
+			if model == "" {
+				continue
+			}
+			if err := c.validateProviderName(model, "subagent_models."+skill); err != nil {
+				return err
+			}
+			out[skill] = model
+		}
+		if len(out) == 0 {
+			c.Agent.SubagentModels = nil
+		} else {
+			c.Agent.SubagentModels = out
+		}
+	}
+	return nil
+}
+
 // UpsertProvider adds e, or replaces an existing provider with the same name
 // (preserving its position). Required fields (name, kind, base_url, model) are
 // validated; whether the kind is actually registered and the key resolves is
@@ -99,7 +202,7 @@ func (c *Config) SetProviderEffort(name, effort string) error {
 	return fmt.Errorf("set provider effort: no provider %q", name)
 }
 
-// SetLanguage pins the CLI UI/model language; empty/auto clears the override so runtime detection falls back to REASONIX_LANG / locale.
+// SetLanguage pins the CLI UI/model language; empty/auto clears the override so runtime detection falls back to ARCDESK_LANG / locale.
 func (c *Config) SetLanguage(lang string) error {
 	switch strings.ToLower(strings.TrimSpace(lang)) {
 	case "", "auto":
@@ -149,9 +252,112 @@ func (c *Config) SetDesktopAppearance(theme, style string) error {
 	}
 	normalized := normalizeThemeStyle(style)
 	if normalized == "" {
-		return fmt.Errorf("desktop theme style %q: must be graphite|ember|aurora|midnight|sandstone|porcelain|linen|glacier", style)
+		return fmt.Errorf("desktop theme style %q: must be graphite|ember|aurora|midnight|cobalt|sandstone|porcelain|linen|glacier", style)
 	}
 	c.Desktop.ThemeStyle = normalized
+	return nil
+}
+
+// DesktopAppearanceInput is the editable desktop.appearance surface.
+type DesktopAppearanceInput struct {
+	BackgroundPreset string
+	ForegroundPreset string
+	TextSize         string
+	CodeFontSize     string
+	DiffMarker       string
+}
+
+// SetDesktopAppearancePrefs updates desktop surface and typography preferences.
+func (c *Config) SetDesktopAppearancePrefs(in DesktopAppearanceInput) error {
+	if bg := normalizeDesktopBackgroundPreset(in.BackgroundPreset); bg != "" {
+		c.Desktop.Appearance.BackgroundPreset = bg
+	} else if strings.TrimSpace(in.BackgroundPreset) != "" {
+		return fmt.Errorf("desktop background preset %q: must be paper|white|fog|linen|charcoal|graphite|slate|midnight", in.BackgroundPreset)
+	}
+	if fg := normalizeDesktopForegroundPreset(in.ForegroundPreset); fg != "" {
+		c.Desktop.Appearance.ForegroundPreset = fg
+	} else if strings.TrimSpace(in.ForegroundPreset) != "" {
+		return fmt.Errorf("desktop foreground preset %q: must be ink|charcoal|slate|snow|silver|white", in.ForegroundPreset)
+	}
+	if size := normalizeDesktopTextSize(in.TextSize); size != "" {
+		c.Desktop.Appearance.TextSize = size
+	} else if strings.TrimSpace(in.TextSize) != "" {
+		return fmt.Errorf("desktop text size %q: must be small|default|large|xlarge", in.TextSize)
+	}
+	if size := normalizeDesktopTextSize(in.CodeFontSize); size != "" {
+		c.Desktop.Appearance.CodeFontSize = size
+	} else if strings.TrimSpace(in.CodeFontSize) != "" {
+		return fmt.Errorf("desktop code font size %q: must be small|default|large|xlarge", in.CodeFontSize)
+	}
+	if marker := normalizeDesktopDiffMarker(in.DiffMarker); marker != "" {
+		c.Desktop.Appearance.DiffMarker = marker
+	} else if strings.TrimSpace(in.DiffMarker) != "" {
+		return fmt.Errorf("desktop diff marker %q: must be background|signs", in.DiffMarker)
+	}
+	return nil
+}
+
+// SetDesktopCodeReviewSettings updates desktop code-review panel defaults.
+func (c *Config) SetDesktopCodeReviewSettings(defaultScope string, securityByDefault bool) error {
+	c.Desktop.CodeReview.DefaultScope = normalizeDesktopCodeReviewScope(defaultScope)
+	c.Desktop.CodeReview.SecurityByDefault = securityByDefault
+	return nil
+}
+
+// ImportDesktopLocalPrefs writes browser-local desktop prefs into config when the
+// corresponding config fields are still empty (one-time migration).
+func (c *Config) ImportDesktopLocalPrefs(in DesktopAppearanceInput, codeReviewScope string, codeReviewSecurity bool, hasAppearance, hasCodeReview bool) error {
+	if hasAppearance {
+		empty := c.Desktop.Appearance == DesktopAppearanceConfig{}
+		if empty {
+			if err := c.SetDesktopAppearancePrefs(in); err != nil {
+				return err
+			}
+		}
+	}
+	if hasCodeReview && c.Desktop.CodeReview == (DesktopCodeReviewConfig{}) {
+		if err := c.SetDesktopCodeReviewSettings(codeReviewScope, codeReviewSecurity); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SetDesktopGitSettings updates desktop-only Git UI preferences.
+func (c *Config) SetDesktopGitSettings(
+	mergeMethod string,
+	checkGitHubCli, syncRepoMergeToGitHub bool,
+	commitInstructions, prInstructions string,
+) error {
+	switch strings.ToLower(strings.TrimSpace(mergeMethod)) {
+	case "squash", "rebase":
+		c.Desktop.Git.PRMergeMethod = strings.ToLower(strings.TrimSpace(mergeMethod))
+	default:
+		c.Desktop.Git.PRMergeMethod = "merge"
+	}
+	c.Desktop.Git.CheckGitHubCli = checkGitHubCli
+	c.Desktop.Git.SyncRepoMergeToGitHub = syncRepoMergeToGitHub
+	c.Desktop.Git.CommitInstructions = strings.TrimSpace(commitInstructions)
+	c.Desktop.Git.PRInstructions = strings.TrimSpace(prInstructions)
+	return nil
+}
+
+// SetDesktopTerminalShell sets the integrated terminal shell preference.
+func (c *Config) SetDesktopTerminalShell(shell string) error {
+	switch strings.ToLower(strings.TrimSpace(shell)) {
+	case "", "auto":
+		c.Desktop.TerminalShell = ""
+	case "powershell", "pwsh":
+		c.Desktop.TerminalShell = "powershell"
+	case "cmd", "command-prompt":
+		c.Desktop.TerminalShell = "cmd"
+	case "git-bash", "gitbash", "bash":
+		c.Desktop.TerminalShell = "git-bash"
+	case "wsl":
+		c.Desktop.TerminalShell = "wsl"
+	default:
+		return fmt.Errorf("desktop terminal shell %q: must be auto|powershell|cmd|git-bash|wsl", shell)
+	}
 	return nil
 }
 
@@ -442,7 +648,7 @@ func (c *Config) ClearPluginAuthentication(name string) (PluginEntry, bool, erro
 // ClearPluginAuthenticationInSource clears auth material in the file that actually
 // owns the MCP server. Load() merges user/project TOML and project .mcp.json into
 // one Config, so callers must not mutate that merged view and Save() it back: a
-// .mcp.json-only server would otherwise be serialized into reasonix.toml or the
+// .mcp.json-only server would otherwise be serialized into ARCDESK.toml or the
 // user config. Source priority mirrors Load(): project TOML, user TOML, then the
 // project .mcp.json entry if TOML did not define that server.
 func ClearPluginAuthenticationInSource(name string) (PluginEntry, bool, string, error) {
@@ -467,7 +673,7 @@ func ClearPluginAuthenticationInSource(name string) (PluginEntry, bool, string, 
 }
 
 func pluginTOMLSourcePath(name string) string {
-	for _, path := range []string{"reasonix.toml", userConfigPath()} {
+	for _, path := range []string{"arcdesk.toml", userConfigPath()} {
 		if strings.TrimSpace(path) == "" {
 			continue
 		}
@@ -503,7 +709,7 @@ func validatePlugin(e PluginEntry) error {
 
 // SaveTo writes the configuration to path as annotated TOML, atomically: it
 // writes a sibling temp file then renames, so a crash mid-write can't leave a
-// half-written reasonix.toml that fails to parse on next load. Parent directories
+// half-written ARCDESK.toml that fails to parse on next load. Parent directories
 // are created as needed.
 func (c *Config) SaveTo(path string) error {
 	return c.SaveToScope(path, renderScopeForPath(path))
@@ -525,7 +731,7 @@ func SaveMinimalProjectAutoPlan(path, mode string) (string, error) {
 	if err := cfg.SetAutoPlan(mode); err != nil {
 		return "", err
 	}
-	body := fmt.Sprintf(`# Reasonix project configuration.
+	body := fmt.Sprintf(`# ARCDESK project configuration.
 # Project-local overrides are merged over the user config.
 
 [agent]
@@ -542,7 +748,7 @@ func writeConfigFile(path, body string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("save: create dir: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, ".reasonix.*.toml.tmp")
+	tmp, err := os.CreateTemp(dir, ".arcdesk.*.toml.tmp")
 	if err != nil {
 		return fmt.Errorf("save: create temp: %w", err)
 	}
@@ -581,23 +787,23 @@ func isUserConfigPath(path string) bool {
 }
 
 // Save writes the configuration back to the file it was loaded from
-// (SourcePath), or to ./reasonix.toml when none exists yet — the conventional
+// (SourcePath), or to ./ARCDESK.toml when none exists yet — the conventional
 // project-local target a fresh GUI session would create.
 func (c *Config) Save() error {
 	path := SourcePath()
 	if path == "" {
-		path = "reasonix.toml"
+		path = "arcdesk.toml"
 	}
 	return c.SaveTo(path)
 }
 
-// SaveForRoot saves the config to root's reasonix.toml, falling back to the
-// user's global config when root has no existing reasonix.toml.
+// SaveForRoot saves the config to root's ARCDESK.toml, falling back to the
+// user's global config when root has no existing ARCDESK.toml.
 func (c *Config) SaveForRoot(root string) error {
 	root = resolveRoot(root)
-	projectTOML := "reasonix.toml"
+	projectTOML := "arcdesk.toml"
 	if root != "." {
-		projectTOML = filepath.Join(root, "reasonix.toml")
+		projectTOML = filepath.Join(root, "arcdesk.toml")
 	}
 	if _, err := os.Stat(projectTOML); err == nil {
 		return c.SaveTo(projectTOML)

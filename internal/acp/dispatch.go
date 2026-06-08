@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
+	"arcdesk/internal/event"
+	"arcdesk/internal/provider"
 )
 
 // notifier is the slice of Conn the dispatch sink depends on: it pushes

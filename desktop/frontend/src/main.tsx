@@ -4,17 +4,23 @@ import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { installGlobalCrashHandlers } from "./lib/crash";
 import { LocaleProvider } from "./lib/i18n";
-import { initTextSize } from "./lib/textSize";
+import { initAppearancePrefs } from "./lib/appearancePrefs";
+import { syncDesktopGitSettings } from "./lib/desktopGitPrefs";
+import { initCodeHighlightTheme } from "./lib/codeHighlight";
 import { initTheme } from "./lib/theme";
 import "./design-system.css";
+import "./motion.css";
 import "./styles.css";
+import "./appearance-scale.css";
 import "./cold-studio-complete.css";
 import "./studio-layout.css";
 
 // Apply the saved appearance before the first paint so the webview does not
 // flash the wrong theme while React boots.
 initTheme();
-initTextSize();
+initAppearancePrefs();
+syncDesktopGitSettings(null);
+initCodeHighlightTheme();
 
 function prewarmFontFallbacks() {
   const span = document.createElement("span");

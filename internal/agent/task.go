@@ -7,10 +7,10 @@ import (
 	"io"
 	"strings"
 
-	"reasonix/internal/event"
-	"reasonix/internal/jobs"
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"arcdesk/internal/event"
+	"arcdesk/internal/jobs"
+	"arcdesk/internal/provider"
+	"arcdesk/internal/tool"
 )
 
 // DefaultTaskSystemPrompt steers a sub-agent toward focused, terse delivery —

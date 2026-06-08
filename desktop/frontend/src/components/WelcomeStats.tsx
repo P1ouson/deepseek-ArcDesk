@@ -55,7 +55,7 @@ export function WelcomeStats({ tabId, usage, sessionCost, sessionCurrency, onPro
   return (
     <div className="welcome-stats">
       <div className="welcome-stats__brand">
-        <img src={logoWordmark} alt="Reasonix" className="welcome-stats__logo" />
+        <img src={logoWordmark} alt="ARCDESK" className="welcome-stats__logo" />
         <div className="welcome-stats__tagline">{t("welcome.tagline")}</div>
       </div>
 

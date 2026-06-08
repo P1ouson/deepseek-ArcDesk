@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/i18n"
-	"reasonix/internal/provider"
+	"arcdesk/internal/i18n"
+	"arcdesk/internal/provider"
 )
 
 func TestExplainError(t *testing.T) {

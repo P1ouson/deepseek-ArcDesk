@@ -1,4 +1,4 @@
-// Package netclient builds HTTP clients that share Reasonix's user-facing proxy
+// Package netclient builds HTTP clients that share ARCDESK's user-facing proxy
 // settings. It is intentionally not used by web_fetch, whose dial-time SSRF guard
 // has a different security boundary from ordinary provider/update traffic.
 package netclient
@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/net/http/httpproxy"
 
-	"reasonix/internal/sysproxy"
+	"arcdesk/internal/sysproxy"
 )
 
 const (
@@ -71,7 +71,7 @@ func Validate(spec ProxySpec) error {
 	return err
 }
 
-// NewHTTPClient returns an HTTP client with Reasonix proxy settings applied.
+// NewHTTPClient returns an HTTP client with ARCDESK proxy settings applied.
 func NewHTTPClient(spec ProxySpec, opts TransportOptions) (*http.Client, error) {
 	tr, err := NewTransport(spec, opts)
 	if err != nil {

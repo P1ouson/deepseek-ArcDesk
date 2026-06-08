@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/event"
+	"arcdesk/internal/event"
 )
 
 type recordingAsker struct {

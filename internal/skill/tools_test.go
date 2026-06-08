@@ -9,7 +9,7 @@ import (
 
 func TestRunSkillInline(t *testing.T) {
 	home := t.TempDir()
-	writeSkill(t, home, ".reasonix/skills/note.md", "---\ndescription: take a note\n---\nDo the thing.")
+	writeSkill(t, home, ".arcdesk/skills/note.md", "---\ndescription: take a note\n---\nDo the thing.")
 	tl := NewRunSkillTool(New(Options{HomeDir: home, DisableBuiltins: true}), nil)
 
 	out, err := tl.Execute(context.Background(), json.RawMessage(`{"name":"note","arguments":"with args"}`))
@@ -33,7 +33,7 @@ func TestRunSkillUnknown(t *testing.T) {
 
 func TestRunSkillSubagentNeedsRunner(t *testing.T) {
 	home := t.TempDir()
-	writeSkill(t, home, ".reasonix/skills/dig.md", "---\ndescription: dig\nrunAs: subagent\n---\nbody")
+	writeSkill(t, home, ".arcdesk/skills/dig.md", "---\ndescription: dig\nrunAs: subagent\n---\nbody")
 	tl := NewRunSkillTool(New(Options{HomeDir: home, DisableBuiltins: true}), nil) // nil runner
 	if _, err := tl.Execute(context.Background(), json.RawMessage(`{"name":"dig","arguments":"go"}`)); err == nil {
 		t.Error("subagent skill with no runner should error, not silently inline")
@@ -42,7 +42,7 @@ func TestRunSkillSubagentNeedsRunner(t *testing.T) {
 
 func TestRunSkillSubagentRuns(t *testing.T) {
 	home := t.TempDir()
-	writeSkill(t, home, ".reasonix/skills/dig.md", "---\ndescription: dig\nrunAs: subagent\n---\nbody")
+	writeSkill(t, home, ".arcdesk/skills/dig.md", "---\ndescription: dig\nrunAs: subagent\n---\nbody")
 	var gotTask string
 	runner := func(_ context.Context, sk Skill, task string) (string, error) {
 		gotTask = task
@@ -63,7 +63,7 @@ func TestRunSkillSubagentRuns(t *testing.T) {
 
 func TestRunSkillSubagentRequiresArgs(t *testing.T) {
 	home := t.TempDir()
-	writeSkill(t, home, ".reasonix/skills/dig.md", "---\ndescription: dig\nrunAs: subagent\n---\nbody")
+	writeSkill(t, home, ".arcdesk/skills/dig.md", "---\ndescription: dig\nrunAs: subagent\n---\nbody")
 	runner := func(_ context.Context, _ Skill, _ string) (string, error) { return "x", nil }
 	tl := NewRunSkillTool(New(Options{HomeDir: home, DisableBuiltins: true}), runner)
 	if _, err := tl.Execute(context.Background(), json.RawMessage(`{"name":"dig"}`)); err == nil {

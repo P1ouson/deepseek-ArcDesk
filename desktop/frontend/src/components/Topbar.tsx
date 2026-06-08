@@ -6,10 +6,8 @@ import { Tooltip } from "./Tooltip";
 export type RightDockTab = "context" | "changes" | "todo" | "git" | "browser" | "files";
 
 export interface TopbarProps {
-  sidebarCollapsed: boolean;
-  onToggleSidebar: () => void;
   title: string;
-  workspacePath: string;
+  workspacePath?: string;
   editing: boolean;
   titleDraft: string;
   onTitleDraftChange: (value: string) => void;
@@ -79,9 +77,11 @@ export function Topbar({
           )}
         </div>
         <div className="studio-header__meta">
-          <span className="studio-header__workspace" title={workspacePath}>
-            {workspacePath}
-          </span>
+          {workspacePath ? (
+            <span className="studio-header__workspace" title={workspacePath}>
+              {workspacePath}
+            </span>
+          ) : null}
           {running && <span className="studio-header__pill studio-header__pill--running">{t("status.running")}</span>}
           {goalLabel ? (
             <span className="studio-header__pill" title={goalLabel}>

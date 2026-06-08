@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/fileutil"
+	"arcdesk/internal/fileutil"
 )
 
 // BranchMeta is the small sidecar record that turns flat session files into a

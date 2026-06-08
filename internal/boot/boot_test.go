@@ -16,27 +16,27 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/config"
-	"reasonix/internal/event"
-	"reasonix/internal/plugin"
-	"reasonix/internal/provider"
+	"arcdesk/internal/config"
+	"arcdesk/internal/event"
+	"arcdesk/internal/plugin"
+	"arcdesk/internal/provider"
 
 	// Blank imports register the provider kind and built-in tools the same way
-	// cmd/reasonix's main does; without them Build sees an empty provider
+	// cmd/ARCDESK's main does; without them Build sees an empty provider
 	// registry and a bare tool set.
-	_ "reasonix/internal/provider/openai"
-	_ "reasonix/internal/tool/builtin"
+	_ "arcdesk/internal/provider/openai"
+	_ "arcdesk/internal/tool/builtin"
 )
 
 // TestBuildFoldsProjectMemoryIntoSystemPrompt is the end-to-end proof of the
-// cache-first wiring: a project REASONIX.md is discovered at boot and folded
+// cache-first wiring: a project ARCDESK.md is discovered at boot and folded
 // into the session's system message (the cached prefix), and the `remember`
 // tool is registered. It builds a real Controller from a throwaway project dir.
 func TestBuildFoldsProjectMemoryIntoSystemPrompt(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
-	writeFile(t, dir, "reasonix.toml", `
+	writeFile(t, dir, "arcdesk.toml", `
 default_model = "test-model"
 
 [codegraph]
@@ -50,9 +50,9 @@ name = "test-model"
 kind = "openai"
 base_url = "https://example.invalid"
 model = "x"
-api_key_env = "REASONIX_TEST_KEY_UNSET"
+api_key_env = "arcdesk_TEST_KEY_UNSET"
 `)
-	writeFile(t, dir, "REASONIX.md", "Project rule: always run go vet before committing.")
+	writeFile(t, dir, "ARCDESK.md", "Project rule: always run go vet before committing.")
 
 	ctrl, err := Build(context.Background(), Options{}) // RequireKey false: no network/key needed
 	if err != nil {
@@ -67,7 +67,7 @@ api_key_env = "REASONIX_TEST_KEY_UNSET"
 		t.Fatalf("base prompt missing from system message:\n%s", sys)
 	}
 	if !strings.Contains(sys, "always run go vet before committing") {
-		t.Fatalf("project REASONIX.md not folded into system message:\n%s", sys)
+		t.Fatalf("project ARCDESK.md not folded into system message:\n%s", sys)
 	}
 	// Base must come first so it stays a valid cache prefix when memory changes.
 	if strings.Index(sys, "BASE SYSTEM PROMPT") > strings.Index(sys, "always run go vet") {
@@ -75,7 +75,7 @@ api_key_env = "REASONIX_TEST_KEY_UNSET"
 	}
 
 	if mem := ctrl.Memory(); mem == nil || len(mem.Docs) == 0 {
-		t.Fatal("controller memory set is empty after discovering REASONIX.md")
+		t.Fatal("controller memory set is empty after discovering ARCDESK.md")
 	}
 }
 
@@ -126,7 +126,7 @@ func TestBuildDiscoversSkills(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Chdir(dir)
-	writeFile(t, dir, "reasonix.toml", `
+	writeFile(t, dir, "arcdesk.toml", `
 default_model = "test-model"
 
 [codegraph]
@@ -140,9 +140,9 @@ name = "test-model"
 kind = "openai"
 base_url = "https://example.invalid"
 model = "x"
-api_key_env = "REASONIX_TEST_KEY_UNSET"
+api_key_env = "arcdesk_TEST_KEY_UNSET"
 `)
-	writeFile(t, dir, ".reasonix/skills/projskill.md", "---\ndescription: a project skill\n---\nplaybook")
+	writeFile(t, dir, ".arcdesk/skills/projskill.md", "---\ndescription: a project skill\n---\nplaybook")
 
 	ctrl, err := Build(context.Background(), Options{})
 	if err != nil {
@@ -178,7 +178,7 @@ func TestBuildOmitsDisabledSkillsFromPromptAndRuntimeList(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Chdir(dir)
-	writeFile(t, dir, "reasonix.toml", `
+	writeFile(t, dir, "arcdesk.toml", `
 default_model = "test-model"
 
 [codegraph]
@@ -195,9 +195,9 @@ name = "test-model"
 kind = "openai"
 base_url = "https://example.invalid"
 model = "x"
-api_key_env = "REASONIX_TEST_KEY_UNSET"
+api_key_env = "arcdesk_TEST_KEY_UNSET"
 `)
-	writeFile(t, dir, ".reasonix/skills/projskill.md", "---\ndescription: a project skill\n---\nplaybook")
+	writeFile(t, dir, ".arcdesk/skills/projskill.md", "---\ndescription: a project skill\n---\nplaybook")
 
 	ctrl, err := Build(context.Background(), Options{})
 	if err != nil {
@@ -228,7 +228,7 @@ api_key_env = "REASONIX_TEST_KEY_UNSET"
 func TestBuildRecordsMCPStartupFailure(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	writeFile(t, dir, "reasonix.toml", `
+	writeFile(t, dir, "arcdesk.toml", `
 default_model = "test-model"
 
 [codegraph]
@@ -242,11 +242,11 @@ name = "test-model"
 kind = "openai"
 base_url = "https://example.invalid"
 model = "x"
-api_key_env = "REASONIX_TEST_KEY_UNSET"
+api_key_env = "arcdesk_TEST_KEY_UNSET"
 
 [[plugins]]
 name = "missing"
-command = "reasonix-missing-mcp-binary"
+command = "arcdesk-missing-mcp-binary"
 tier = "eager"
 `)
 	var notices []event.Event
@@ -283,7 +283,7 @@ tier = "eager"
 func TestBuildWithoutMemoryLeavesPromptUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	writeFile(t, dir, "reasonix.toml", `
+	writeFile(t, dir, "arcdesk.toml", `
 default_model = "test-model"
 
 [codegraph]
@@ -297,7 +297,7 @@ name = "test-model"
 kind = "openai"
 base_url = "https://example.invalid"
 model = "x"
-api_key_env = "REASONIX_TEST_KEY_UNSET"
+api_key_env = "arcdesk_TEST_KEY_UNSET"
 `)
 
 	ctrl, err := Build(context.Background(), Options{})
@@ -310,7 +310,7 @@ api_key_env = "REASONIX_TEST_KEY_UNSET"
 	// The built-in skills always append a "# Skills" index to the prefix; this
 	// test is about memory, so strip that and assert the remaining base is exactly
 	// the configured prompt — i.e. no *project/ancestor* memory leaked in. (A
-	// user-global REASONIX.md in the real config dir could append; the test
+	// user-global ARCDESK.md in the real config dir could append; the test
 	// environment has none, so the base stands alone.)
 	base := sys
 	if i := strings.Index(sys, "\n\n# Skills"); i >= 0 {
@@ -327,7 +327,7 @@ api_key_env = "REASONIX_TEST_KEY_UNSET"
 func TestBuildLanguagePolicyIsAppended(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	writeFile(t, dir, "reasonix.toml", `
+	writeFile(t, dir, "arcdesk.toml", `
 default_model = "test-model"
 
 [codegraph]
@@ -341,7 +341,7 @@ name = "test-model"
 kind = "openai"
 base_url = "https://example.invalid"
 model = "x"
-api_key_env = "REASONIX_TEST_KEY_UNSET"
+api_key_env = "arcdesk_TEST_KEY_UNSET"
 `)
 
 	ctrl, err := Build(context.Background(), Options{})
@@ -392,11 +392,11 @@ func TestRememberPermissionRuleUsesWorkspaceRoot(t *testing.T) {
 	cwd := t.TempDir()
 	workspace := t.TempDir()
 	t.Chdir(cwd)
-	writeFile(t, cwd, "reasonix.toml", `
+	writeFile(t, cwd, "arcdesk.toml", `
 [permissions]
 allow = ["bash(cwd*)"]
 `)
-	writeFile(t, workspace, "reasonix.toml", `
+	writeFile(t, workspace, "arcdesk.toml", `
 [permissions]
 allow = ["bash(workspace*)"]
 `)
@@ -404,11 +404,11 @@ allow = ["bash(workspace*)"]
 	const rule = "bash=go test ./..."
 	rememberPermissionRule(workspace, rule)
 
-	cwdCfg := config.LoadForEdit(filepath.Join(cwd, "reasonix.toml"))
+	cwdCfg := config.LoadForEdit(filepath.Join(cwd, "arcdesk.toml"))
 	if hasPermissionRule(cwdCfg.Permissions.Allow, rule) {
 		t.Fatalf("remembered rule was written to cwd config: %v", cwdCfg.Permissions.Allow)
 	}
-	workspaceCfg := config.LoadForEdit(filepath.Join(workspace, "reasonix.toml"))
+	workspaceCfg := config.LoadForEdit(filepath.Join(workspace, "arcdesk.toml"))
 	if !hasPermissionRule(workspaceCfg.Permissions.Allow, rule) {
 		t.Fatalf("remembered rule missing from workspace config: %v", workspaceCfg.Permissions.Allow)
 	}
@@ -436,7 +436,7 @@ allow = ["bash(user*)"]
 	if !hasPermissionRule(userCfg.Permissions.Allow, rule) {
 		t.Fatalf("empty root should remember into SourcePath config: %v", userCfg.Permissions.Allow)
 	}
-	if _, err := os.Stat(filepath.Join(cwd, "reasonix.toml")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(cwd, "arcdesk.toml")); !os.IsNotExist(err) {
 		t.Fatalf("empty root should not create cwd config when SourcePath exists, err=%v", err)
 	}
 }
@@ -451,7 +451,7 @@ func hasPermissionRule(rules []string, want string) bool {
 }
 
 // TestBuildMigratesLegacyConfigEndToEnd drives the real boot path: a v0.x
-// ~/.reasonix/config.json with no v1+ config present must be imported during
+// ~/.arcdesk/config.json with no v1+ config present must be imported during
 // Build — config written, key pinned into the env, and the user told via a notice.
 func TestBuildMigratesLegacyConfigEndToEnd(t *testing.T) {
 	home := t.TempDir()
@@ -465,10 +465,10 @@ func TestBuildMigratesLegacyConfigEndToEnd(t *testing.T) {
 	t.Chdir(proj)
 	// codegraph off keeps Build offline; it merges over the migrated user config
 	// without dropping the migrated plugins.
-	writeFile(t, proj, "reasonix.toml", "[codegraph]\nenabled = false\n")
-	writeFile(t, filepath.Join(home, ".reasonix"), "config.json",
+	writeFile(t, proj, "arcdesk.toml", "[codegraph]\nenabled = false\n")
+	writeFile(t, filepath.Join(home, ".arcdesk"), "config.json",
 		`{"apiKey":"sk-e2e","lang":"zh","mcpServers":{"fs":{"command":"npx","args":["-y","server-fs"]}}}`)
-	writeFile(t, filepath.Join(home, ".reasonix", "sessions"), "chat-1.events.jsonl",
+	writeFile(t, filepath.Join(home, ".arcdesk", "sessions"), "chat-1.events.jsonl",
 		`{"type":"user.message","id":1,"ts":"t","turn":0,"text":"hello from v0.x"}`+"\n"+
 			`{"type":"model.final","id":2,"ts":"t","turn":0,"content":"hi","toolCalls":[],"usage":{},"costUsd":0}`+"\n")
 
@@ -584,7 +584,7 @@ func TestBuildEagerStartsAtBoot(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
-	writeFile(t, dir, "reasonix.toml", fmt.Sprintf(`
+	writeFile(t, dir, "arcdesk.toml", fmt.Sprintf(`
 default_model = "test-model"
 
 [codegraph]
@@ -598,7 +598,7 @@ name = "test-model"
 kind = "openai"
 base_url = "https://example.invalid"
 model = "x"
-api_key_env = "REASONIX_TEST_KEY_UNSET"
+api_key_env = "arcdesk_TEST_KEY_UNSET"
 
 [[plugins]]
 name = "eagermock"
@@ -646,7 +646,7 @@ func TestBuildLazyDoesNotConnectAtBoot(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
-	writeFile(t, dir, "reasonix.toml", fmt.Sprintf(`
+	writeFile(t, dir, "arcdesk.toml", fmt.Sprintf(`
 default_model = "test-model"
 
 [codegraph]
@@ -660,7 +660,7 @@ name = "test-model"
 kind = "openai"
 base_url = "https://example.invalid"
 model = "x"
-api_key_env = "REASONIX_TEST_KEY_UNSET"
+api_key_env = "arcdesk_TEST_KEY_UNSET"
 
 [[plugins]]
 name = "lazymock"
@@ -710,7 +710,7 @@ func TestBuildColdCodegraphStartsInBackground(t *testing.T) {
 	launcher := writeCodegraphHelper(t, dir)
 	t.Setenv("GO_WANT_HELPER_PROCESS", "1")
 
-	writeFile(t, dir, "reasonix.toml", fmt.Sprintf(`
+	writeFile(t, dir, "arcdesk.toml", fmt.Sprintf(`
 default_model = "test-model"
 
 [codegraph]
@@ -726,7 +726,7 @@ name = "test-model"
 kind = "openai"
 base_url = "https://example.invalid"
 model = "x"
-api_key_env = "REASONIX_TEST_KEY_UNSET"
+api_key_env = "arcdesk_TEST_KEY_UNSET"
 `, launcher))
 
 	var notices []event.Event
@@ -792,7 +792,7 @@ func TestBuildAutoDemoteFromStats(t *testing.T) {
 		}
 	}
 
-	writeFile(t, dir, "reasonix.toml", `
+	writeFile(t, dir, "arcdesk.toml", `
 default_model = "test-model"
 
 [codegraph]
@@ -806,11 +806,11 @@ name = "test-model"
 kind = "openai"
 base_url = "https://example.invalid"
 model = "x"
-api_key_env = "REASONIX_TEST_KEY_UNSET"
+api_key_env = "arcdesk_TEST_KEY_UNSET"
 
 [[plugins]]
 name = "slowserver"
-command = "reasonix-missing-slow-mcp-binary"
+command = "arcdesk-missing-slow-mcp-binary"
 tier = "eager"
 `)
 

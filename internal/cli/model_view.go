@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/i18n"
+	"arcdesk/internal/i18n"
 )
 
 func renderModels(width int, refs []string, active string) string {

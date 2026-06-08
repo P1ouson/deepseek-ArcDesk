@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"reasonix/internal/i18n"
-	"reasonix/internal/provider"
+	"arcdesk/internal/i18n"
+	"arcdesk/internal/provider"
 )
 
 // explainError maps a provider HTTP failure to an actionable, localized message

@@ -1,5 +1,6 @@
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
+import { useDismissOnOutsidePointerDown } from "../lib/useDismissOnOutsidePointerDown";
 
 const FLOATING_MENU_MARGIN = 8;
 
@@ -26,6 +27,7 @@ export function FloatingMenu({
   width = 240,
   estimatedHeight,
   className = "",
+  onClose,
   children,
 }: {
   x: number;
@@ -33,11 +35,19 @@ export function FloatingMenu({
   width?: number;
   estimatedHeight: number;
   className?: string;
+  onClose: () => void;
   children: ReactNode;
 }) {
+  const menuRef = useRef<HTMLDivElement>(null);
   const pos = useMemo(() => clampFloatingMenuPosition(x, y, width, estimatedHeight), [estimatedHeight, width, x, y]);
+
+  useDismissOnOutsidePointerDown(true, onClose, {
+    excludeRefs: [menuRef],
+  });
+
   return (
     <div
+      ref={menuRef}
       className={`floating-menu${className ? ` ${className}` : ""}`}
       style={{ left: pos.left, top: pos.top }}
       onMouseDown={(e) => {

@@ -1,21 +1,23 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/boot"
-	"reasonix/internal/config"
-	"reasonix/internal/provider"
+	"arcdesk/internal/agent"
+	"arcdesk/internal/boot"
+	"arcdesk/internal/config"
+	"arcdesk/internal/outputstyle"
+	"arcdesk/internal/provider"
 )
 
 // settings_app.go is the desktop Settings panel's command surface: it reads the
 // resolved config and applies edits through internal/config/edit.go (the
 // purpose-built mutation API), then rebuilds the controller so the change takes
-// effect live — the same snapshot→reload→resume pattern as SetModel. Secrets are
+// effect live �?the same snapshot→reload→resume pattern as SetModel. Secrets are
 // the exception: they go to the global credentials file (upsertDotEnv), since
 // config stores only the env-var name, not the key.
 
@@ -33,6 +35,11 @@ type ProviderView struct {
 	ContextWindow    int      `json:"contextWindow"`
 	SupportedEfforts []string `json:"supportedEfforts"`
 	DefaultEffort    string   `json:"defaultEffort"`
+}
+
+type ProviderModelsResult struct {
+	Provider string   `json:"provider"`
+	Models   []string `json:"models"`
 }
 
 type PermissionsView struct {
@@ -65,9 +72,80 @@ type NetworkView struct {
 }
 
 type AgentView struct {
-	Temperature  float64 `json:"temperature"`
-	MaxSteps     int     `json:"maxSteps"`
-	SystemPrompt string  `json:"systemPrompt"`
+	Temperature        float64            `json:"temperature"`
+	MaxSteps           int                  `json:"maxSteps"`
+	SystemPrompt       string               `json:"systemPrompt"`
+	SystemPromptFile   string               `json:"systemPromptFile"`
+	OutputStyle        string               `json:"outputStyle"`
+	AutoPlan           string               `json:"autoPlan"`
+	AutoPlanClassifier string               `json:"autoPlanClassifier"`
+	SoftCompactRatio   float64              `json:"softCompactRatio"`
+	CompactRatio       float64              `json:"compactRatio"`
+	CompactForceRatio  float64              `json:"compactForceRatio"`
+	SubagentModel      string               `json:"subagentModel"`
+	SubagentModels     map[string]string    `json:"subagentModels"`
+	UsesDefaultPrompt  bool                 `json:"usesDefaultPrompt"`
+	DefaultSystemPrompt string              `json:"defaultSystemPrompt"`
+}
+
+type OutputStyleView struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Builtin     bool   `json:"builtin"`
+}
+
+type AgentSettingsInput struct {
+	Temperature        float64            `json:"temperature"`
+	MaxSteps           int                  `json:"maxSteps"`
+	SystemPrompt       string               `json:"systemPrompt"`
+	SystemPromptFile   string               `json:"systemPromptFile"`
+	OutputStyle        string               `json:"outputStyle"`
+	AutoPlan           string               `json:"autoPlan"`
+	AutoPlanClassifier string               `json:"autoPlanClassifier"`
+	SoftCompactRatio   float64              `json:"softCompactRatio"`
+	CompactRatio       float64              `json:"compactRatio"`
+	CompactForceRatio  float64              `json:"compactForceRatio"`
+	SubagentModel      string               `json:"subagentModel"`
+	SubagentModels     map[string]string    `json:"subagentModels"`
+}
+
+type DesktopGitView struct {
+	PRMergeMethod         string `json:"prMergeMethod"`
+	CheckGitHubCli        bool   `json:"checkGitHubCli"`
+	SyncRepoMergeToGitHub bool   `json:"syncRepoMergeToGitHub"`
+	CommitInstructions    string `json:"commitInstructions"`
+	PRInstructions        string `json:"prInstructions"`
+}
+
+type DesktopAppearanceView struct {
+	BackgroundPreset string `json:"backgroundPreset"`
+	ForegroundPreset string `json:"foregroundPreset"`
+	TextSize         string `json:"textSize"`
+	CodeFontSize     string `json:"codeFontSize"`
+	DiffMarker       string `json:"diffMarker"`
+}
+
+type DesktopCodeReviewView struct {
+	DefaultScope      string `json:"defaultScope"`
+	SecurityByDefault bool   `json:"securityByDefault"`
+}
+
+type DesktopLocalPrefsMigrationInput struct {
+	BackgroundPreset   string `json:"backgroundPreset"`
+	ForegroundPreset   string `json:"foregroundPreset"`
+	TextSize           string `json:"textSize"`
+	CodeFontSize       string `json:"codeFontSize"`
+	DiffMarker         string `json:"diffMarker"`
+	CodeReviewScope    string `json:"codeReviewScope"`
+	CodeReviewSecurity bool   `json:"codeReviewSecurity"`
+	HasAppearance      bool   `json:"hasAppearance"`
+	HasCodeReview      bool   `json:"hasCodeReview"`
+}
+
+type ProjectPreviewSettingsInput struct {
+	PreviewHosts  []string `json:"previewHosts"`
+	PreviewPorts  []int    `json:"previewPorts"`
+	PreviewStrict bool     `json:"previewStrict"`
 }
 
 // SettingsView is the whole Settings panel payload.
@@ -80,18 +158,81 @@ type SettingsView struct {
 	Sandbox           SandboxView     `json:"sandbox"`
 	Network           NetworkView     `json:"network"`
 	Agent             AgentView       `json:"agent"`
-	DesktopLanguage   string          `json:"desktopLanguage"`
-	DesktopTheme      string          `json:"desktopTheme"`
-	DesktopThemeStyle string          `json:"desktopThemeStyle"`
-	CloseBehavior     string          `json:"closeBehavior"`
+	DesktopLanguage     string          `json:"desktopLanguage"`
+	DesktopTheme        string          `json:"desktopTheme"`
+	DesktopThemeStyle   string          `json:"desktopThemeStyle"`
+	DesktopTerminalShell string         `json:"desktopTerminalShell"`
+	DesktopGit           DesktopGitView `json:"desktopGit"`
+	DesktopAppearance    DesktopAppearanceView `json:"desktopAppearance"`
+	DesktopCodeReview    DesktopCodeReviewView `json:"desktopCodeReview"`
+	CloseBehavior       string          `json:"closeBehavior"`
 	ConfigPath        string          `json:"configPath"`
 	// ProviderKinds lists the provider implementations the kernel actually
 	// registered (provider.Kinds()), so the editor's "kind" picker offers only
-	// kinds that resolve — selecting an unregistered one would fail the rebuild.
+	// kinds that resolve �?selecting an unregistered one would fail the rebuild.
 	ProviderKinds []string `json:"providerKinds"`
 	// Bypass is the live YOLO state (runtime-only, not from config), so the panel's
 	// toggle reflects whether approvals are currently being skipped this session.
 	Bypass bool `json:"bypass"`
+}
+
+func agentViewFromConfig(cfg *config.Config) AgentView {
+	def := config.Default()
+	soft := cfg.Agent.SoftCompactRatio
+	if soft <= 0 {
+		soft = def.Agent.SoftCompactRatio
+	}
+	compact := cfg.Agent.CompactRatio
+	if compact <= 0 {
+		compact = def.Agent.CompactRatio
+	}
+	force := cfg.Agent.CompactForceRatio
+	if force <= 0 {
+		force = def.Agent.CompactForceRatio
+	}
+	subagentModels := cfg.Agent.SubagentModels
+	if subagentModels == nil {
+		subagentModels = map[string]string{}
+	}
+	prompt := cfg.Agent.SystemPrompt
+	usesDefault := strings.TrimSpace(prompt) == "" || prompt == def.Agent.SystemPrompt
+	return AgentView{
+		Temperature:        cfg.Agent.Temperature,
+		MaxSteps:           cfg.Agent.MaxSteps,
+		SystemPrompt:       prompt,
+		SystemPromptFile:   cfg.Agent.SystemPromptFile,
+		OutputStyle:        cfg.Agent.OutputStyle,
+		AutoPlan:           desktopAutoPlanMode(cfg.Agent.AutoPlan),
+		AutoPlanClassifier: cfg.Agent.AutoPlanClassifier,
+		SoftCompactRatio:   soft,
+		CompactRatio:       compact,
+		CompactForceRatio:  force,
+		SubagentModel:      cfg.Agent.SubagentModel,
+		SubagentModels:     subagentModels,
+		UsesDefaultPrompt:  usesDefault,
+		DefaultSystemPrompt: config.DefaultSystemPrompt,
+	}
+}
+
+func agentSettingsFromView(in AgentSettingsInput) config.AgentSettingsInput {
+	subagentModels := in.SubagentModels
+	if subagentModels == nil {
+		subagentModels = map[string]string{}
+	}
+	return config.AgentSettingsInput{
+		Temperature:        in.Temperature,
+		MaxSteps:           in.MaxSteps,
+		SystemPrompt:       in.SystemPrompt,
+		SystemPromptFile:   in.SystemPromptFile,
+		OutputStyle:        in.OutputStyle,
+		AutoPlan:           in.AutoPlan,
+		AutoPlanClassifier: in.AutoPlanClassifier,
+		SoftCompactRatio:   in.SoftCompactRatio,
+		CompactRatio:       in.CompactRatio,
+		CompactForceRatio:  in.CompactForceRatio,
+		SubagentModel:      in.SubagentModel,
+		SubagentModels:     subagentModels,
+	}
 }
 
 func nonNil(s []string) []string {
@@ -116,8 +257,12 @@ func (a *App) Settings() SettingsView {
 			},
 			Sandbox:           SandboxView{Bash: "enforce", AllowWrite: []string{}},
 			AutoPlan:          "off",
-			DesktopTheme:      "dark",
-			DesktopThemeStyle: "graphite",
+			Agent:             agentViewFromConfig(config.Default()),
+			DesktopTheme:      "light",
+			DesktopThemeStyle: "glacier",
+			DesktopGit: desktopGitView(config.DesktopGitConfig{
+				PRMergeMethod: "merge",
+			}),
 			CloseBehavior:     "background",
 		}
 	}
@@ -153,11 +298,15 @@ func (a *App) Settings() SettingsView {
 				Password: cfg.Network.Proxy.Password,
 			},
 		},
-		Agent:             AgentView{Temperature: cfg.Agent.Temperature, MaxSteps: cfg.Agent.MaxSteps, SystemPrompt: cfg.Agent.SystemPrompt},
-		DesktopLanguage:   cfg.DesktopLanguage(),
-		DesktopTheme:      cfg.DesktopTheme(),
-		DesktopThemeStyle: cfg.DesktopThemeStyle(),
-		CloseBehavior:     cfg.DesktopCloseBehavior(),
+		Agent:             agentViewFromConfig(cfg),
+		DesktopLanguage:      cfg.DesktopLanguage(),
+		DesktopTheme:         cfg.DesktopTheme(),
+		DesktopThemeStyle:    cfg.DesktopThemeStyle(),
+		DesktopTerminalShell: cfg.DesktopTerminalShell(),
+		DesktopGit: desktopGitView(cfg.DesktopGitSettings()),
+		DesktopAppearance:    desktopAppearanceView(cfg.DesktopAppearanceSettings()),
+		DesktopCodeReview:    desktopCodeReviewView(cfg.DesktopCodeReviewSettings()),
+		CloseBehavior:        cfg.DesktopCloseBehavior(),
 		ConfigPath:        cfgPath,
 		ProviderKinds:     nonNil(provider.Kinds()),
 		Bypass:            ctrl != nil && ctrl.Bypass(),
@@ -185,12 +334,39 @@ func orDefault(s, def string) string {
 	return s
 }
 
+func desktopGitView(g config.DesktopGitConfig) DesktopGitView {
+	return DesktopGitView{
+		PRMergeMethod:         g.PRMergeMethod,
+		CheckGitHubCli:        g.CheckGitHubCli,
+		SyncRepoMergeToGitHub: g.SyncRepoMergeToGitHub,
+		CommitInstructions:    g.CommitInstructions,
+		PRInstructions:        g.PRInstructions,
+	}
+}
+
+func desktopAppearanceView(a config.DesktopAppearanceConfig) DesktopAppearanceView {
+	return DesktopAppearanceView{
+		BackgroundPreset: a.BackgroundPreset,
+		ForegroundPreset: a.ForegroundPreset,
+		TextSize:         orDefault(a.TextSize, "default"),
+		CodeFontSize:     orDefault(a.CodeFontSize, "default"),
+		DiffMarker:       orDefault(a.DiffMarker, "background"),
+	}
+}
+
+func desktopCodeReviewView(cr config.DesktopCodeReviewConfig) DesktopCodeReviewView {
+	return DesktopCodeReviewView{
+		DefaultScope:      orDefault(cr.DefaultScope, "all"),
+		SecurityByDefault: cr.SecurityByDefault,
+	}
+}
+
 // --- apply (write config, then rebuild the controller so it's live) ---
 
 // applyConfigChange mutates the user-global config and rebuilds the controller so
 // the change takes effect this session. Desktop settings such as providers and
 // keys are account-level, not per-project: writing them to the global config
-// rather than the cwd's reasonix.toml is what lets them survive a workspace switch.
+// rather than the cwd's ARCDESK.toml is what lets them survive a workspace switch.
 func (a *App) applyConfigChange(mutate func(*config.Config) error) error {
 	cfg, path, err := a.loadDesktopUserConfigForEdit()
 	if err != nil {
@@ -241,13 +417,6 @@ func (a *App) activeWorkspaceRoot() string {
 		return tab.WorkspaceRoot
 	}
 	return "."
-}
-
-func projectConfigPathForRoot(root string) string {
-	if strings.TrimSpace(root) == "" || root == "." {
-		return "reasonix.toml"
-	}
-	return filepath.Join(root, "reasonix.toml")
 }
 
 func sameConfigPath(a, b string) bool {
@@ -403,6 +572,38 @@ func desktopAutoPlanMode(mode string) string {
 	}
 }
 
+// SyncProviderModels fetches the live model list from the provider API and
+// updates the provider entry in config.
+func (a *App) SyncProviderModels(providerName string) (ProviderModelsResult, error) {
+	name := strings.TrimSpace(providerName)
+	if name == "" {
+		return ProviderModelsResult{}, fmt.Errorf("provider name is required")
+	}
+	var out ProviderModelsResult
+	err := a.applyConfigChange(func(c *config.Config) error {
+		e, ok := c.Provider(name)
+		if !ok {
+			return fmt.Errorf("provider %q not found", name)
+		}
+		models, err := e.FetchModels(context.Background())
+		if err != nil {
+			return err
+		}
+		if len(models) == 0 {
+			return fmt.Errorf("empty model list returned")
+		}
+		updated := *e
+		updated.Models = models
+		updated.Model = models[0]
+		if !updated.HasModel(updated.Default) {
+			updated.Default = models[0]
+		}
+		out = ProviderModelsResult{Provider: name, Models: models}
+		return c.UpsertProvider(updated)
+	})
+	return out, err
+}
+
 // SaveProvider adds or updates a provider. A single model fills `model`; several
 // fill `models` (with `default`). The shared key/endpoint live on the entry.
 func (a *App) SaveProvider(p ProviderView) error {
@@ -505,6 +706,24 @@ func (a *App) SetDesktopLanguage(lang string) error {
 	return nil
 }
 
+// SetDesktopTerminalShell updates the integrated terminal shell preference.
+func (a *App) SetDesktopTerminalShell(shell string) error {
+	return a.applyConfigOnly(func(c *config.Config) error { return c.SetDesktopTerminalShell(shell) })
+}
+
+// SetDesktopGitSettings updates desktop Git UI preferences.
+func (a *App) SetDesktopGitSettings(git DesktopGitView) error {
+	return a.applyConfigOnly(func(c *config.Config) error {
+		return c.SetDesktopGitSettings(
+			git.PRMergeMethod,
+			git.CheckGitHubCli,
+			git.SyncRepoMergeToGitHub,
+			git.CommitInstructions,
+			git.PRInstructions,
+		)
+	})
+}
+
 // SetTrayLocale mirrors the resolved desktop UI language into the native tray
 // menu. It is runtime-only; the persisted preference remains [desktop].language.
 func (a *App) SetTrayLocale(locale string) error {
@@ -513,6 +732,45 @@ func (a *App) SetTrayLocale(locale string) error {
 	}
 	a.updateTrayLocale(locale)
 	return nil
+}
+
+// SetDesktopAppearancePrefs updates desktop surface and typography preferences.
+func (a *App) SetDesktopAppearancePrefs(in DesktopAppearanceView) error {
+	return a.applyConfigOnly(func(c *config.Config) error {
+		return c.SetDesktopAppearancePrefs(config.DesktopAppearanceInput{
+			BackgroundPreset: in.BackgroundPreset,
+			ForegroundPreset: in.ForegroundPreset,
+			TextSize:         in.TextSize,
+			CodeFontSize:     in.CodeFontSize,
+			DiffMarker:       in.DiffMarker,
+		})
+	})
+}
+
+// SetDesktopCodeReviewSettings updates desktop code-review panel defaults.
+func (a *App) SetDesktopCodeReviewSettings(in DesktopCodeReviewView) error {
+	return a.applyConfigOnly(func(c *config.Config) error {
+		return c.SetDesktopCodeReviewSettings(in.DefaultScope, in.SecurityByDefault)
+	})
+}
+
+// MigrateDesktopLocalPrefs imports browser-local desktop prefs into config once.
+func (a *App) MigrateDesktopLocalPrefs(in DesktopLocalPrefsMigrationInput) error {
+	return a.applyConfigOnly(func(c *config.Config) error {
+		return c.ImportDesktopLocalPrefs(
+			config.DesktopAppearanceInput{
+				BackgroundPreset: in.BackgroundPreset,
+				ForegroundPreset: in.ForegroundPreset,
+				TextSize:         in.TextSize,
+				CodeFontSize:     in.CodeFontSize,
+				DiffMarker:       in.DiffMarker,
+			},
+			in.CodeReviewScope,
+			in.CodeReviewSecurity,
+			in.HasAppearance,
+			in.HasCodeReview,
+		)
+	})
 }
 
 // SetDesktopAppearance updates only desktop theme preferences. It does not
@@ -540,13 +798,34 @@ func (a *App) MigrateDesktopPreferences(language, theme, style string) error {
 	})
 }
 
+// SetAgentSettings updates the full [agent] section from the desktop settings panel.
+func (a *App) SetAgentSettings(in AgentSettingsInput) error {
+	return a.applyConfigChange(func(c *config.Config) error {
+		return c.ApplyAgentSettings(agentSettingsFromView(in))
+	})
+}
+
+// ListOutputStyles returns built-in and discovered custom output styles.
+func (a *App) ListOutputStyles() []OutputStyleView {
+	styles := outputstyle.List(outputstyle.Dirs())
+	out := make([]OutputStyleView, 0, len(styles))
+	for _, st := range styles {
+		out = append(out, OutputStyleView{
+			Name:        st.Name,
+			Description: st.Description,
+			Builtin:     st.Builtin,
+		})
+	}
+	return out
+}
+
 // SetAgentParams updates sampling temperature, the optional max-steps guard, and
-// the base system prompt.
+// the base system prompt without changing other agent fields.
 func (a *App) SetAgentParams(temperature float64, maxSteps int, systemPrompt string) error {
 	return a.applyConfigChange(func(c *config.Config) error {
 		c.Agent.Temperature = temperature
 		c.Agent.MaxSteps = maxSteps
-		c.Agent.SystemPrompt = systemPrompt
+		c.Agent.SystemPrompt = strings.TrimSpace(systemPrompt)
 		return nil
 	})
 }

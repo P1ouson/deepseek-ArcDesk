@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/command"
-	"reasonix/internal/event"
-	"reasonix/internal/memory"
+	"arcdesk/internal/command"
+	"arcdesk/internal/event"
+	"arcdesk/internal/memory"
 )
 
 type fakeAutoPlanClassifier struct {

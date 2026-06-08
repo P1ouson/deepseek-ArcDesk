@@ -28,7 +28,7 @@ func KillTree(cmd *exec.Cmd) {
 // it when the job handle is closed. A launcher's detached grandchild (e.g. the
 // CodeGraph node daemon, which re-parents itself away from the launcher) stays
 // in the job even though it leaves cmd's live child tree, so KillTracked — and,
-// crucially, an abrupt reasonix exit, which closes the handle — still reaps it,
+// crucially, an abrupt ARCDESK exit, which closes the handle — still reaps it,
 // where taskkill /T would miss it. Returns 0 on failure; the caller then relies
 // on KillTree alone.
 func TrackTree(cmd *exec.Cmd) uintptr {

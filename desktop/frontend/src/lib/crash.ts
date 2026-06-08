@@ -33,7 +33,21 @@ export function reportCrash(label: string, err: unknown, extra?: string) {
   paint(format(label, err, extra));
 }
 
+function isBenignBrowserNoise(err: unknown, message?: string): boolean {
+  const text = [typeof err === "string" ? err : (err as Error | null)?.message, message]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return text.includes("resizeobserver loop");
+}
+
 export function installGlobalCrashHandlers() {
-  window.addEventListener("error", (e) => reportCrash("window.error", e.error ?? e.message));
-  window.addEventListener("unhandledrejection", (e) => reportCrash("unhandledrejection", e.reason));
+  window.addEventListener("error", (e) => {
+    if (isBenignBrowserNoise(e.error, e.message)) return;
+    reportCrash("window.error", e.error ?? e.message);
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    if (isBenignBrowserNoise(e.reason)) return;
+    reportCrash("unhandledrejection", e.reason);
+  });
 }

@@ -1,12 +1,12 @@
 /*
-  Cold Studio — design system primitives
+  Editorial Studio — design system primitives
   Shared tokens, states, forms, and motion for Reasonix Desktop
 */
 
 :root {
-  --term-bg: #0c0e10;
-  --term-fg: #e4e4e7;
-  --term-cursor: #2dd4bf;
+  --term-bg: #1f1f1f;
+  --term-fg: #e8e8e8;
+  --term-cursor: #8b95e6;
 
   --state-empty-bg: color-mix(in srgb, var(--bg-soft) 88%, var(--bg-elev));
   --state-error-bg: color-mix(in srgb, var(--err) 10%, var(--bg-elev));

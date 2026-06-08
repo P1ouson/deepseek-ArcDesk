@@ -27,9 +27,9 @@ const HUB_BY_TAB = new Map<RightDockTab, DockHub>(
 
 const HUB_MAP = new Map(DOCK_HUBS.map((hub) => [hub.id, hub]));
 
-const LAST_TAB_STORAGE_KEY = "reasonix.dock.hubLastTab.v1";
-const PREVIEW_PANEL_STORAGE_KEY = "reasonix.dock.previewPanel.v1";
-const PREVIEW_MODE_STORAGE_KEY = "reasonix.dock.previewMode.v1";
+const LAST_TAB_STORAGE_KEY = "ARCDESK.dock.hubLastTab.v1";
+const PREVIEW_PANEL_STORAGE_KEY = "ARCDESK.dock.previewPanel.v1";
+const PREVIEW_MODE_STORAGE_KEY = "ARCDESK.dock.previewMode.v1";
 
 export function dockHubForTab(tab: RightDockTab): DockHub {
   return HUB_BY_TAB.get(tab) ?? "context";

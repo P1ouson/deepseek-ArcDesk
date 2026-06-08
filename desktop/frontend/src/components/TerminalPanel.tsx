@@ -5,9 +5,9 @@ import { useT } from "../lib/i18n";
 import { shortCwd } from "../lib/workspaceFilePreview";
 import { TerminalView } from "./TerminalView";
 
-const TERMINAL_PANEL_DEFAULT_HEIGHT = 220;
-const TERMINAL_PANEL_MIN_HEIGHT = 140;
-const TERMINAL_PANEL_MAX_HEIGHT = 520;
+const TERMINAL_PANEL_DEFAULT_HEIGHT = 260;
+const TERMINAL_PANEL_MIN_HEIGHT = 160;
+const TERMINAL_PANEL_MAX_HEIGHT = 560;
 
 export function clampTerminalPanelHeight(height: number): number {
   return Math.min(TERMINAL_PANEL_MAX_HEIGHT, Math.max(TERMINAL_PANEL_MIN_HEIGHT, Math.round(height)));
@@ -17,6 +17,8 @@ export { TERMINAL_PANEL_DEFAULT_HEIGHT };
 
 export interface TerminalTab {
   id: string;
+  /** Stable React key — independent of backend session id and tab order */
+  clientKey: string;
   title: string;
   shell?: string;
 }
@@ -28,7 +30,7 @@ export interface BottomTerminalPanelProps {
   activeId: string;
   onActiveChange: (id: string) => void;
   onNewTerminal: () => void;
-  onCloseTab: (id: string) => void;
+  onCloseTab: (id: string, index: number) => void;
   onClosePanel: () => void;
   onResizeHeight: (height: number) => void;
 }
@@ -106,9 +108,9 @@ export function BottomTerminalPanel({
       />
       <header className="terminal-panel__head terminal-panel__head--tabs">
         <div className="terminal-panel__tabs" ref={tabsRef} role="tablist" aria-label={t("terminal.tabs")}>
-          {tabs.map((tab) => (
+          {tabs.map((tab, index) => (
             <div
-              key={tab.id}
+              key={tab.clientKey}
               className={`terminal-panel__tab${tab.id === activeId ? " terminal-panel__tab--active" : ""}`}
               role="presentation"
             >
@@ -130,7 +132,7 @@ export function BottomTerminalPanel({
                 aria-label={t("terminal.closeTab", { title: tab.title })}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onCloseTab(tab.id);
+                  onCloseTab(tab.id, index);
                 }}
               >
                   <X size={12} />
@@ -151,7 +153,7 @@ export function BottomTerminalPanel({
       </header>
       <div className="terminal-panel__body terminal-panel__body--xterm">
         {tabs.map((tab) => (
-          <TerminalView key={tab.id} sessionId={tab.id} active={tab.id === activeId} shell={tab.shell} />
+          <TerminalView key={tab.clientKey} sessionId={tab.id} active={tab.id === activeId} shell={tab.shell} />
         ))}
       </div>
     </section>

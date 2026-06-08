@@ -16,7 +16,7 @@ func legacyHome(t *testing.T) (src, dest, home string) {
 	t.Setenv("USERPROFILE", home)                               // os.UserHomeDir on Windows
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config")) // os.UserConfigDir on Linux
 	t.Setenv("AppData", filepath.Join(home, "AppData"))         // os.UserConfigDir on Windows
-	return filepath.Join(home, ".reasonix", "config.json"), userConfigPath(), home
+	return filepath.Join(home, LegacyHomeDir, "config.json"), userConfigPath(), home
 }
 
 func writeLegacy(t *testing.T, src, body string) {
@@ -119,7 +119,7 @@ func TestMigrateSkipsWhenDestExists(t *testing.T) {
 
 func TestMigrateImportsLegacyV1TOMLBeforeJSON(t *testing.T) {
 	srcJSON, dest, _ := legacyHome(t)
-	legacyTOML := filepath.Join(filepath.Dir(dest), "reasonix.toml")
+	legacyTOML := filepath.Join(filepath.Dir(dest), "arcdesk.toml")
 	if err := os.MkdirAll(filepath.Dir(legacyTOML), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ command = "legacy-bin"
 
 func TestMigrateImportsLegacyV1HomeTOMLBeforeJSON(t *testing.T) {
 	srcJSON, dest, home := legacyHome(t)
-	legacyTOML := filepath.Join(home, ".reasonix", "reasonix.toml")
+	legacyTOML := filepath.Join(home, ".arcdesk", "arcdesk.toml")
 	if err := os.MkdirAll(filepath.Dir(legacyTOML), 0o755); err != nil {
 		t.Fatal(err)
 	}

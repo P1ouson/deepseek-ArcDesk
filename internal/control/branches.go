@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/agent"
+	"arcdesk/internal/agent"
 )
 
 // ParseBranchTarget parses the arguments after "/branch". A leading positive

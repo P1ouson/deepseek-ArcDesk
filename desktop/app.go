@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -21,37 +22,37 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/billing"
-	"reasonix/internal/boot"
-	"reasonix/internal/config"
-	"reasonix/internal/control"
-	"reasonix/internal/event"
-	"reasonix/internal/fileref"
-	fileenc "reasonix/internal/fileutil/encoding"
-	"reasonix/internal/i18n"
-	"reasonix/internal/mcpdiag"
-	"reasonix/internal/memory"
-	"reasonix/internal/plugin"
-	"reasonix/internal/provider"
-	"reasonix/internal/skill"
+	"arcdesk/internal/agent"
+	"arcdesk/internal/billing"
+	"arcdesk/internal/boot"
+	"arcdesk/internal/config"
+	"arcdesk/internal/control"
+	"arcdesk/internal/event"
+	"arcdesk/internal/fileref"
+	fileenc "arcdesk/internal/fileutil/encoding"
+	"arcdesk/internal/i18n"
+	"arcdesk/internal/mcpdiag"
+	"arcdesk/internal/memory"
+	"arcdesk/internal/plugin"
+	"arcdesk/internal/provider"
+	"arcdesk/internal/skill"
 )
 
 // eventChannel is the Wails runtime event name the frontend subscribes to for the
 // agent's typed event stream. One channel carries every event kind; the payload's
-// `kind` field discriminates — the desktop analogue of the serve transport's SSE
+// `kind` field discriminates �?the desktop analogue of the serve transport's SSE
 // `data:` frames.
 const eventChannel = "agent:event"
 
 // singleInstanceID is used by Wails to route a second desktop launch back to the
 // running instance. Keep it stable across releases so launcher/Dock/taskbar
 // reopen behavior remains predictable on every platform.
-const singleInstanceID = "com.reasonix.desktop"
+const singleInstanceID = "com.arcdesk.desktop"
 
 // App is the Wails-bound application object: the desktop frontend's command
-// surface. Its exported methods (Submit/Cancel/Approve/…) are generated into JS
-// bindings. The app manages multiple WorkspaceTabs — each with its own controller
-// scoped to a project workspace — and routes commands to the active tab. Events
+// surface. Its exported methods (Submit/Cancel/Approve/�? are generated into JS
+// bindings. The app manages multiple WorkspaceTabs �?each with its own controller
+// scoped to a project workspace �?and routes commands to the active tab. Events
 // flow the other way: each tab's controller emits to a tabEventSink that
 // forwards events tagged with tabId to the webview via runtime.EventsEmit.
 type App struct {
@@ -69,6 +70,7 @@ type App struct {
 	trayReady bool
 	tray      *desktopTray
 	sched     *taskScheduler
+	clawBridge *clawBridge
 	term      *terminalManager
 }
 
@@ -102,6 +104,10 @@ func (a *App) startup(ctx context.Context) {
 	installSystemQuitHook()
 	a.startTray()
 	a.startTaskScheduler()
+	a.startClawBridge()
+	if err := ensureBundledSkills(); err != nil {
+		slog.Warn("ensure bundled skills", "err", err)
+	}
 
 	go a.restoreOrBuildTabs()
 }
@@ -237,6 +243,7 @@ func (a *App) snapshotAllTabs() {
 // shutdown snapshots all tabs, saves the final window geometry, and closes tabs.
 func (a *App) shutdown(context.Context) {
 	a.stopTaskScheduler()
+	a.stopClawBridge()
 	a.stopTray()
 	a.term.CloseAll()
 	// Save window geometry synchronously from Go so it's persisted even if the
@@ -303,7 +310,7 @@ func (a *App) domReady(_ context.Context) {
 	runtime.WindowShow(a.ctx)
 }
 
-// --- bound command surface (frontend → controller) ---
+// --- bound command surface (frontend �?controller) ---
 // Each method guards on a nil controller so a pre-startup or failed-build call is
 // a no-op, never a panic.
 
@@ -1068,7 +1075,7 @@ func (a *App) ContextUsageForTab(tabID string) ContextInfo {
 
 // BalanceInfo is the wallet-balance readout for the status bar. Available is true
 // only when a balance was fetched; Display is the formatted amount (e.g. "¥110.00")
-// and is "" when the active provider declares no balance_url — the frontend then
+// and is "" when the active provider declares no balance_url �?the frontend then
 // omits the readout. Err carries a fetch failure for an optional tooltip.
 type BalanceInfo struct {
 	Available bool   `json:"available"`
@@ -1078,7 +1085,7 @@ type BalanceInfo struct {
 
 // Balance queries the active provider's wallet balance (a network call). It
 // returns an empty (unavailable) readout when no provider balance_url is set, the
-// controller is down, or the fetch fails — so the status bar simply shows nothing
+// controller is down, or the fetch fails �?so the status bar simply shows nothing
 // rather than an error.
 func (a *App) Balance() BalanceInfo {
 	return a.BalanceForTab("")
@@ -1170,8 +1177,7 @@ func (a *App) MetaForTab(tabID string) Meta {
 }
 
 // SetBypass toggles YOLO mode for the session: auto-approve every tool call
-// (writers and bash run without asking). Deny rules still apply. Runtime-only —
-// not written to config, so it resets on relaunch.
+// (writers and bash run without asking). Deny rules still apply. Runtime-only �?// not written to config, so it resets on relaunch.
 func (a *App) SetBypass(on bool) {
 	if on {
 		a.SetModeForTab("", "yolo")
@@ -1188,8 +1194,8 @@ type CommandInfo struct {
 	Kind        string `json:"kind"`           // "builtin" | "custom" | "mcp"
 }
 
-// Commands lists the slash commands available this session — built-in actions,
-// custom commands (.reasonix/commands), and MCP prompts — for the composer's "/"
+// Commands lists the slash commands available this session �?built-in actions,
+// custom commands (.arcdesk/commands), and MCP prompts �?for the composer's "/"
 // autocomplete menu.
 func (a *App) Commands() []CommandInfo {
 	out := []CommandInfo{
@@ -1211,7 +1217,7 @@ func (a *App) Commands() []CommandInfo {
 		return out
 	}
 	// Skills are invocable as /<name> (the model runs inline ones; subagent ones
-	// run isolated). Listing them here is what surfaces /init, /explore, … in the
+	// run isolated). Listing them here is what surfaces /init, /explore, �?in the
 	// composer's slash menu; selecting one submits "/<name>", which the controller
 	// resolves via RunSkill.
 	for _, s := range ctrl.Skills() {
@@ -1246,7 +1252,7 @@ type SlashArgsResult struct {
 }
 
 // SlashArgs completes the arguments of a management slash command (/mcp, /model,
-// /skill, /hooks) for the composer — the same logic the chat TUI uses. Empty
+// /skill, /hooks) for the composer �?the same logic the chat TUI uses. Empty
 // Items means the input has no structured arguments to complete.
 func (a *App) SlashArgs(input string) SlashArgsResult {
 	a.mu.RLock()
@@ -1273,7 +1279,7 @@ func (a *App) SlashArgs(input string) SlashArgsResult {
 		data.ServerNames = h.ServerNames()
 	}
 	items, from := control.SlashArgItems(input, data)
-	// Non-nil so it serializes as a JSON array, never null — the frontend filters
+	// Non-nil so it serializes as a JSON array, never null �?the frontend filters
 	// over it directly.
 	out := SlashArgsResult{Items: []SlashArgItem{}, From: from}
 	for _, it := range items {
@@ -1596,6 +1602,47 @@ func rootActive(roots []SkillRootView, path string) bool {
 	return false
 }
 
+// PickFilePath opens a native file picker for composer references when no
+// project workspace is active. Returns "" if cancelled.
+func (a *App) PickFilePath() (string, error) {
+	if a.ctx == nil {
+		return "", nil
+	}
+	cur, _ := os.Getwd()
+	a.mu.RLock()
+	if tab := a.activeTabLocked(); tab != nil && tab.WorkspaceRoot != "" {
+		cur = tab.WorkspaceRoot
+	}
+	a.mu.RUnlock()
+	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:            "Choose file",
+		DefaultDirectory: cur,
+	})
+}
+
+// PickSaveFilePath opens a native save dialog (write mode, no workspace folder).
+// Returns "" if cancelled.
+func (a *App) PickSaveFilePath(defaultName string) (string, error) {
+	if a.ctx == nil {
+		return "", nil
+	}
+	cur, _ := os.Getwd()
+	name := strings.TrimSpace(defaultName)
+	if name == "" {
+		name = "untitled.md"
+	}
+	return runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:            "Save document",
+		DefaultDirectory: cur,
+		DefaultFilename:  name,
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Markdown (*.md)", Pattern: "*.md"},
+			{DisplayName: "Text (*.txt)", Pattern: "*.txt"},
+			{DisplayName: "All files", Pattern: "*.*"},
+		},
+	})
+}
+
 // PickSkillFolder opens a directory picker for adding custom skill roots. It only
 // returns a path; AddSkillPath performs normalization and writes config.
 func (a *App) PickSkillFolder() (string, error) {
@@ -1699,8 +1746,7 @@ type MCPServerInput struct {
 	Tier      string            `json:"tier"`
 }
 
-// AddMCPServer connects a server live and persists it to config (Customize → MCP →
-// Add). Returns the number of tools it exposed.
+// AddMCPServer connects a server live and persists it to config (Customize �?MCP �?// Add). Returns the number of tools it exposed.
 func (a *App) AddMCPServer(in MCPServerInput) (int, error) {
 	ctrl := a.activeCtrl()
 	if ctrl == nil {
@@ -1780,7 +1826,7 @@ func (a *App) UpdateMCPServer(name string, in MCPServerInput) error {
 	return nil
 }
 
-// RemoveMCPServer disconnects a live server and drops it from config (the row's ✕).
+// RemoveMCPServer disconnects a live server and drops it from config (the row's �?.
 func (a *App) RemoveMCPServer(name string) error {
 	if name == "codegraph" {
 		return fmt.Errorf("codegraph is built in; it cannot be removed")
@@ -1837,7 +1883,7 @@ func (a *App) ClearMCPServerAuthentication(name string) error {
 }
 
 // SetMCPServerEnabled is the connector toggle: on reconnects a configured server
-// for this session, off disconnects it (config untouched either way — like Claude
+// for this session, off disconnects it (config untouched either way �?like Claude
 // Code's per-conversation enable/disable, it resets on the next session start).
 func (a *App) SetMCPServerEnabled(name string, enabled bool) error {
 	tab := a.activeTab()
@@ -2048,7 +2094,7 @@ func (a *App) removeDesktopMCPServer(name string) (bool, error) {
 }
 
 func (a *App) removeProjectMCPOverride(name string) (bool, error) {
-	path := projectConfigPathForRoot(a.activeWorkspaceRoot())
+	path := config.ProjectConfigPathForRoot(a.activeWorkspaceRoot())
 	userPath := config.UserConfigPath()
 	if path == "" || sameConfigPath(path, userPath) {
 		return false, nil
@@ -2070,7 +2116,7 @@ func (a *App) removeProjectMCPOverride(name string) (bool, error) {
 }
 
 func (a *App) syncProjectCodegraphOverride(c config.CodegraphConfig) error {
-	path := projectConfigPathForRoot(a.activeWorkspaceRoot())
+	path := config.ProjectConfigPathForRoot(a.activeWorkspaceRoot())
 	userPath := config.UserConfigPath()
 	if path == "" || sameConfigPath(path, userPath) {
 		return nil
@@ -2276,8 +2322,7 @@ type EffortInfo struct {
 	Levels    []string `json:"levels"`
 }
 
-// Models flattens the configured providers into their (provider, model) pairs —
-// the switcher's options — marking the active one. A vendor with a `models` list
+// Models flattens the configured providers into their (provider, model) pairs �?// the switcher's options �?marking the active one. A vendor with a `models` list
 // yields one entry per model, all sharing the same endpoint/key. Unconfigured
 // providers are skipped. Result is non-nil: the frontend reads .length, so a nil
 // slice (JSON null) would crash the switcher on an empty list.
@@ -2598,8 +2643,7 @@ func workspacePathForBase(base, rel string) (string, bool, error) {
 
 // ListDir lists one directory level (directories first, then files, each
 // alphabetical) for the "@" file-reference menu. rel resolves against the active
-// tab workspace. The menu navigates one level at a time, never recursively —
-// bounded for huge trees.
+// tab workspace. The menu navigates one level at a time, never recursively �?// bounded for huge trees.
 func (a *App) ListDir(rel string) []DirEntry {
 	base, err := a.activeWorkspaceBase()
 	if err != nil {
@@ -2693,7 +2737,7 @@ func (a *App) ReadFile(rel string) FilePreview {
 		out.Truncated = true
 	}
 
-	// Check for BOM first (just the first 2-3 bytes — always complete
+	// Check for BOM first (just the first 2-3 bytes �?always complete
 	// even at a truncation boundary). BOM-prefixed files skip the NUL
 	// check since UTF-16 normally contains 0x00 for ASCII characters.
 	bomKind := fileenc.DetectQuick(data)
@@ -2708,7 +2752,7 @@ func (a *App) ReadFile(rel string) FilePreview {
 		return out
 	}
 
-	// No BOM — NUL in raw bytes is a binary signal.
+	// No BOM �?NUL in raw bytes is a binary signal.
 	if bytes.Contains(data, []byte{0}) {
 		out.Binary = true
 		return out
@@ -2899,13 +2943,13 @@ func (a *App) currentProviderEntryForTab(tabID string) (*config.ProviderEntry, e
 }
 
 // SavePastedImage stores a browser clipboard image data URL under
-// .reasonix/attachments and returns the relative @-reference path.
+// .arcdesk/attachments and returns the relative @-reference path.
 func (a *App) SavePastedImage(dataURL string) (string, error) {
 	return control.SaveImageDataURL(dataURL)
 }
 
 // SavePastedFile stores a dropped non-image file (the browser exposes its bytes
-// as a data URL but not a real path) under .reasonix/attachments and returns the
+// as a data URL but not a real path) under .arcdesk/attachments and returns the
 // relative @-reference path.
 func (a *App) SavePastedFile(name, dataURL string) (string, error) {
 	return control.SaveAttachmentDataURL(name, dataURL)
@@ -2918,7 +2962,7 @@ func (a *App) AttachmentDataURL(path string) (string, error) {
 
 // DroppedItem is one OS-dropped file resolved into a composer context entry: an
 // in-tree file becomes a workspace @reference (read in place, no copy), while an
-// image or out-of-tree file is copied into .reasonix/attachments.
+// image or out-of-tree file is copied into .arcdesk/attachments.
 type DroppedItem struct {
 	Kind       string `json:"kind"` // "workspace" | "attachment"
 	Path       string `json:"path"`
@@ -2929,7 +2973,7 @@ type DroppedItem struct {
 // AttachDropped turns an absolute path from the native file-drop bridge into a
 // composer context entry. Images are stored as attachments so the chip shows a
 // thumbnail; other in-workspace files are referenced relatively (no copy); files
-// outside the workspace are copied into .reasonix/attachments.
+// outside the workspace are copied into .arcdesk/attachments.
 func (a *App) AttachDropped(path string) (DroppedItem, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -2977,7 +3021,7 @@ func workspaceRelative(path string) (string, bool) {
 	return filepath.ToSlash(rel), true
 }
 
-// --- memory panel (frontend ⇄ controller) ---
+// --- memory panel (frontend �?controller) ---
 
 // MemoryDoc is one loaded doc-memory file for the panel: path, scope, and body.
 type MemoryDoc struct {
@@ -3011,10 +3055,10 @@ type MemoryView struct {
 	Available bool          `json:"available"`
 }
 
-// writableScopes are the quick-add targets the panel offers, broad → specific.
+// writableScopes are the quick-add targets the panel offers, broad �?specific.
 var writableScopes = []memory.Scope{memory.ScopeUser, memory.ScopeProject, memory.ScopeLocal}
 
-// Memory returns the loaded memory for the panel: the REASONIX.md hierarchy, the
+// Memory returns the loaded memory for the panel: the ARCDESK.md hierarchy, the
 // saved auto-memories, and the writable scopes. Read-only; mutations go through
 // Remember / SaveDoc.
 func (a *App) Memory() MemoryView {
@@ -3049,7 +3093,7 @@ func (a *App) Memory() MemoryView {
 	return view
 }
 
-// Remember quick-adds a one-line note to the doc-memory file for scope — the
+// Remember quick-adds a one-line note to the doc-memory file for scope �?the
 // panel's explicit "remember" action, equivalent to typing "/remember <note>".
 // An unknown scope falls back to project. Returns the file written.
 func (a *App) Remember(scope, note string) (string, error) {
@@ -3062,7 +3106,7 @@ func (a *App) Remember(scope, note string) (string, error) {
 	return ctrl.QuickAdd(parseScope(scope), note)
 }
 
-// Forget deletes a saved auto-memory by name — the panel's delete action for a
+// Forget deletes a saved auto-memory by name �?the panel's delete action for a
 // fact the model owns. A no-op when no controller is attached.
 func (a *App) Forget(name string) error {
 	a.mu.RLock()
@@ -3105,7 +3149,7 @@ const onboardingKeyEnv = "DEEPSEEK_API_KEY"
 // billing.FetchWithClient surfaces 401/403 for a bad key.
 const onboardingBalanceURL = "https://api.deepseek.com/user/balance"
 
-// NativeConfirmRequest is the payload for ConfirmAction — a native OS confirmation
+// NativeConfirmRequest is the payload for ConfirmAction �?a native OS confirmation
 // dialog that replaces web-style confirm() for destructive or important actions.
 type NativeConfirmRequest struct {
 	Title        string `json:"title"`
@@ -3206,7 +3250,7 @@ type FileEntry struct {
 	ModTime int64  `json:"modTime,omitempty"`
 }
 
-// ClawChannel is the Connect Phone channel configuration placeholder.
+// ClawChannel is the Connect channel configuration.
 type ClawChannel struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
@@ -3216,6 +3260,11 @@ type ClawChannel struct {
 	Model         string `json:"model"`
 	WorkspaceRoot string `json:"workspaceRoot"`
 	WebhookURL    string `json:"webhookURL"`
+	WeComCorpID          string `json:"wecomCorpId,omitempty"`
+	WeComAgentID         string `json:"wecomAgentId,omitempty"`
+	WeComSecret          string `json:"wecomSecret,omitempty"`
+	WeComToken           string `json:"wecomToken,omitempty"`
+	WeComEncodingAESKey  string `json:"wecomEncodingAESKey,omitempty"`
 }
 
 // ScheduledTask is the task scheduler placeholder used by the new schedule UI.
@@ -3252,7 +3301,7 @@ func (a *App) ListWriteFiles(workspaceRoot string) []FileEntry {
 	out := map[string]FileEntry{}
 	now := time.Now().UnixMilli()
 	ignore := map[string]struct{}{
-		".git": {}, ".reasonix": {}, "node_modules": {}, "dist": {}, "build": {}, ".wails": {},
+		".git": {}, ".arcdesk": {}, "node_modules": {}, "dist": {}, "build": {}, ".wails": {},
 	}
 	keepExt := map[string]struct{}{
 		".md": {}, ".markdown": {}, ".mdx": {}, ".txt": {}, ".rst": {}, ".adoc": {}, ".org": {},
@@ -3313,12 +3362,12 @@ func (a *App) ListWriteFiles(workspaceRoot string) []FileEntry {
 }
 
 // ReadWriteFile reads a document from disk for the write workspace UI.
-func (a *App) ReadWriteFile(path string) string {
+func (a *App) ReadWriteFile(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return ""
+		return "", err
 	}
-	return string(data)
+	return string(data), nil
 }
 
 // WriteWriteFile writes a document to disk for the write workspace UI.
@@ -3340,9 +3389,111 @@ func (a *App) DeleteWriteFile(path string) error {
 	return os.Remove(path)
 }
 
+// RenameWriteFile renames a document on disk for the write workspace UI.
+func (a *App) RenameWriteFile(oldPath, newPath string) error {
+	oldPath = strings.TrimSpace(oldPath)
+	newPath = strings.TrimSpace(newPath)
+	if oldPath == "" || newPath == "" {
+		return fmt.Errorf("paths are required")
+	}
+	if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
+		return err
+	}
+	return os.Rename(oldPath, newPath)
+}
+
+// CompleteWriteInline returns a short fill-in-the-middle completion for the write editor.
+func (a *App) CompleteWriteInline(textBefore, textAfter string) (string, error) {
+	apiKey := strings.TrimSpace(os.Getenv(onboardingKeyEnv))
+	if apiKey == "" {
+		return "", fmt.Errorf("API key not configured")
+	}
+	before := strings.TrimSpace(textBefore)
+	after := strings.TrimSpace(textAfter)
+	if before == "" && after == "" {
+		return "", fmt.Errorf("no editor context")
+	}
+	prompt := fmt.Sprintf(
+		"Continue the markdown draft with ONLY the missing middle text. No explanation, no quotes, no markdown fences.\n\nBEFORE:\n%s\n\nAFTER:\n%s",
+		before,
+		after,
+	)
+	payload, err := json.Marshal(map[string]any{
+		"model": "deepseek-chat",
+		"messages": []map[string]string{
+			{"role": "system", "content": "You are a concise writing assistant doing fill-in-the-middle completion."},
+			{"role": "user", "content": prompt},
+		},
+		"max_tokens": 120,
+		"temperature": 0.4,
+	})
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequest(http.MethodPost, "https://api.deepseek.com/chat/completions", bytes.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("completion failed: %s", strings.TrimSpace(string(body)))
+	}
+	var parsed struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "", err
+	}
+	if len(parsed.Choices) == 0 {
+		return "", fmt.Errorf("empty completion")
+	}
+	return strings.TrimSpace(parsed.Choices[0].Message.Content), nil
+}
+
+// EnsureBundledSkills installs shipped global skills (e.g. copywriting) into ~/.arcdesk/skills.
+func (a *App) EnsureBundledSkills() error {
+	return ensureBundledSkills()
+}
+
+// DefaultWriteWorkspace returns the default folder for standalone writing (not tied to a code project).
+func (a *App) DefaultWriteWorkspace() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		dir := filepath.Join(".", "arcdeskWrites")
+		_ = os.MkdirAll(dir, 0o755)
+		abs, absErr := filepath.Abs(dir)
+		if absErr == nil {
+			return abs
+		}
+		return dir
+	}
+	dir := filepath.Join(home, "Documents", "arcdesk Writes")
+	_ = os.MkdirAll(dir, 0o755)
+	_ = ensureBundledSkills()
+	abs, err := filepath.Abs(dir)
+	if err == nil {
+		return abs
+	}
+	return dir
+}
+
 // ListWriteWorkspaces returns persisted write workspace roots shown in the UI.
 func (a *App) ListWriteWorkspaces() []string {
-	roots, err := loadStringList(reasonixDesktopDataPath("write-workspaces.json"))
+	roots, err := loadStringList(ARCDESKDesktopDataPath("write-workspaces.json"))
 	if err != nil || len(roots) == 0 {
 		return []string{"."}
 	}
@@ -3355,7 +3506,7 @@ func (a *App) AddWriteWorkspace(root string) error {
 	if next == "" {
 		return fmt.Errorf("workspace root is required")
 	}
-	path := reasonixDesktopDataPath("write-workspaces.json")
+	path := ARCDESKDesktopDataPath("write-workspaces.json")
 	roots, _ := loadStringList(path)
 	for _, existing := range roots {
 		if existing == next {
@@ -3372,7 +3523,7 @@ func (a *App) RemoveWriteWorkspace(root string) error {
 	if next == "" {
 		return fmt.Errorf("workspace root is required")
 	}
-	path := reasonixDesktopDataPath("write-workspaces.json")
+	path := ARCDESKDesktopDataPath("write-workspaces.json")
 	roots, _ := loadStringList(path)
 	filtered := roots[:0]
 	for _, existing := range roots {
@@ -3385,30 +3536,9 @@ func (a *App) RemoveWriteWorkspace(root string) error {
 
 // GetClawChannels returns persisted Connect Phone channel configs.
 func (a *App) GetClawChannels() []ClawChannel {
-	items, err := loadClawChannels(reasonixDesktopDataPath("claw-channels.json"))
-	if err != nil || len(items) == 0 {
-		return []ClawChannel{
-			{
-				ID:            "ch-feishu",
-				Name:          "Feishu",
-				Type:          "feishu",
-				Enabled:       true,
-				Persona:       "Concise assistant",
-				Model:         "deepseek-chat",
-				WorkspaceRoot: ".",
-				WebhookURL:    "https://example.com/webhook/ch-feishu",
-			},
-			{
-				ID:            "ch-webhook",
-				Name:          "Webhook",
-				Type:          "webhook",
-				Enabled:       false,
-				Persona:       "Status relay",
-				Model:         "deepseek-reasoner",
-				WorkspaceRoot: "./docs",
-				WebhookURL:    "https://example.com/webhook/ch-webhook",
-			},
-		}
+	items, err := loadClawChannels(ARCDESKDesktopDataPath("claw-channels.json"))
+	if err != nil {
+		return []ClawChannel{}
 	}
 	return items
 }
@@ -3418,7 +3548,10 @@ func (a *App) SaveClawChannel(channel ClawChannel) error {
 	if strings.TrimSpace(channel.ID) == "" {
 		return fmt.Errorf("channel id is required")
 	}
-	path := reasonixDesktopDataPath("claw-channels.json")
+	if err := validateClawChannel(channel); err != nil {
+		return err
+	}
+	path := ARCDESKDesktopDataPath("claw-channels.json")
 	items, _ := loadClawChannels(path)
 	replaced := false
 	for i := range items {
@@ -3440,7 +3573,7 @@ func (a *App) DeleteClawChannel(id string) error {
 	if key == "" {
 		return fmt.Errorf("channel id is required")
 	}
-	path := reasonixDesktopDataPath("claw-channels.json")
+	path := ARCDESKDesktopDataPath("claw-channels.json")
 	items, _ := loadClawChannels(path)
 	filtered := items[:0]
 	for _, item := range items {
@@ -3466,7 +3599,7 @@ func (a *App) GetClawMessages(channelID string) []ClawMessage {
 	if key == "" {
 		return nil
 	}
-	items, err := loadClawMessages(reasonixDesktopDataPath("claw-messages.json"))
+	items, err := loadClawMessages(ARCDESKDesktopDataPath("claw-messages.json"))
 	if err != nil {
 		return nil
 	}
@@ -3489,23 +3622,17 @@ func (a *App) SendClawMessage(channelID string, text string) (ClawMessage, error
 	if body == "" {
 		return ClawMessage{}, fmt.Errorf("message text is required")
 	}
-	msg := ClawMessage{
-		ID:        fmt.Sprintf("msg-%d", time.Now().UnixNano()),
-		ChannelID: key,
-		Text:      body,
-		Outgoing:  true,
-		CreatedAt: time.Now().UnixMilli(),
-	}
-	path := reasonixDesktopDataPath("claw-messages.json")
-	items, _ := loadClawMessages(path)
-	items = append(items, msg)
-	if err := saveJSON(path, items); err != nil {
+	msg, err := appendClawMessage(key, body, true)
+	if err != nil {
 		return ClawMessage{}, err
 	}
-	channels, _ := loadClawChannels(reasonixDesktopDataPath("claw-channels.json"))
+	channels, _ := loadClawChannels(ARCDESKDesktopDataPath("claw-channels.json"))
 	for _, ch := range channels {
 		if ch.ID != key || !ch.Enabled {
 			continue
+		}
+		if ch.Type == "wechat" {
+			break
 		}
 		webhook := strings.TrimSpace(ch.WebhookURL)
 		if webhook == "" {
@@ -3536,13 +3663,9 @@ func (a *App) SendClawMessage(channelID string, text string) (ClawMessage, error
 
 // GetScheduledTasks returns persisted schedule tasks.
 func (a *App) GetScheduledTasks() []ScheduledTask {
-	items, err := loadScheduledTasks(reasonixDesktopDataPath("scheduled-tasks.json"))
-	if err != nil || len(items) == 0 {
-		now := time.Now().UnixMilli()
-		return []ScheduledTask{
-			{ID: "task-1", Name: "Daily summary", Prompt: "Summarize the day", ScheduleType: "daily", ScheduleValue: "09:00", WorkspaceRoot: ".", Model: "deepseek-chat", Enabled: true, NextRun: now + 3_600_000},
-			{ID: "task-2", Name: "Interval follow-up", Prompt: "Check progress", ScheduleType: "interval", ScheduleValue: "2h", WorkspaceRoot: "./docs", Model: "deepseek-reasoner", Enabled: false, NextRun: now + 7_200_000},
-		}
+	items, err := loadScheduledTasks(ARCDESKDesktopDataPath("scheduled-tasks.json"))
+	if err != nil {
+		return []ScheduledTask{}
 	}
 	return items
 }
@@ -3552,7 +3675,7 @@ func (a *App) SaveScheduledTask(task ScheduledTask) error {
 	if strings.TrimSpace(task.ID) == "" {
 		return fmt.Errorf("task id is required")
 	}
-	path := reasonixDesktopDataPath("scheduled-tasks.json")
+	path := ARCDESKDesktopDataPath("scheduled-tasks.json")
 	items, _ := loadScheduledTasks(path)
 	task = normalizeScheduledTask(task, time.Now())
 	replaced := false
@@ -3575,7 +3698,7 @@ func (a *App) DeleteScheduledTask(id string) error {
 	if key == "" {
 		return fmt.Errorf("task id is required")
 	}
-	path := reasonixDesktopDataPath("scheduled-tasks.json")
+	path := ARCDESKDesktopDataPath("scheduled-tasks.json")
 	items, _ := loadScheduledTasks(path)
 	filtered := items[:0]
 	for _, item := range items {
@@ -3641,12 +3764,12 @@ func (a *App) ListMCPCatalog() []MCPCatalogEntry {
 	}
 }
 
-func reasonixDesktopDataPath(name string) string {
+func ARCDESKDesktopDataPath(name string) string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
-		return filepath.Join(".", ".reasonix", name)
+		return filepath.Join(".", ".arcdesk", name)
 	}
-	return filepath.Join(dir, "reasonix", name)
+	return filepath.Join(dir, "arcdesk", name)
 }
 
 func ensureParentDir(path string) error {

@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { asArray } from "./array";
 import { app, onEvent, onReady } from "./bridge";
+import { recordCompactionActivity, recordUsageActivity } from "./usageActivity";
 import { t } from "./i18n";
 import type {
   BalanceInfo,
@@ -57,6 +58,7 @@ export type Item =
       truncated?: boolean;
       isShell?: boolean; // true for !-prefix shell commands (controls default expand)
       parentId?: string; // a sub-agent call nests under the `task` call with this id
+      fileDiff?: { diff: string; added: number; removed: number };
     };
 
 interface State {
@@ -179,10 +181,35 @@ function applyEvent(s: State, e: WireEvent): State {
       if (idx >= 0) {
         const next = [...s.items];
         const it = next[idx];
-        if (it.kind === "tool") next[idx] = { ...it, name: t.name, args: t.args ? t.args : it.args, readOnly: t.readOnly };
+        if (it.kind === "tool") {
+          next[idx] = {
+            ...it,
+            name: t.name,
+            args: t.args ? t.args : it.args,
+            readOnly: t.readOnly,
+            fileDiff: t.fileDiff ?? it.fileDiff,
+          };
+        }
         return { ...s, items: next };
       }
-      return { ...s, seq: s.seq + 1, items: [...s.items, { kind: "tool", id, name: t.name, args: t.args ?? "", readOnly: t.readOnly, status: "running", isShell: id.startsWith("shell-"), parentId: t.parentId }] };
+      return {
+        ...s,
+        seq: s.seq + 1,
+        items: [
+          ...s.items,
+          {
+            kind: "tool",
+            id,
+            name: t.name,
+            args: t.args ?? "",
+            readOnly: t.readOnly,
+            status: "running",
+            isShell: id.startsWith("shell-"),
+            parentId: t.parentId,
+            fileDiff: t.fileDiff,
+          },
+        ],
+      };
     }
     case "tool_result": {
       const t = e.tool;
@@ -387,6 +414,12 @@ export function useController() {
       const targetTabId = e.tabId || activeTabId;
       if (!targetTabId) return;
       dispatchTo(targetTabId, { type: "event", e });
+      if (e.kind === "usage" && e.usage) {
+        recordUsageActivity(e.usage);
+      }
+      if (e.kind === "compaction_done" && e.compaction?.summary) {
+        recordCompactionActivity(e.compaction.trigger);
+      }
       if (e.kind === "turn_done") {
         app
           .ContextUsageForTab(targetTabId)

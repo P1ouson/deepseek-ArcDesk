@@ -1,4 +1,4 @@
-module reasonix
+module arcdesk
 
 go 1.25.0
 
@@ -12,6 +12,7 @@ require (
 	github.com/alecthomas/chroma/v2 v2.26.1
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/x/ansi v0.11.7
+	github.com/gorilla/websocket v1.5.3
 	github.com/mattn/go-runewidth v0.0.24
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	github.com/yuin/goldmark v1.8.2

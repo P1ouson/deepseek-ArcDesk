@@ -1,4 +1,4 @@
-export type DiffRow = { type: "ctx" | "add" | "del"; text: string };
+export type DiffRow = { type: "ctx" | "add" | "del" | "hunk"; text: string };
 
 // diffLines is a classic LCS line diff. Used by the diff seam to render edit-tool
 // before/after; a real editor (Monaco/CodeMirror merge) would replace the

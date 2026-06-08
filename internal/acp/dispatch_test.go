@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/event"
+	"arcdesk/internal/event"
 )
 
 // fakeNotifier captures Notify calls and answers Request via an injectable hook,

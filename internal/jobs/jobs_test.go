@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/event"
+	"arcdesk/internal/event"
 )
 
 func waitFor(t *testing.T, cond func() bool) {

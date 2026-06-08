@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/frontmatter"
+	"arcdesk/internal/frontmatter"
 )
 
 // Store is the per-project auto-memory: a directory of one-fact-per-file
@@ -18,7 +18,7 @@ import (
 // saved, and reads individual facts on demand with read_file. The whole thing is
 // plain files the user can edit by hand.
 type Store struct {
-	Dir string // ...reasonix/projects/<slug>/memory
+	Dir string // ...arcdesk/projects/<slug>/memory
 }
 
 // Type classifies a memory, mirroring the auto-memory taxonomy.
@@ -55,7 +55,7 @@ type Memory struct {
 }
 
 // StoreFor resolves the auto-memory directory for a project working dir under
-// the user config root, e.g. ~/.config/reasonix/projects/-Users-me-proj/memory.
+// the user config root, e.g. ~/.config/arcdesk/projects/-Users-me-proj/memory.
 // A "" userDir (config dir unresolvable) yields a zero Store, which all methods
 // treat as a disabled no-op.
 func StoreFor(userDir, cwd string) Store {

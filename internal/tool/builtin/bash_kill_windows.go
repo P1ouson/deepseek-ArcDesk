@@ -4,7 +4,7 @@ import (
 	"os/exec"
 	"strconv"
 
-	"reasonix/internal/proc"
+	"arcdesk/internal/proc"
 )
 
 // setKillTree hides the child's console and makes a cancelled command kill its

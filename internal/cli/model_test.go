@@ -6,10 +6,10 @@ import (
 )
 
 // TestModelRefsFromConfig verifies the /model picker enumerates configured
-// provider/model refs (built-in defaults when no reasonix.toml is present), and
+// provider/model refs (built-in defaults when no ARCDESK.toml is present), and
 // only those whose provider API key is set.
 func TestModelRefsFromConfig(t *testing.T) {
-	t.Chdir(t.TempDir()) // no reasonix.toml → built-in default providers
+	t.Chdir(t.TempDir()) // no ARCDESK.toml → built-in default providers
 	// Only DeepSeek keyed → MiMo refs must be filtered out.
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
 	t.Setenv("MIMO_API_KEY", "")

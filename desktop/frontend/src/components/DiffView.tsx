@@ -7,21 +7,29 @@ export interface DiffProps {
   maxHeight?: number;
 }
 
-// ── EDITOR SEAM (diff) ───────────────────────────────────────────────────────
-// before/after rendering for edit tools, mirroring CodeViewer's seam. Swap the
-// lazily-imported module to upgrade:
-//
-//   ./editors/HljsDiff         current — highlight.js line diff (LCS)
-//   ./editors/MonacoDiff       monaco DiffEditor via @monaco-editor/react
-//   ./editors/CodeMirrorMerge  @codemirror/merge
-//
-// The replacement only has to honor DiffProps. See desktop/README.md.
-const Impl = lazy(() => import("./editors/HljsDiff"));
+const LcsImpl = lazy(() => import("./editors/HljsDiff"));
+const UnifiedImpl = lazy(() => import("./editors/UnifiedDiff"));
 
 export function DiffView(props: DiffProps) {
   return (
     <Suspense fallback={<pre className="code code--loading">{props.modified}</pre>}>
-      <Impl {...props} />
+      <LcsImpl {...props} />
+    </Suspense>
+  );
+}
+
+export function UnifiedDiffView({
+  unified,
+  language,
+  maxHeight,
+}: {
+  unified: string;
+  language?: string;
+  maxHeight?: number;
+}) {
+  return (
+    <Suspense fallback={<pre className="code code--loading">{unified.slice(0, 400)}</pre>}>
+      <UnifiedImpl unified={unified} language={language} maxHeight={maxHeight} />
     </Suspense>
   );
 }

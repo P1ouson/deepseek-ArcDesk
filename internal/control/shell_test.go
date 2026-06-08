@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/event"
+	"arcdesk/internal/event"
 )
 
 // collectSink returns a Sink that collects events and a channel that receives

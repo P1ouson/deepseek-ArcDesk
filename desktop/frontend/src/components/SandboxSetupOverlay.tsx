@@ -3,6 +3,8 @@ import { Loader2, Shield } from "lucide-react";
 import { app } from "../lib/bridge";
 import { useT } from "../lib/i18n";
 import type { ConfigureProjectSandboxInput, ProjectSandboxStatus } from "../lib/types";
+import { ProjectPreviewSettings } from "./ProjectPreviewSettings";
+import { StudioSelect } from "./StudioSelect";
 
 export interface SandboxSetupOverlayProps {
   reason: "yolo" | "manual";
@@ -18,8 +20,9 @@ export function SandboxSetupOverlay({ reason, onComplete, onCancel }: SandboxSet
   const [status, setStatus] = useState<ProjectSandboxStatus | null>(null);
   const [bash, setBash] = useState("enforce");
   const [network, setNetwork] = useState(true);
-  const [previewHosts, setPreviewHosts] = useState("localhost,127.0.0.1");
-  const [previewPorts, setPreviewPorts] = useState("5173,3000,8080");
+  const [previewHosts, setPreviewHosts] = useState<string[]>([]);
+  const [previewPorts, setPreviewPorts] = useState<number[]>([]);
+  const [previewStrict, setPreviewStrict] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,8 +33,9 @@ export function SandboxSetupOverlay({ reason, onComplete, onCancel }: SandboxSet
         setStatus(next);
         setBash(next.bash || "enforce");
         setNetwork(next.network);
-        setPreviewHosts((next.previewHosts ?? []).join(", "));
-        setPreviewPorts((next.previewPorts ?? []).join(", "));
+        setPreviewHosts(next.previewHosts ?? []);
+        setPreviewPorts(next.previewPorts ?? []);
+        setPreviewStrict(next.previewStrict ?? false);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -44,16 +48,13 @@ export function SandboxSetupOverlay({ reason, onComplete, onCancel }: SandboxSet
   const submit = useCallback(async () => {
     setSaving(true);
     setError("");
-    const ports = previewPorts
-      .split(/[,\s]+/)
-      .map((v) => Number.parseInt(v, 10))
-      .filter((n) => Number.isFinite(n));
     const input: ConfigureProjectSandboxInput = {
       bash,
       network,
       allowWrite: status?.allowWrite ?? [],
-      previewHosts: previewHosts.split(/[,\s]+/).map((v) => v.trim()).filter(Boolean),
-      previewPorts: ports,
+      previewHosts,
+      previewPorts,
+      previewStrict,
     };
     try {
       await app.ConfigureProjectSandbox(input);
@@ -63,7 +64,7 @@ export function SandboxSetupOverlay({ reason, onComplete, onCancel }: SandboxSet
     } finally {
       setSaving(false);
     }
-  }, [bash, network, onComplete, previewHosts, previewPorts, status?.allowWrite, t]);
+  }, [bash, network, onComplete, previewHosts, previewPorts, previewStrict, status?.allowWrite, t]);
 
   return (
     <div className="sandbox-setup">
@@ -90,10 +91,14 @@ export function SandboxSetupOverlay({ reason, onComplete, onCancel }: SandboxSet
 
             <label className="sandbox-setup__field">
               <span>{t("sandboxSetup.bash")}</span>
-              <select value={bash} onChange={(e) => setBash(e.target.value)}>
-                <option value="enforce">{t("settings.bashEnforce")}</option>
-                <option value="off">{t("settings.bashOff")}</option>
-              </select>
+              <StudioSelect
+                value={bash}
+                onChange={setBash}
+                options={[
+                  { value: "enforce", label: t("settings.bashEnforce") },
+                  { value: "off", label: t("settings.bashOff") },
+                ]}
+              />
             </label>
 
             <label className="sandbox-setup__check">
@@ -101,19 +106,18 @@ export function SandboxSetupOverlay({ reason, onComplete, onCancel }: SandboxSet
               <span>{t("settings.allowNetwork")}</span>
             </label>
 
-            <label className="sandbox-setup__field">
-              <span>{t("sandboxSetup.previewHosts")}</span>
-              <input value={previewHosts} onChange={(e) => setPreviewHosts(e.target.value)} spellCheck={false} />
-              <small>{t("sandboxSetup.previewHostsHint")}</small>
-            </label>
-
-            <label className="sandbox-setup__field">
-              <span>{t("sandboxSetup.previewPorts")}</span>
-              <input value={previewPorts} onChange={(e) => setPreviewPorts(e.target.value)} spellCheck={false} />
-              <small>{t("sandboxSetup.previewPortsHint")}</small>
-            </label>
-
-            <p className="sandbox-setup__note">{t("sandboxSetup.webNote")}</p>
+            <div className="sandbox-setup__section">
+              <span className="sandbox-setup__section-title">{t("settings.permissions.previewTitle")}</span>
+              <ProjectPreviewSettings
+                busy={saving}
+                previewStrict={previewStrict}
+                onPreviewStrictChange={setPreviewStrict}
+                previewHosts={previewHosts}
+                onPreviewHostsChange={setPreviewHosts}
+                previewPorts={previewPorts}
+                onPreviewPortsChange={setPreviewPorts}
+              />
+            </div>
 
             {error && (
               <div className="sandbox-setup__error" role="alert">

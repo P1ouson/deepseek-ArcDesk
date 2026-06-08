@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent } from "react";
 import {
-  ChevronDown,
   ChevronRight,
   Copy,
   FileText,
@@ -232,7 +231,7 @@ export function FilesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddT
                 onContextMenu={(event) => openTreeMenu(event, path, entry.isDir)}
               >
                 <span className="files-panel__chevron" aria-hidden="true">
-                  {entry.isDir ? isOpen ? <ChevronDown size={12} strokeWidth={1.75} /> : <ChevronRight size={12} strokeWidth={1.75} /> : null}
+                  {entry.isDir ? <ChevronRight size={12} strokeWidth={1.75} /> : null}
                 </span>
                 <FileTypeIcon name={entry.name} isDir={entry.isDir} isOpen={isOpen} />
                 <span className="files-panel__label">{entry.name}</span>
@@ -278,6 +277,7 @@ export function FilesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddT
           y={treeMenu.y}
           estimatedHeight={treeMenu.isDir ? MENU_DIR_HEIGHT : MENU_FILE_HEIGHT}
           className="workspace-tree-menu"
+          onClose={() => setTreeMenu(null)}
         >
           <FloatingMenuItems
             items={[

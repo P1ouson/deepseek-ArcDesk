@@ -13,13 +13,17 @@ import {
 } from "../lib/workspaceFilePreview";
 import type { FilePreview } from "../lib/types";
 import { formatWorkspaceReference } from "../lib/workspaceDrag";
+import type { ToolFileDiff } from "../lib/tools";
+import { toolDiffStat } from "../lib/tools";
 import { CodeViewer } from "./CodeViewer";
+import { UnifiedDiffView } from "./DiffView";
 import { FloatingMenu, FloatingMenuItems } from "./FloatingMenu";
 import { Markdown } from "./Markdown";
 import { Tooltip } from "./Tooltip";
 
 export interface FilePreviewPanelProps {
   path: string;
+  diff?: ToolFileDiff | null;
   expanded: boolean;
   onToggleExpanded: () => void;
   onClose: () => void;
@@ -32,7 +36,7 @@ function revealInFileManagerLabelKey(platform: string): DictKey {
   return "projectTree.revealInFileManager";
 }
 
-export function FilePreviewPanel({ path, expanded, onToggleExpanded, onClose, onAddToChat }: FilePreviewPanelProps) {
+export function FilePreviewPanel({ path, diff, expanded, onToggleExpanded, onClose, onAddToChat }: FilePreviewPanelProps) {
   const t = useT();
   const bodyRef = useRef<HTMLDivElement>(null);
   const [platform, setPlatform] = useState("");
@@ -60,6 +64,13 @@ export function FilePreviewPanel({ path, expanded, onToggleExpanded, onClose, on
     setImageUrl(null);
     setSelectionMenu(null);
 
+    if (diff?.diff) {
+      setLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const load = async () => {
       try {
         if (isImagePath(path)) {
@@ -83,7 +94,7 @@ export function FilePreviewPanel({ path, expanded, onToggleExpanded, onClose, on
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [path, diff?.diff]);
 
   useEffect(() => {
     if (!selectionMenu) return;
@@ -123,8 +134,9 @@ export function FilePreviewPanel({ path, expanded, onToggleExpanded, onClose, on
   };
 
   const isMarkdown = path.toLowerCase().endsWith(".md");
-  const showImage = isImagePath(path) && imageUrl;
-  const showSvg = isSvgPath(path) && preview && !preview.binary && !preview.err;
+  const showImage = !diff?.diff && isImagePath(path) && imageUrl;
+  const showSvg = !diff?.diff && isSvgPath(path) && preview && !preview.binary && !preview.err;
+  const diffStat = diff ? toolDiffStat(diff) : "";
 
   return (
     <aside className={`file-preview-panel${expanded ? " file-preview-panel--expanded" : ""}`} aria-label={t("filePreview.title")}>
@@ -136,6 +148,7 @@ export function FilePreviewPanel({ path, expanded, onToggleExpanded, onClose, on
               <span className="file-preview-panel__name">{basename(path)}</span>
             </Tooltip>
             {parentPath(path) && <span className="file-preview-panel__path">{parentPath(path)}</span>}
+            {diffStat ? <span className="file-preview-panel__diff-stat">{diffStat}</span> : null}
           </div>
         </div>
         <div className="file-preview-panel__actions wails-no-drag">
@@ -175,7 +188,9 @@ export function FilePreviewPanel({ path, expanded, onToggleExpanded, onClose, on
       </header>
 
       <div className="file-preview-panel__body" ref={bodyRef} onContextMenu={openSelectionMenu}>
-        {loading ? (
+        {diff?.diff ? (
+          <UnifiedDiffView unified={diff.diff} language={languageFor(path)} maxHeight={undefined} />
+        ) : loading ? (
           <div className="file-preview-panel__empty">{t("workspace.loading")}</div>
         ) : loadErr ? (
           <div className="file-preview-panel__empty">{loadErr}</div>
@@ -198,7 +213,7 @@ export function FilePreviewPanel({ path, expanded, onToggleExpanded, onClose, on
       </div>
 
       {selectionMenu && (
-        <FloatingMenu x={selectionMenu.x} y={selectionMenu.y} estimatedHeight={48}>
+        <FloatingMenu x={selectionMenu.x} y={selectionMenu.y} estimatedHeight={48} onClose={() => setSelectionMenu(null)}>
           <FloatingMenuItems
             items={[
               {

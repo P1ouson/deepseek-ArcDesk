@@ -1,26 +1,28 @@
 import type { ReactNode } from "react";
 import {
   CalendarClock,
+  ChevronLeft,
   Code2,
   FileText,
-  FolderKanban,
-  MessageCircle,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
-  Puzzle,
+  Radio,
   Settings,
   Sparkles,
-  X,
 } from "lucide-react";
 import logo from "../assets/logo.svg";
 import { useT } from "../lib/i18n";
 import type { AppMode } from "../lib/appMode";
 import type { TabMeta } from "../lib/types";
+import type { WriteTurn } from "../lib/writeConversation";
 import { ProjectTree } from "./ProjectTree";
-import { Tooltip } from "./Tooltip";
+import { WriteConversationThread } from "./WriteConversationThread";
 
 export interface SidebarProps {
-  collapsed: boolean;
-  onToggleCollapse: () => void;
+  drawerOpen: boolean;
+  onCloseDrawer: () => void;
+  onToggleDrawer: () => void;
   appMode: AppMode;
   activeTab?: TabMeta;
   projectRevision: number;
@@ -28,15 +30,16 @@ export interface SidebarProps {
   onOpenTopic: (scope: string, workspaceRoot: string, topicId: string) => void;
   onNewChat: () => void;
   onModeChange: (mode: AppMode) => void;
-  onOpenSettings: () => void;
   onOpenSdd: () => void;
   onAddProject: () => Promise<void>;
   onUseCurrentProject?: () => Promise<void>;
   onOpenProjectHistory: (scope: "global" | "project", workspaceRoot: string) => void;
   onTopicsChanged?: () => Promise<void>;
+  writeConversation?: WriteTurn[];
+  writeRunning?: boolean;
 }
 
-function RailButton({
+function LabeledRailButton({
   icon,
   label,
   active,
@@ -48,17 +51,18 @@ function RailButton({
   onClick: () => void;
 }) {
   return (
-    <Tooltip label={label}>
-      <button
-        type="button"
-        className={`studio-rail__btn${active ? " studio-rail__btn--active" : ""}`}
-        onClick={onClick}
-        aria-label={label}
-        aria-pressed={active}
-      >
+    <button
+      type="button"
+      className={`studio-rail__btn studio-rail__btn--labeled${active ? " studio-rail__btn--active" : ""}`}
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={active}
+    >
+      <span className="studio-rail__btn-icon" aria-hidden="true">
         {icon}
-      </button>
-    </Tooltip>
+      </span>
+      <span className="studio-rail__btn-label">{label}</span>
+    </button>
   );
 }
 
@@ -80,8 +84,9 @@ function DrawerAction({
 }
 
 export function Sidebar({
-  collapsed,
-  onToggleCollapse,
+  drawerOpen,
+  onCloseDrawer,
+  onToggleDrawer,
   appMode,
   activeTab,
   projectRevision,
@@ -89,41 +94,41 @@ export function Sidebar({
   onOpenTopic,
   onNewChat,
   onModeChange,
-  onOpenSettings,
   onOpenSdd,
   onAddProject,
   onUseCurrentProject,
   onOpenProjectHistory,
   onTopicsChanged,
+  writeConversation = [],
+  writeRunning = false,
 }: SidebarProps) {
   const t = useT();
   const writeMode = appMode === "write";
-  const drawerOpen = !collapsed;
 
   return (
-    <>
+    <div className={`studio-sidebar-shell${drawerOpen ? " studio-sidebar-shell--drawer-open" : ""}`}>
       <nav className="studio-rail wails-no-drag" aria-label={t("sidebar.navigation")}>
-        <img src={logo} className="studio-rail__logo" alt="Reasonix" />
+        <img src={logo} className="studio-rail__logo" alt="ArcDesk" />
 
-        <RailButton
-          icon={<FolderKanban size={18} />}
-          label={drawerOpen ? t("sidebar.collapse") : t("sidebar.expand")}
+        <LabeledRailButton
+          icon={drawerOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
+          label={drawerOpen ? t("sidebar.collapseDrawer") : t("sidebar.expandDrawer")}
           active={drawerOpen}
-          onClick={onToggleCollapse}
+          onClick={onToggleDrawer}
         />
 
-        <RailButton icon={<Plus size={18} />} label={t("topbar.newSession")} onClick={onNewChat} />
+        <LabeledRailButton icon={<Plus size={17} />} label={t("sidebar.rail.newChat")} onClick={onNewChat} />
 
         <span className="studio-rail__divider" aria-hidden="true" />
 
-        <RailButton
-          icon={<Code2 size={18} />}
+        <LabeledRailButton
+          icon={<Code2 size={17} />}
           label={t("modes.code")}
           active={!writeMode && appMode === "code"}
           onClick={() => onModeChange("code")}
         />
-        <RailButton
-          icon={<FileText size={18} />}
+        <LabeledRailButton
+          icon={<FileText size={17} />}
           label={t("modes.write")}
           active={writeMode}
           onClick={() => onModeChange("write")}
@@ -131,76 +136,73 @@ export function Sidebar({
 
         <span className="studio-rail__spacer" />
 
-        <RailButton icon={<Puzzle size={18} />} label={t("sidebar.plugins")} onClick={() => onModeChange("plugins")} />
-        <RailButton icon={<CalendarClock size={18} />} label={t("modes.schedule")} onClick={() => onModeChange("schedule")} />
-        <RailButton icon={<MessageCircle size={18} />} label={t("modes.phone")} onClick={() => onModeChange("phone")} />
-        <RailButton icon={<Settings size={18} />} label={t("topbar.settings")} onClick={onOpenSettings} />
+        <LabeledRailButton
+          icon={<Sparkles size={17} />}
+          label={t("sidebar.rail.extensions")}
+          active={appMode === "plugins"}
+          onClick={() => onModeChange("plugins")}
+        />
+        <LabeledRailButton
+          icon={<CalendarClock size={17} />}
+          label={t("sidebar.rail.schedule")}
+          active={appMode === "schedule"}
+          onClick={() => onModeChange("schedule")}
+        />
+        <LabeledRailButton
+          icon={<Radio size={17} />}
+          label={t("sidebar.rail.phone")}
+          active={appMode === "phone"}
+          onClick={() => onModeChange("phone")}
+        />
+        <LabeledRailButton
+          icon={<Settings size={17} />}
+          label={t("sidebar.rail.settings")}
+          active={appMode === "settings"}
+          onClick={() => onModeChange("settings")}
+        />
       </nav>
 
-      <button
-        type="button"
-        className={`studio-drawer-backdrop${drawerOpen ? " studio-drawer-backdrop--open" : ""}`}
-        aria-label={t("sidebar.collapse")}
-        onClick={onToggleCollapse}
-        tabIndex={drawerOpen ? 0 : -1}
-      />
+      {drawerOpen ? (
+        <aside className="studio-drawer wails-no-drag" aria-label={writeMode ? t("write.conversationDrawer") : t("sidebar.projects")}>
+          <div className="studio-drawer__head">
+            <h2 className="studio-drawer__title">{writeMode ? t("write.conversationDrawer") : t("sidebar.projects")}</h2>
+            <button type="button" className="studio-drawer__collapse-btn" onClick={onCloseDrawer}>
+              <ChevronLeft size={14} aria-hidden="true" />
+              <span>{t("sidebar.collapseDrawer")}</span>
+            </button>
+          </div>
 
-      <aside
-        className={`studio-drawer wails-no-drag${drawerOpen ? " studio-drawer--open" : ""}`}
-        aria-label={t("sidebar.projects")}
-        aria-hidden={!drawerOpen}
-      >
-        <div className="studio-drawer__head">
-          <h2 className="studio-drawer__title">{t("sidebar.projects")}</h2>
-          <button type="button" className="studio-drawer__close" onClick={onToggleCollapse} aria-label={t("sidebar.collapse")}>
-            <X size={14} />
-          </button>
-        </div>
+          <div className="studio-drawer__actions">
+            <DrawerAction icon={<Plus size={15} />} label={t("topbar.newSession")} onClick={onNewChat} />
+            {!writeMode ? (
+              <DrawerAction icon={<Sparkles size={15} />} label={t("sidebar.newRequirement")} onClick={onOpenSdd} />
+            ) : null}
+          </div>
 
-        <div className="studio-drawer__mode" role="tablist" aria-label={t("sidebar.modeToggle")}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={!writeMode}
-            className={`studio-drawer__mode-btn${!writeMode ? " studio-drawer__mode-btn--active" : ""}`}
-            onClick={() => onModeChange("code")}
-          >
-            <Code2 size={14} />
-            <span>{t("modes.code")}</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={writeMode}
-            className={`studio-drawer__mode-btn${writeMode ? " studio-drawer__mode-btn--active" : ""}`}
-            onClick={() => onModeChange("write")}
-          >
-            <FileText size={14} />
-            <span>{t("modes.write")}</span>
-          </button>
-        </div>
-
-        <div className="studio-drawer__actions">
-          <DrawerAction icon={<Plus size={15} />} label={t("topbar.newSession")} onClick={onNewChat} />
-          <DrawerAction icon={<Sparkles size={15} />} label={t("sidebar.newRequirement")} onClick={onOpenSdd} />
-        </div>
-
-        <div className="studio-drawer__tree">
-          <ProjectTree
-            variant="sidebar"
-            activeScope={activeTab?.scope}
-            activeWorkspaceRoot={activeTab?.workspaceRoot}
-            activeTopicId={activeTab?.topicId}
-            currentWorkspaceName={currentWorkspaceName}
-            refreshSignal={projectRevision}
-            onOpenTopic={onOpenTopic}
-            onOpenProjectHistory={onOpenProjectHistory}
-            onAddProject={onAddProject}
-            onUseCurrentProject={onUseCurrentProject}
-            onTopicsChanged={onTopicsChanged}
-          />
-        </div>
-      </aside>
-    </>
+          {writeMode ? (
+            <div className="studio-drawer__write-conversation">
+              <div className="studio-drawer__section-label">{t("write.conversationSidebarHint")}</div>
+              <WriteConversationThread turns={writeConversation} running={writeRunning} variant="sidebar" />
+            </div>
+          ) : (
+            <div className="studio-drawer__tree">
+              <ProjectTree
+                variant="sidebar"
+                activeScope={activeTab?.scope}
+                activeWorkspaceRoot={activeTab?.workspaceRoot}
+                activeTopicId={activeTab?.topicId}
+                currentWorkspaceName={currentWorkspaceName}
+                refreshSignal={projectRevision}
+                onOpenTopic={onOpenTopic}
+                onOpenProjectHistory={onOpenProjectHistory}
+                onAddProject={onAddProject}
+                onUseCurrentProject={onUseCurrentProject}
+                onTopicsChanged={onTopicsChanged}
+              />
+            </div>
+          )}
+        </aside>
+      ) : null}
+    </div>
   );
 }

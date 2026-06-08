@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"testing"
 
-	"reasonix/internal/command"
-	"reasonix/internal/config"
-	"reasonix/internal/tool"
-	_ "reasonix/internal/tool/builtin" // self-register built-ins for LookupBuiltin
+	"arcdesk/internal/command"
+	"arcdesk/internal/config"
+	"arcdesk/internal/tool"
+	_ "arcdesk/internal/tool/builtin" // self-register built-ins for LookupBuiltin
 )
 
 // fakeTool is a minimal Tool for registry projection tests. It never implements

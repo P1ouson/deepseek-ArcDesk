@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"reasonix/internal/event"
+	"arcdesk/internal/event"
 )
 
 // TestOutputSurfacesResultForBufferlessJob probes a task-style job: its run func

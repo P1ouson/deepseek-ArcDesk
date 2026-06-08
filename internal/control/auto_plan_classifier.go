@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/nilutil"
-	"reasonix/internal/provider"
+	"arcdesk/internal/nilutil"
+	"arcdesk/internal/provider"
 )
 
 const autoPlanClassifierPrompt = `You classify whether a coding-agent user request should first enter read-only planning mode.

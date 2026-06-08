@@ -150,7 +150,7 @@ func TestInstallReturnsCachedWithoutNetwork(t *testing.T) {
 		t.Skip("uses a POSIX +x launcher")
 	}
 	base := t.TempDir()
-	t.Setenv("REASONIX_CACHE_DIR", base)
+	t.Setenv("arcdesk_CACHE_DIR", base)
 	// Seed a fake cached launcher so Install short-circuits before any download.
 	launcher := filepath.Join(CacheDir(), "bin", "codegraph")
 	if err := os.MkdirAll(filepath.Dir(launcher), 0o755); err != nil {

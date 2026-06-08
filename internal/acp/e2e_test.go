@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/control"
-	"reasonix/internal/permission"
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"arcdesk/internal/agent"
+	"arcdesk/internal/control"
+	"arcdesk/internal/permission"
+	"arcdesk/internal/provider"
+	"arcdesk/internal/tool"
 )
 
 // These tests drive the full real stack — acp.Serve → control.Controller →

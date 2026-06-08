@@ -1,0 +1,36 @@
+---
+description: Impeccable 设计 skill——前端/UI 改动前必读，与 taste/karpathy/flat-containers 联动
+alwaysApply: true
+---
+
+# Impeccable · 常驻设计 skill
+
+来源：[pbakaus/impeccable](https://github.com/pbakaus/impeccable)（`.cursor/skills/impeccable/`）
+
+**Register:** product（devtools 桌面工作台，非 landing page）
+
+## 何时加载
+
+凡涉及 `desktop/frontend` 的 UI/CSS/组件/layout 改动，**必须先读取并遵循** `impeccable` skill：
+
+1. 会话内首次：`node .cursor/skills/impeccable/scripts/context.mjs`（读取 `PRODUCT.md` / `DESIGN.md`）
+2. 读 `reference/product.md`（product register）
+3. 有明确子任务时读对应 reference（`polish` / `audit` / `layout` 等）
+
+## 与现有规则分工
+
+| 规则 | 职责 |
+|------|------|
+| **impeccable** | 反 slop、对比度、排版尺度、动效、组件状态、UX copy |
+| **taste-skill-desktop** | Linear/VS Code 编辑型惯例、`dock-panel__*` |
+| **ui-flat-containers** | 最多 2 层带边框/圆角容器 |
+| **karpathy-guidelines** | 编码：最小 diff、可验证 |
+
+冲突时：**redesign-preserve** 优先于换肤；**flat-containers** 优先于多 card 装饰；**taste-skill** 定密度与组件类名。
+
+## Pre-flight（UI 改动前）
+
+1. 沿用 `styles.css` 现有 token，不整页换肤
+2. 容器嵌套 ≤ 2 层？
+3. 对比度、嵌套 card、purple gradient 等 anti-pattern？
+4. 能复用 `dock-panel__*` / `write-studio__*` 吗？

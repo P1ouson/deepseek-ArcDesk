@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
+	"arcdesk/internal/agent"
+	"arcdesk/internal/event"
+	"arcdesk/internal/provider"
 )
 
 func TestBranchAndSwitch(t *testing.T) {

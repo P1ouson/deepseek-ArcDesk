@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/i18n"
-	"reasonix/internal/skill"
+	"arcdesk/internal/i18n"
+	"arcdesk/internal/skill"
 )
 
 const (

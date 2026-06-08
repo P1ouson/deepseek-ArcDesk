@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Tooltip } from "./Tooltip";
 import { useI18n } from "../lib/i18n";
+import { useDismissOnOutsidePointerDown } from "../lib/useDismissOnOutsidePointerDown";
 import type { BalanceInfo, ContextInfo, JobView, Mode, WireUsage } from "../lib/types";
 
 // JobsChip is the status-bar background-jobs indicator: a count that opens an
@@ -10,6 +11,13 @@ import type { BalanceInfo, ContextInfo, JobView, Mode, WireUsage } from "../lib/
 function JobsChip({ jobs }: { jobs: JobView[] }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useDismissOnOutsidePointerDown(open, () => setOpen(false), {
+    excludeRefs: [triggerRef, menuRef],
+  });
+
   if (jobs.length === 0) {
     return (
       <span className="statusbar__item">
@@ -20,14 +28,13 @@ function JobsChip({ jobs }: { jobs: JobView[] }) {
   return (
     <div className="statusbar__jobswrap">
       <Tooltip label={t("status.jobsTitle")}>
-        <button className="statusbar__item statusbar__jobs" onClick={() => setOpen((v) => !v)}>
+        <button ref={triggerRef} className="statusbar__item statusbar__jobs" onClick={() => setOpen((v) => !v)}>
           {t("status.jobsCount", { n: jobs.length })}
         </button>
       </Tooltip>
       {open && (
         <>
-          <div className="modelsw__backdrop" onClick={() => setOpen(false)} />
-          <div className="modelsw__menu jobsmenu" role="listbox">
+          <div ref={menuRef} className="modelsw__menu jobsmenu" role="listbox">
             <div className="jobsmenu__head">{t("status.jobsTitle")}</div>
             {jobs.map((j) => (
               <div className="jobsmenu__item" key={j.id} role="option">

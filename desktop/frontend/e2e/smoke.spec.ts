@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("Reasonix workbench smoke", () => {
+test.describe("ARCDESK workbench smoke", () => {
   test("shell renders with sidebar and composer", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator(".workbench")).toBeVisible();

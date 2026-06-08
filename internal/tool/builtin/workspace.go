@@ -3,8 +3,8 @@ package builtin
 import (
 	"path/filepath"
 
-	"reasonix/internal/sandbox"
-	"reasonix/internal/tool"
+	"arcdesk/internal/sandbox"
+	"arcdesk/internal/tool"
 )
 
 // Workspace builds a built-in tool set bound to a working directory, so several

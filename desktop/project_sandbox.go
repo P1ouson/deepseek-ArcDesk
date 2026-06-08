@@ -1,6 +1,7 @@
 package main
 
 import (
+	"arcdesk/internal/config"
 	"encoding/json"
 	"net"
 	"net/url"
@@ -15,7 +16,7 @@ const projectSandboxFileName = "project-sandbox.json"
 
 // ProjectSandboxProfile is the per-project sandbox contract the desktop UI
 // configures before high-trust modes (YOLO) or optional hardening elsewhere.
-// Agent bash/file enforcement still reads reasonix.toml [sandbox]; this file
+// Agent bash/file enforcement still reads arcdesk.toml [sandbox]; this file
 // marks explicit user consent and drives Web preview URL policy.
 type ProjectSandboxProfile struct {
 	Configured    bool     `json:"configured"`
@@ -26,6 +27,7 @@ type ProjectSandboxProfile struct {
 	AllowWrite    []string `json:"allowWrite"`
 	PreviewHosts  []string `json:"previewHosts"`
 	PreviewPorts  []int    `json:"previewPorts"`
+	PreviewStrict bool     `json:"previewStrict"` // when true, only whitelist URLs may load (not just in YOLO)
 }
 
 // ProjectSandboxStatus is the frontend read model.
@@ -37,16 +39,18 @@ type ProjectSandboxStatus struct {
 	AllowWrite    []string `json:"allowWrite"`
 	PreviewHosts  []string `json:"previewHosts"`
 	PreviewPorts  []int    `json:"previewPorts"`
+	PreviewStrict bool     `json:"previewStrict"`
 	YoloRequired  bool     `json:"yoloRequired"`
 }
 
 // ConfigureProjectSandboxInput is written from the setup wizard.
 type ConfigureProjectSandboxInput struct {
-	Bash         string   `json:"bash"`
-	Network      bool     `json:"network"`
-	AllowWrite   []string `json:"allowWrite"`
-	PreviewHosts []string `json:"previewHosts"`
-	PreviewPorts []int    `json:"previewPorts"`
+	Bash          string   `json:"bash"`
+	Network       bool     `json:"network"`
+	AllowWrite    []string `json:"allowWrite"`
+	PreviewHosts  []string `json:"previewHosts"`
+	PreviewPorts  []int    `json:"previewPorts"`
+	PreviewStrict bool     `json:"previewStrict"`
 }
 
 // PreviewURLValidation is returned to the Web preview panel.
@@ -58,11 +62,23 @@ type PreviewURLValidation struct {
 }
 
 func projectSandboxPath(workspaceRoot string) string {
+	return projectSandboxPrimaryPath(workspaceRoot)
+}
+
+func projectSandboxLegacyPath(workspaceRoot string) string {
 	root := strings.TrimSpace(workspaceRoot)
 	if root == "" || root == "." {
-		return filepath.Join(".reasonix", projectSandboxFileName)
+		return filepath.Join(config.LegacyProjectMetaDir, projectSandboxFileName)
 	}
-	return filepath.Join(root, ".reasonix", projectSandboxFileName)
+	return filepath.Join(root, config.LegacyProjectMetaDir, projectSandboxFileName)
+}
+
+func projectSandboxPrimaryPath(workspaceRoot string) string {
+	root := strings.TrimSpace(workspaceRoot)
+	if root == "" || root == "." {
+		return filepath.Join(config.ProjectMetaDir, projectSandboxFileName)
+	}
+	return filepath.Join(root, config.ProjectMetaDir, projectSandboxFileName)
 }
 
 func defaultProjectSandboxProfile(workspaceRoot string) ProjectSandboxProfile {
@@ -87,9 +103,21 @@ func loadProjectSandboxProfile(workspaceRoot string) (ProjectSandboxProfile, err
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return defaultProjectSandboxProfile(workspaceRoot), nil
+			legacyPath := projectSandboxLegacyPath(workspaceRoot)
+			if legacyPath != path {
+				if raw2, err2 := os.ReadFile(legacyPath); err2 == nil {
+					raw = raw2
+				} else if os.IsNotExist(err2) {
+					return defaultProjectSandboxProfile(workspaceRoot), nil
+				} else {
+					return ProjectSandboxProfile{}, err2
+				}
+			} else {
+				return defaultProjectSandboxProfile(workspaceRoot), nil
+			}
+		} else {
+			return ProjectSandboxProfile{}, err
 		}
-		return ProjectSandboxProfile{}, err
 	}
 	var p ProjectSandboxProfile
 	if err := json.Unmarshal(raw, &p); err != nil {
@@ -131,6 +159,7 @@ func projectSandboxStatus(workspaceRoot string, yoloActive bool) ProjectSandboxS
 		AllowWrite:    append([]string(nil), p.AllowWrite...),
 		PreviewHosts:  append([]string(nil), p.PreviewHosts...),
 		PreviewPorts:  append([]int(nil), p.PreviewPorts...),
+		PreviewStrict: p.PreviewStrict,
 		YoloRequired:  yoloActive && !p.Configured,
 	}
 }
@@ -278,6 +307,7 @@ func mergeSandboxInput(workspaceRoot string, in ConfigureProjectSandboxInput) (P
 		AllowWrite:    append([]string(nil), in.AllowWrite...),
 		PreviewHosts:  normalizePreviewHosts(in.PreviewHosts),
 		PreviewPorts:  normalizePreviewPorts(in.PreviewPorts),
+		PreviewStrict: in.PreviewStrict,
 	}
 	if len(profile.PreviewHosts) == 0 {
 		def := defaultProjectSandboxProfile(root)

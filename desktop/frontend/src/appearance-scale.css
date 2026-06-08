@@ -1,0 +1,121 @@
+/*
+  Appearance scale — UI font size, code font size, diff marker modes.
+  Loaded after base styles; driven by data-* attrs on <html>.
+*/
+
+html {
+  font-size: calc(14px * var(--font-scale));
+}
+
+body {
+  font-size: 1rem;
+}
+
+/* UI font scale: zoom scales px-based layout in the Chromium webview. */
+.app {
+  height: 100%;
+  min-height: 0;
+  zoom: var(--font-scale);
+}
+
+/* ── Code font scale ─────────────────────────────────────────────────────── */
+
+/* Base size for code blocks so nested em units inherit a scaled root. */
+.app .code-block,
+.app .tool__body--diff,
+.app .file-preview-panel__body {
+  font-size: calc(13px * var(--code-font-scale));
+}
+
+.app .code-block .code,
+.app .code-block pre,
+.app .code-block .code__content {
+  font-size: 1em;
+}
+
+.app .code--with-lines .code__gutter {
+  font-size: 0.92em;
+}
+
+.app :is(
+  .md-code,
+  .code,
+  .diff,
+  .hljs,
+  pre,
+  pre code,
+  .tool__body code,
+  .modal__subject,
+  .approval-subject,
+  .composer__input,
+  .terminal-panel__cwd,
+  .terminal-panel__shell,
+  .terminal-panel__body,
+  .settings-git-list code
+) {
+  font-size: calc(1em * var(--code-font-scale));
+}
+
+/* Beat fixed px rules in layout stylesheets. */
+.app .tool__name {
+  font-size: calc(12px * var(--code-font-scale));
+}
+
+.app .tool__subject {
+  font-size: calc(12px * var(--code-font-scale));
+}
+
+.app .tool__summary {
+  font-size: calc(11.5px * var(--code-font-scale));
+}
+
+.app .tool__err {
+  font-size: calc(12px * var(--code-font-scale));
+}
+
+.app .topbar__model {
+  font-size: calc(10px * var(--code-font-scale));
+}
+
+.app .write-studio__editor,
+.app .write-workspace__editor {
+  font-size: calc(13px * var(--code-font-scale));
+}
+
+.app .diff {
+  font-size: calc(10.7px * var(--code-font-scale));
+}
+
+/* ── Diff marker modes ─────────────────────────────────────────────────── */
+
+/* Signs-only — hide row backgrounds, show +/- */
+:root[data-diff-marker="signs"] .diff__row--add,
+:root[data-diff-marker="signs"] .diff__row--del {
+  background: transparent !important;
+  box-shadow: none;
+}
+
+:root[data-diff-marker="signs"] .diff__sign {
+  visibility: visible;
+  width: 1.25rem;
+  padding: 0 0 0 6px;
+  overflow: visible;
+}
+
+/* Background bars — hide +/- and use colored bar + row tint from base styles */
+:root[data-diff-marker="background"] .diff__sign {
+  visibility: hidden;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+:root[data-diff-marker="background"] .diff__row--add {
+  box-shadow: inset 3px 0 0 #3fb950;
+}
+
+:root[data-diff-marker="background"] .diff__row--del {
+  box-shadow: inset 3px 0 0 #f85149;
+}

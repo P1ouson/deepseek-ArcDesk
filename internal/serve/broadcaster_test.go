@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"reasonix/internal/event"
+	"arcdesk/internal/event"
 )
 
 func TestBroadcasterFanOut(t *testing.T) {

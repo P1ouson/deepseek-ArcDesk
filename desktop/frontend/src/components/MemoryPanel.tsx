@@ -3,6 +3,7 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useT } from "../lib/i18n";
 import type { MemoryFact, MemoryView } from "../lib/types";
 import { ResizableDrawer } from "./ResizableDrawer";
+import { StudioSelect } from "./StudioSelect";
 import { Tooltip } from "./Tooltip";
 
 type LinkInfo = {
@@ -368,17 +369,11 @@ export function MemoryPanel({
               <div className="mem-section__title">{t("memory.quickAdd")}</div>
               <div className="mem-add">
                 <Tooltip label={t("memory.whereToSave")}>
-                  <select
-                    className="mem-select"
+                  <StudioSelect
                     value={activeScope}
-                    onChange={(e) => setScope(e.target.value)}
-                  >
-                    {scopes.map((s) => (
-                      <option key={s.scope} value={s.scope}>
-                        {s.scope}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setScope}
+                    options={scopes.map((s) => ({ value: s.scope, label: s.scope }))}
+                  />
                 </Tooltip>
                 <input
                   className="mem-input"

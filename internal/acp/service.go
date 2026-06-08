@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"sync"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/control"
-	"reasonix/internal/event"
-	"reasonix/internal/plugin"
+	"arcdesk/internal/agent"
+	"arcdesk/internal/control"
+	"arcdesk/internal/event"
+	"arcdesk/internal/plugin"
 )
 
 // SessionParams is everything a Factory needs to assemble one ACP session's
@@ -33,7 +33,7 @@ type SessionParams struct {
 }
 
 // Factory builds the per-session controller. The composition root (the cli's
-// `reasonix acp` command) implements it by reusing setup()'s assembly: a
+// `ARCDESK acp` command) implements it by reusing setup()'s assembly: a
 // Provider for Model, a tool Registry rooted at Cwd via builtin.Workspace, a
 // per-session MCP host from MCPServers, the event Sink, all wired into a
 // control.Controller. The returned controller owns its own cleanup (Close stops
@@ -51,7 +51,7 @@ type AgentInfo struct {
 // Serve runs an ACP agent on r/w (stdin/stdout in production) until the input
 // ends or ctx is cancelled. It owns the JSON-RPC connection and the session
 // registry; the Factory supplies the kernel wiring. This is the single entry
-// point the `reasonix acp` command calls.
+// point the `ARCDESK acp` command calls.
 //
 // stdout is the JSON-RPC channel: callers must keep all other output (logs,
 // diagnostics) off w and on stderr, or the wire corrupts.
