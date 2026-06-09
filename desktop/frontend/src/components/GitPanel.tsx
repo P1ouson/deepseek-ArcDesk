@@ -27,7 +27,9 @@ import { buildCommitMessagePrompt, buildPRPrompt, ghPRMergeCommand } from "../li
 import { probeGitHubCli, probeReasonKey, type GitHubCliProbe } from "../lib/gitHubCli";
 import { addWorkspaceFileContentToChat } from "../lib/workspaceAddToChat";
 import { basename, shortCwd } from "../lib/workspaceFilePreview";
+import { DESKTOP_GIT_SETTINGS_EVENT } from "../lib/events";
 import { formatWorkspaceReference } from "../lib/workspaceDrag";
+import { hasGitChange, isDeletedGitChange } from "../lib/workspaceChangeHelpers";
 import { FloatingMenu, FloatingMenuItems } from "./FloatingMenu";
 import { Tooltip } from "./Tooltip";
 
@@ -46,14 +48,6 @@ interface GitCommandStatus {
 }
 
 type GitStatusTone = "mod" | "add" | "del" | "unk";
-
-function hasGit(row: WorkspaceChangeView): boolean {
-  return row.sources.includes("git");
-}
-
-function isDeletedChange(row: WorkspaceChangeView): boolean {
-  return !!row.gitStatus && row.gitStatus.includes("D");
-}
 
 function sortGitRows(rows: WorkspaceChangeView[]): WorkspaceChangeView[] {
   return [...rows].sort((a, b) => a.path.localeCompare(b.path));
@@ -121,13 +115,13 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
 
   useEffect(() => {
     const onGitPrefs = () => void refreshGhProbe();
-    window.addEventListener("arcdesk:desktop-git-settings", onGitPrefs);
-    return () => window.removeEventListener("arcdesk:desktop-git-settings", onGitPrefs);
+    window.addEventListener(DESKTOP_GIT_SETTINGS_EVENT, onGitPrefs);
+    return () => window.removeEventListener(DESKTOP_GIT_SETTINGS_EVENT, onGitPrefs);
   }, [refreshGhProbe]);
 
   useDismissOnClickOutside(Boolean(rowMenu), () => setRowMenu(null));
 
-  const gitRows = useMemo(() => sortGitRows((changes?.files ?? []).filter(hasGit)), [changes?.files]);
+  const gitRows = useMemo(() => sortGitRows((changes?.files ?? []).filter(hasGitChange)), [changes?.files]);
 
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -395,7 +389,7 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
             </li>
           ) : (
             filteredRows.map((row) => {
-              const deleted = isDeletedChange(row);
+              const deleted = isDeletedGitChange(row);
               const active = activeFilePath === row.path;
               const tone = row.gitStatus ? gitStatusTone(row.gitStatus) : "mod";
               return (

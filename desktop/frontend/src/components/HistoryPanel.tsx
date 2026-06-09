@@ -7,7 +7,7 @@ import type { HistoryMessage, SessionMeta } from "../lib/types";
 import type { Item } from "../lib/useController";
 import { ResizableDrawer } from "./ResizableDrawer";
 import { Tooltip } from "./Tooltip";
-import { Transcript } from "./Transcript";
+import { MessageTimeline } from "./MessageTimeline";
 import { ContextMenu, contextMenuPointFromEvent, type ContextMenuItem, type ContextMenuPoint } from "./ContextMenu";
 
 // HistoryPanel lists saved sessions newest-first. Idle clicks resume a session;
@@ -383,7 +383,7 @@ export function HistoryPanel({
               ) : previewItems.length === 0 ? (
                 <div className="mem-empty">{tr("history.previewEmpty")}</div>
               ) : (
-                <Transcript items={previewItems} onPrompt={() => {}} questionNavigator={false} />
+                <MessageTimeline items={previewItems} onPrompt={() => {}} rewindDisabled />
               )}
             </div>
           </section>

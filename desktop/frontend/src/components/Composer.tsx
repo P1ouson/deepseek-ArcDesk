@@ -22,7 +22,8 @@ import {
 import { NO_WORKSPACE_VALUE } from "../lib/composerWorkspace";
 import { asArray } from "../lib/array";
 import { app, onFilesDropped } from "../lib/bridge";
-import { SPINNER_WORDS, useI18n } from "../lib/i18n";
+import { logBridgeError } from "../lib/logBridgeError";
+import { useI18n } from "../lib/i18n";
 import { clearLayoutSize, loadOptionalLayoutSize, saveLayoutSize } from "../lib/layoutPreferences";
 import { getRecentWorkspacePaths, recordRecentWorkspace, removeRecentWorkspace } from "../lib/workspaceRecents";
 import type { CommandInfo, ComposerInsertRequest, ComposerWriteContext, DirEntry, EffortInfo, Mode, SlashArgItem, SlashArgsResult, WorkspaceView } from "../lib/types";
@@ -38,7 +39,7 @@ import { SlashMenu } from "./SlashMenu";
 import { ArgMenu } from "./ArgMenu";
 import { FileMenu } from "./FileMenu";
 import { EffortSwitcherMenu, EffortSwitcherTrigger } from "./EffortSwitcher";
-import { ComposerModeBar } from "./FloatingComposer";
+import { ComposerModeBar } from "./ComposerModeBar";
 import { ModelSwitcherMenu, ModelSwitcherTrigger } from "./ModelSwitcher";
 import { Tooltip } from "./Tooltip";
 import { useDismissOnOutsidePointerDown } from "../lib/useDismissOnOutsidePointerDown";
@@ -104,27 +105,6 @@ function loadComposerHeight(): number | null {
   return loadOptionalLayoutSize("composerHeight", clampComposerHeight);
 }
 
-function fmtTokens(n: number): string {
-  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
-  return String(n);
-}
-
-function fmtElapsed(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
-  return `${Math.floor(s / 60)}m ${s % 60}s`;
-}
-
-function useTick(on: boolean): number {
-  const [, setN] = useState(0);
-  useEffect(() => {
-    if (!on) return;
-    const id = window.setInterval(() => setN((n) => n + 1), 1000);
-    return () => window.clearInterval(id);
-  }, [on]);
-  return Date.now();
-}
-
 function isImeKeyEvent(
   e: KeyboardEvent<HTMLTextAreaElement>,
   composing: boolean,
@@ -163,9 +143,6 @@ export function Composer({
   disabled,
   decisionPending = false,
   ready,
-  turnStartAt,
-  turnTokens,
-  retry,
   workspaceRefreshSignal,
   hideModeBar = false,
   showWorkspaceSwitcher = false,
@@ -214,8 +191,7 @@ export function Composer({
   sendExternally?: boolean;
   onSendState?: (state: ComposerSendState | null) => void;
 }) {
-  const { t, locale } = useI18n();
-  const now = useTick(running);
+  const { t } = useI18n();
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [workspaceRefs, setWorkspaceRefs] = useState<WorkspaceReference[]>([]);
@@ -275,7 +251,7 @@ export function Composer({
   // --- slash commands (whole-input "/token") ---
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   useEffect(() => {
-    app.Commands().then((next) => setCommands(asArray(next))).catch(() => {});
+    app.Commands().then((next) => setCommands(asArray(next))).catch((err) => logBridgeError("Commands", err));
   }, [ready, cwd]);
 
   const slashQuery = useMemo(() => {
@@ -319,7 +295,7 @@ export function Composer({
           setArgRes(useful.length > 0 ? { items: useful, from } : null);
           setActive(0);
         })
-        .catch(() => {});
+        .catch((err) => logBridgeError("SlashArgs", err));
     }, 120);
     return () => {
       live = false;
@@ -365,7 +341,7 @@ export function Composer({
         dirCache.current[atDir] = list;
         if (live) setEntries(list);
       })
-      .catch(() => {});
+      .catch((err) => logBridgeError("ListDir", err));
     return () => {
       live = false;
     };
@@ -390,7 +366,7 @@ export function Composer({
         searchCache.current[atFrag] = list;
         if (live) setSearchEntries(list);
       })
-      .catch(() => {});
+      .catch((err) => logBridgeError("SearchFileRefs", err));
     return () => {
       live = false;
     };
@@ -588,7 +564,7 @@ export function Composer({
   useEffect(() => {
     if (!sendExternally || !onSendState) return;
     if (running) {
-      onSendState(null);
+      onSendState({ disabled: false, onSend: submit });
       return;
     }
     onSendState({ disabled: sendDisabled, onSend: submit });
@@ -997,17 +973,6 @@ export function Composer({
   };
 
   const composerCardStyle = composerHeight === null ? undefined : ({ "--composer-height": `${composerHeight}px` } as CSSProperties);
-  const runActivity = retry
-    ? t("status.retrying", { attempt: retry.attempt, max: retry.max })
-    : running && turnStartAt
-      ? (() => {
-          const elapsedMs = Math.max(0, now - turnStartAt);
-          const words = SPINNER_WORDS[locale];
-          const word = words[Math.floor(elapsedMs / 3000) % words.length];
-          const tok = turnTokens && turnTokens > 0 ? ` · ↓ ${fmtTokens(turnTokens)} ${t("status.tokens")}` : "";
-          return `${word}… ${fmtElapsed(elapsedMs)}${tok}`;
-        })()
-      : null;
   const hasWorkspace = Boolean(cwd) && !workspaceNone;
   const hasEffort = Boolean(effort?.supported);
   const composerMetaClass = [
@@ -1140,9 +1105,8 @@ export function Composer({
         <ArgMenu items={argRes.items} activeIndex={active} onPick={pickArg} onHover={setActive} />
       )}
       {menuMode === "at" && <FileMenu items={atMatches} activeIndex={active} onPick={pickEntry} onHover={setActive} />}
-      {(runActivity || !hideModeBar) && (
+      {!hideModeBar ? (
       <div className="composer-toolbar">
-        {!hideModeBar && (
         <div
           className="composer-modebar motion-segment"
           role="toolbar"
@@ -1172,21 +1136,8 @@ export function Composer({
             </button>
           ))}
         </div>
-        )}
-        {runActivity && (
-          <div className="composer-runstatus" role="status" aria-live="polite">
-            <span className="composer-runstatus__dot" />
-            <span className="composer-runstatus__text">{runActivity}</span>
-            <Tooltip label={t("composer.stop")}>
-              <button className="composer-runstatus__stop" type="button" onClick={handleCancel} disabled={decisionPending}>
-                <Square size={10} fill="currentColor" />
-                <span>{t("composer.stopShort")}</span>
-              </button>
-            </Tooltip>
-          </div>
-        )}
       </div>
-      )}
+      ) : null}
       {activePastedBlocks.length > 0 && (
         <div className="composer__pasted">
           {activePastedBlocks.map((block) => {
@@ -1369,13 +1320,27 @@ export function Composer({
             disabled={disabled}
           />
         </div>
-        {!sendExternally && !running ? (
+        {!sendExternally ? (
           <div className="composer-send-wrap">
-            <Tooltip label={t("composer.send")}>
-              <button className="composer__btn composer__btn--send" type="button" onClick={submit} disabled={sendDisabled}>
-                <ArrowUp size={16} />
-              </button>
-            </Tooltip>
+            {running ? (
+              <Tooltip label={t("composer.stop")}>
+                <button
+                  className="composer__btn composer__btn--stop"
+                  type="button"
+                  onClick={handleCancel}
+                  disabled={decisionPending}
+                  aria-label={t("composer.stopShort")}
+                >
+                  <Square size={14} fill="currentColor" />
+                </button>
+              </Tooltip>
+            ) : (
+              <Tooltip label={t("composer.send")}>
+                <button className="composer__btn composer__btn--send" type="button" onClick={submit} disabled={sendDisabled}>
+                  <ArrowUp size={16} />
+                </button>
+              </Tooltip>
+            )}
           </div>
         ) : null}
         <div className={composerMetaClass}>

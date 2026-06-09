@@ -14,7 +14,7 @@ import {
 import { asArray } from "../lib/array";
 import { app } from "../lib/bridge";
 import { useT } from "../lib/i18n";
-import type { MobileConnectConfig, MobilePairingInfo, MobileTunnelStatus, ModelInfo } from "../lib/types";
+import type { MobileConnectConfig, MobilePairingInfo, MobilePendingDecision, MobileTunnelStatus, ModelInfo } from "../lib/types";
 
 function formatExpiry(ts: number, t: ReturnType<typeof useT>): string {
   if (!ts) return "—";
@@ -69,6 +69,7 @@ export function ConnectPhoneView({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendingDecision, setPendingDecision] = useState<MobilePendingDecision | null>(null);
   const [copiedField, setCopiedField] = useState<"pair" | "tunnel" | null>(null);
   const copyTimerRef = useRef<number | null>(null);
 
@@ -135,6 +136,15 @@ export function ConnectPhoneView({
     return () => {
       if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
     };
+  }, []);
+
+  useEffect(() => {
+    const tick = () => {
+      void app.GetMobilePendingDecision().then(setPendingDecision).catch(() => setPendingDecision(null));
+    };
+    tick();
+    const id = window.setInterval(tick, 2500);
+    return () => window.clearInterval(id);
   }, []);
 
   const toggleEnabled = async (enabled: boolean) => {
@@ -231,6 +241,36 @@ export function ConnectPhoneView({
       </header>
 
       {err ? <div className="connect-compact__banner connect-compact__banner--error">{err}</div> : null}
+      {pairing && pairing.bridgeReady === false ? (
+        <div className="connect-compact__banner connect-compact__banner--error">{t("phone.bridgeUnavailable")}</div>
+      ) : null}
+      {pendingDecision ? (
+        <div className="connect-compact__banner connect-compact__banner--decision">
+          <div>
+            <strong>{t("phone.pendingDecisionTitle")}</strong>
+            <p>{pendingDecision.title}</p>
+            {pendingDecision.summary ? <p className="connect-compact__decision-summary">{pendingDecision.summary}</p> : null}
+          </div>
+          {pendingDecision.kind === "approval" ? (
+            <div className="connect-compact__decision-actions">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setBusy(true);
+                  void app
+                    .RespondMobileDecision(pendingDecision.id, true, [])
+                    .then(() => setPendingDecision(null))
+                    .catch((e) => setErr(String((e as Error)?.message ?? e)))
+                    .finally(() => setBusy(false));
+                }}
+              >
+                {t("phone.pendingDecisionAllow")}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {notice ? <div className="connect-compact__banner connect-compact__banner--ok">{notice}</div> : null}
 
       <div className="connect-compact__body">

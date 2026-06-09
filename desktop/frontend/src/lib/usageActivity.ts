@@ -32,9 +32,23 @@ export interface UsageActivitySummary {
   totalSessionCompactions: number;
 }
 
-const STORAGE_KEY = "reasonix.usageActivity.v1";
+const STORAGE_KEY = "arcdesk.usageActivity.v1";
+const LEGACY_STORAGE_KEY = "reasonix.usageActivity.v1";
 const MAX_DAYS = 90;
 const UPDATE_EVENT = "usage-activity-updated";
+
+function migrateLegacyUsageStorage(): void {
+  try {
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!legacy || localStorage.getItem(STORAGE_KEY)) return;
+    localStorage.setItem(STORAGE_KEY, legacy);
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+migrateLegacyUsageStorage();
 
 function todayKey(): string {
   const now = new Date();
@@ -222,26 +236,6 @@ export function buildUsageChart(buckets: UsageDayBucket[], days = 14): UsageChar
       cost: row?.cost ?? 0,
       turns: row?.turns ?? 0,
     });
-  }
-
-  return points;
-}
-
-export function buildSampleUsageChart(days = 14): UsageChartPoint[] {
-  const seeds = [12, 18, 9, 24, 31, 16, 42, 28, 36, 21, 48, 33, 27, 39];
-  const points: UsageChartPoint[] = [];
-  const cursor = new Date();
-  cursor.setHours(12, 0, 0, 0);
-
-  for (let i = days - 1; i >= 0; i--) {
-    const day = new Date(cursor);
-    day.setDate(cursor.getDate() - i);
-    const { date, label } = dateLabel(day);
-    const seed = seeds[i % seeds.length] ?? 20;
-    const tokens = seed * 1000 + (i % 3) * 420;
-    const turns = Math.max(3, Math.round(seed / 2) + (i % 4));
-    const cost = Number((tokens * 0.0000042 + turns * 0.0012).toFixed(4));
-    points.push({ date, label, tokens, cost, turns, sample: true });
   }
 
   return points;

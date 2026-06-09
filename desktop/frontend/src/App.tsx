@@ -1,10 +1,10 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { ShellExpandProvider, useShellExpand } from "./lib/shellExpand";
-import { asArray } from "./lib/array";
 import { clearLegacyLangPref, normalizeLangPref, readLegacyLangPref, t, useI18n, useT } from "./lib/i18n";
 import { useController } from "./lib/useController";
 import { app, onProjectTreeChanged, onScheduleTask } from "./lib/bridge";
+import { logBridgeError } from "./lib/logBridgeError";
 import { MessageTimeline } from "./components/MessageTimeline";
 import type { ActionFileOpenRequest } from "./components/ActionStream";
 import { FloatingComposer } from "./components/FloatingComposer";
@@ -17,23 +17,23 @@ import { Topbar, type RightDockTab } from "./components/Topbar";
 import { StudioToolRail } from "./components/StudioToolRail";
 import { RightDock } from "./components/RightDock";
 import { FilePreviewPanel } from "./components/FilePreviewPanel";
-import { ApprovalModal } from "./components/ApprovalModal";
-import { AskCard } from "./components/AskCard";
-import { MemoryPanel } from "./components/MemoryPanel";
-import { HistoryPanel } from "./components/HistoryPanel";
-import { CapabilitiesPanel } from "./components/CapabilitiesPanel";
+import { AgentDecisionLayer } from "./components/AgentDecisionLayer";
+import { clearAgentDecisionNotifications, notifyAgentDecision } from "./lib/agentNotifications";
+const HistoryPanel = lazy(() => import("./components/HistoryPanel").then((m) => ({ default: m.HistoryPanel })));
+const LazyMemoryPanel = lazy(() => import("./components/MemoryPanel").then((m) => ({ default: m.MemoryPanel })));
 import { UpdateBanner } from "./components/UpdateBanner";
 import { OnboardingOverlay } from "./components/OnboardingOverlay";
 import { SandboxSetupOverlay } from "./components/SandboxSetupOverlay";
 import { SideConversation, type SideMessage } from "./components/SideConversation";
 import { RequirementDraft } from "./components/RequirementDraft";
 import { ModeWorkspaceCenter } from "./components/ModeWorkspaceCenter";
+import { DevMockBanner } from "./components/DevMockBanner";
 import { buildWriteConversation } from "./lib/writeConversation";
 import type { AppMode } from "./lib/appMode";
 import { getDefaultAppMode } from "./lib/startupPrefs";
 import { parseTodos, type ToolFileDiff } from "./lib/tools";
 import { shouldShowTodoPanel } from "./lib/todoVisibility";
-import type { ComposerInsertRequest, ComposerWriteContext, MemoryView, Mode, SessionMeta, TabMeta } from "./lib/types";
+import type { ComposerInsertRequest, ComposerWriteContext, MemoryView, Mode, QuestionAnswer, SessionMeta, TabMeta } from "./lib/types";
 import { recordRecentWorkspace } from "./lib/workspaceRecents";
 import {
   clearStoredCodeWorkspaceRoot,
@@ -87,12 +87,15 @@ import {
 } from "./lib/codeReviewPrefs";
 import { GITHUB_CLI_SETTINGS_EVENT } from "./lib/gitHubCliSettingsNav";
 import { useWindowStatePersistence } from "./lib/windowState";
+import { useTabMetas } from "./lib/useTabMetas";
+import { useProjectDrawer } from "./lib/useProjectDrawer";
 
-const SIDEBAR_COLLAPSED_KEY = "arcdesk.sidebar.collapsed";
-const PROJECT_DRAWER_OPEN_KEY = "arcdesk.studio.projectDrawerOpen";
 const STUDIO_RAIL_WIDTH = 76;
 const STUDIO_DRAWER_WIDTH = 280;
 const CHAT_MIN_WIDTH = 760;
+/** Panel slide duration — keep in sync with --duration-normal in design-system.css */
+const MOTION_PANEL_MS = 220;
+
 /** Minimum chat width reserved when sizing the right dock — lower than CHAT_MIN_WIDTH so the dock can open with the project drawer visible. */
 const DOCK_CHAT_MIN_WIDTH = 420;
 const WORKSPACE_RESIZER_WIDTH = 8;
@@ -159,32 +162,6 @@ function resolveRightDockWidth(mainWidth: number, desiredDockWidth: number): num
   if (budget < RIGHT_DOCK_MIN_RENDER_WIDTH) return 0;
   const desired = Math.min(RIGHT_DOCK_MAX_WIDTH, Math.max(RIGHT_DOCK_MIN_RENDER_WIDTH, Math.round(desiredDockWidth)));
   return Math.min(budget, desired);
-}
-
-function loadProjectDrawerOpen(): boolean {
-  if (typeof window === "undefined") return true;
-  try {
-    const stored = window.localStorage.getItem(PROJECT_DRAWER_OPEN_KEY);
-    if (stored === "1") return true;
-    if (stored === "0") return false;
-    // Legacy key inverted collapsed ↔ drawer open.
-    const legacyCollapsed = window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
-    if (legacyCollapsed === "1") return false;
-    if (legacyCollapsed === "0") return true;
-    return true;
-  } catch {
-    return true;
-  }
-}
-
-function saveProjectDrawerOpen(open: boolean): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(PROJECT_DRAWER_OPEN_KEY, open ? "1" : "0");
-    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, open ? "0" : "1");
-  } catch {
-    /* ignore storage failures */
-  }
 }
 
 function tabWorkspaceTitle(tab?: TabMeta): string {
@@ -273,16 +250,27 @@ export default function App() {
   const { locale, setPref: setLocalePref } = useI18n();
   const t = useT();
   const [modesByTab, setModesByTab] = useState<Record<string, Mode>>({});
-  const [tabMetas, setTabMetas] = useState<TabMeta[]>([]);
+  const { tabMetas, refreshTabMetas } = useTabMetas();
+  const { projectDrawerOpen, closeProjectDrawer, toggleProjectDrawer } = useProjectDrawer();
   // null until the mount probe resolves; true shows the overlay. Probed once —
   // clearing the key mid-session is the Settings panel's job, not the gate's.
-  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
+  const [onboardingGate, setOnboardingGate] = useState<boolean | null>(null);
+  const [onboardingManual, setOnboardingManual] = useState(false);
+  const [onboardingSession, setOnboardingSession] = useState(0);
   const [sandboxSetup, setSandboxSetup] = useState<null | { reason: "yolo" | "manual" }>(null);
   const pendingYoloRef = useRef(false);
   const [memView, setMemView] = useState<MemoryView | null>(null);
   const [histView, setHistView] = useState<HistoryViewState | null>(null);
-  const [projectDrawerOpen, setProjectDrawerOpen] = useState(loadProjectDrawerOpen);
   const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false);
+  const [dockAnimWidth, setDockAnimWidth] = useState(0);
+  const [dockMotionKey, setDockMotionKey] = useState(0);
+  const [dockClosing, setDockClosing] = useState(false);
+  const dockCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const targetDockWidthRef = useRef(0);
+  const [terminalPanelShown, setTerminalPanelShown] = useState(false);
+  const [terminalAnimHeight, setTerminalAnimHeight] = useState(0);
+  const [terminalMotionKey, setTerminalMotionKey] = useState(0);
+  const terminalCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [rightDockWidth, setRightDockWidth] = useState(loadRightDockWidth);
   const [dockResizing, setDockResizing] = useState(false);
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
@@ -295,7 +283,6 @@ export default function App() {
   const [rightDockMode, setRightDockMode] = useState<RightDockTab>(() => loadHubLastTab("context"));
   const [projectRevision, setProjectRevision] = useState(0);
   const [composerInsertRequest, setComposerInsertRequest] = useState<ComposerInsertRequest | null>(null);
-  const [capsOpen, setCapsOpen] = useState(false);
   const [appMode, setAppMode] = useState<AppMode>(() => getDefaultAppMode());
   const [writeWorkspaceRoot, setWriteWorkspaceRoot] = useState(() => getInitialWriteWorkspaceRoot());
   const [composerNoWorkspace, setComposerNoWorkspace] = useState(() => getStoredComposerNoWorkspace());
@@ -303,6 +290,8 @@ export default function App() {
   const [goalLabel, setGoalLabel] = useState<string>("");
   const [sideConversationCount, setSideConversationCount] = useState(0);
   const [sideMessages, setSideMessages] = useState<SideMessage[]>([]);
+  const [sideChatBusy, setSideChatBusy] = useState(false);
+  const dispatchSideChatRef = useRef<(text: string) => Promise<void>>(async () => {});
   const [codeReview, setCodeReview] = useState<CodeReviewState>({ status: "idle", mode: "standard", scope: "all" });
   const [renamingTopicId, setRenamingTopicId] = useState<string | null>(null);
   const [topicTitleDraft, setTopicTitleDraft] = useState("");
@@ -315,11 +304,15 @@ export default function App() {
   useWindowStatePersistence();
 
   useEffect(() => {
-    void app.Platform().then((platform) => {
-      if (platform === "darwin") {
-        document.documentElement.setAttribute("data-platform", "darwin");
-      }
-    });
+    void app.Platform()
+      .then((platform) => {
+        if (platform === "darwin") {
+          document.documentElement.setAttribute("data-platform", "darwin");
+        }
+      })
+      .catch(() => {
+        /* platform hint is optional */
+      });
   }, []);
 
   useEffect(() => {
@@ -405,7 +398,7 @@ export default function App() {
 
   useEffect(() => {
     if (appMode !== "write") return;
-    void app.EnsureBundledSkills().catch(() => {});
+    void app.EnsureBundledSkills().catch((err) => logBridgeError("EnsureBundledSkills", err));
   }, [appMode]);
 
   useEffect(() => {
@@ -446,8 +439,69 @@ export default function App() {
     workspacePanelOpen && browserPreviewExpanded
       ? clampRightDockWidth(Math.min(RIGHT_DOCK_MAX_WIDTH, Math.max(baseWorkspacePanelWidth, 480)))
       : baseWorkspacePanelWidth;
-  const workspacePanelRenderable = workspacePanelOpen && workspacePanelRenderWidth > 0;
+  targetDockWidthRef.current = workspacePanelRenderWidth;
   const dockGridWidth = 0;
+
+  useEffect(() => {
+    if (!workspacePanelOpen) {
+      return;
+    }
+    if (dockCloseTimerRef.current) {
+      clearTimeout(dockCloseTimerRef.current);
+      dockCloseTimerRef.current = null;
+    }
+    setDockClosing(false);
+    setDockMotionKey((key) => key + 1);
+    setDockAnimWidth(0);
+    const id = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        setDockAnimWidth(targetDockWidthRef.current);
+      });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [workspacePanelOpen]);
+
+  useEffect(() => {
+    if (!workspacePanelOpen || dockAnimWidth <= 0) return;
+    setDockAnimWidth(workspacePanelRenderWidth);
+  }, [workspacePanelRenderWidth, workspacePanelOpen, dockAnimWidth]);
+
+  useEffect(() => {
+    if (!terminalOpen) {
+      if (!terminalPanelShown) return;
+      setTerminalAnimHeight(0);
+      if (terminalCloseTimerRef.current) clearTimeout(terminalCloseTimerRef.current);
+      terminalCloseTimerRef.current = setTimeout(() => {
+        setTerminalPanelShown(false);
+        terminalCloseTimerRef.current = null;
+      }, MOTION_PANEL_MS);
+      return () => {
+        if (terminalCloseTimerRef.current) {
+          clearTimeout(terminalCloseTimerRef.current);
+          terminalCloseTimerRef.current = null;
+        }
+      };
+    }
+    if (terminalTabs.length === 0) return;
+    if (terminalCloseTimerRef.current) {
+      clearTimeout(terminalCloseTimerRef.current);
+      terminalCloseTimerRef.current = null;
+    }
+    setTerminalMotionKey((key) => key + 1);
+    setTerminalPanelShown(true);
+    setTerminalAnimHeight(0);
+    const id = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        setTerminalAnimHeight(terminalHeight);
+      });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [terminalOpen, terminalTabs.length]);
+
+  useEffect(() => {
+    if (!terminalOpen || !terminalPanelShown || terminalAnimHeight <= 0) return;
+    setTerminalAnimHeight(terminalHeight);
+  }, [terminalHeight, terminalOpen, terminalPanelShown, terminalAnimHeight]);
 
   const activeTab = useMemo(
     () => tabMetas.find((tab) => tab.id === activeTabId) ?? tabMetas.find((tab) => tab.active),
@@ -496,7 +550,7 @@ export default function App() {
   const syncModeToController = useCallback((m: Mode) => setControllerMode(m), [setControllerMode]);
 
   useEffect(() => {
-    void app.SetTrayLocale(locale).catch(() => {});
+    void app.SetTrayLocale(locale).catch((err) => logBridgeError("SetTrayLocale", err));
   }, [locale]);
 
   // applyMode is the single source of truth for the input mode: it updates the
@@ -635,9 +689,16 @@ export default function App() {
     if (!workspacePanelOpen) {
       return;
     }
-    setWorkspacePanelOpen(false);
+    setDockClosing(true);
+    setDockAnimWidth(0);
     setBrowserPreviewExpanded(false);
-    setFilePreviewPath(null);
+    if (dockCloseTimerRef.current) clearTimeout(dockCloseTimerRef.current);
+    dockCloseTimerRef.current = setTimeout(() => {
+      setWorkspacePanelOpen(false);
+      setDockClosing(false);
+      setFilePreviewPath(null);
+      dockCloseTimerRef.current = null;
+    }, MOTION_PANEL_MS);
   }, [workspacePanelOpen]);
 
   const browserPreviewOpen = workspacePanelOpen && rightDockMode === "browser";
@@ -957,9 +1018,7 @@ export default function App() {
       const btw = /^\/btw\s+(.+)$/.exec(trimmed);
       if (btw) {
         const text = btw[1].trim();
-        const entry: SideMessage = { id: `side-${Date.now()}`, text, outgoing: true, createdAt: Date.now() };
-        setSideMessages((current) => [...current, entry]);
-        setSideConversationCount((value) => value + 1);
+        if (text) void dispatchSideChatRef.current(text);
         notice(t("sideChat.opened"));
         return;
       }
@@ -967,10 +1026,14 @@ export default function App() {
         setAppMode("code");
         openDockTab("changes", { toggle: false });
         if (trimmed === "/review run") {
-          void app.WorkspaceChanges().then((view) => {
-            const paths = view.files.map((file) => file.path);
-            void runCodeReview("standard", "all", paths);
-          });
+          void app.WorkspaceChanges()
+            .then((view) => {
+              const paths = view.files.map((file) => file.path);
+              void runCodeReview("standard", "all", paths);
+            })
+            .catch((err) => {
+              notice(t("common.operationFailed", { msg: String((err as Error)?.message ?? err) }), "warn");
+            });
         } else {
           notice(t("slash.reviewOpened"));
         }
@@ -1009,27 +1072,14 @@ export default function App() {
         exitExpandedPreviewComposer();
       }
     },
-    [switchModel, openMemory, syncModeToController, mode, send, runShell, notice, t, setGoalLabel, setSideConversationCount, setSideMessages, openDockTab, setSddOpen, setAppMode, filePreviewComposerOpen, exitExpandedPreviewComposer, appMode, runCodeReview],
+    [switchModel, openMemory, syncModeToController, mode, send, runShell, notice, t, setGoalLabel, setSideConversationCount, openDockTab, setSddOpen, setAppMode, filePreviewComposerOpen, exitExpandedPreviewComposer, appMode, runCodeReview],
   );
-
-  const refreshTabMetas = useCallback(async (): Promise<TabMeta[]> => {
-    const tabs = asArray(await app.ListTabs().catch(() => [] as TabMeta[]));
-    setTabMetas(tabs);
-    return tabs;
-  }, []);
-
-  useEffect(() => {
-    void refreshTabMetas();
-    const id = window.setInterval(() => void refreshTabMetas(), 2000);
-    return () => window.clearInterval(id);
-  }, [refreshTabMetas]);
 
   useEffect(() => {
     return onProjectTreeChanged(() => {
       setProjectRevision((value) => value + 1);
-      void refreshTabMetas();
     });
-  }, [refreshTabMetas]);
+  }, []);
 
   useEffect(() => {
     return onScheduleTask((event) => {
@@ -1050,11 +1100,11 @@ export default function App() {
     (async () => {
       try {
         const needs = await app.NeedsOnboarding();
-        if (!cancelled) setNeedsOnboarding(needs);
+        if (!cancelled) setOnboardingGate(needs);
       } catch {
         // Bridge unavailable (browser dev seam) — skip the gate; a real key
         // failure still surfaces via the topbar startupError banner.
-        if (!cancelled) setNeedsOnboarding(false);
+        if (!cancelled) setOnboardingGate(false);
       }
     })();
     return () => {
@@ -1095,19 +1145,6 @@ export default function App() {
   const startNewSession = useCallback(async () => {
     await newSession();
   }, [newSession]);
-
-  const closeProjectDrawer = useCallback(() => {
-    setProjectDrawerOpen(false);
-    saveProjectDrawerOpen(false);
-  }, []);
-
-  const toggleProjectDrawer = useCallback(() => {
-    setProjectDrawerOpen((open) => {
-      const next = !open;
-      saveProjectDrawerOpen(next);
-      return next;
-    });
-  }, []);
 
   const toggleTerminal = useCallback(() => {
     togglePreviewTerminal();
@@ -1535,15 +1572,84 @@ export default function App() {
     return terminalTabs.find((tab) => tab.id === resolvedActiveTerminalId) ?? null;
   }, [resolvedActiveTerminalId, terminalTabs]);
 
-  const handleSideSend = useCallback((text: string) => {
+  const handleSideSend = useCallback(async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || sideChatBusy) return;
+    const userId = `side-${Date.now()}`;
+    const pendingId = `side-pending-${Date.now()}`;
     setSideMessages((current) => [
       ...current,
-      { id: `side-${Date.now()}`, text: trimmed, outgoing: true, createdAt: Date.now() },
+      { id: userId, text: trimmed, outgoing: true, createdAt: Date.now() },
+      { id: pendingId, text: t("sideChat.thinking"), outgoing: false, createdAt: Date.now(), pending: true },
     ]);
     setSideConversationCount((value) => Math.max(value, 1));
+    setSideChatBusy(true);
+    try {
+      const reply = await app.SideChatReply(trimmed);
+      setSideMessages((current) =>
+        current
+          .filter((message) => message.id !== pendingId)
+          .concat({ id: `side-reply-${Date.now()}`, text: reply, outgoing: false, createdAt: Date.now() }),
+      );
+    } catch (e) {
+      setSideMessages((current) =>
+        current
+          .filter((message) => message.id !== pendingId)
+          .concat({
+            id: `side-err-${Date.now()}`,
+            text: t("common.operationFailed", { msg: String((e as Error)?.message ?? e) }),
+            outgoing: false,
+            createdAt: Date.now(),
+          }),
+      );
+    } finally {
+      setSideChatBusy(false);
+    }
+  }, [sideChatBusy, t]);
+
+  dispatchSideChatRef.current = handleSideSend;
+
+  const decisionPending = state.approval != null || state.ask != null;
+
+  const pendingDecisionLabel = useMemo(() => {
+    if (state.approval) {
+      if (state.approval.tool === "exit_plan_mode") return t("decision.pendingPlan");
+      return t("decision.pendingApproval", { tool: state.approval.tool });
+    }
+    if (state.ask) return t("decision.pendingAsk");
+    return undefined;
+  }, [state.approval, state.ask, t]);
+
+  const planToolCount = useMemo(() => {
+    if (state.approval?.tool !== "exit_plan_mode") return undefined;
+    return state.items.filter((item) => item.kind === "tool" && item.readOnly === false).length;
+  }, [state.approval, state.items]);
+
+  const focusPendingDecision = useCallback(() => {
+    document.querySelector(".arc-decision-layer")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, []);
+
+  useEffect(() => {
+    if (!decisionPending) {
+      clearAgentDecisionNotifications();
+      return;
+    }
+    if (typeof document !== "undefined" && document.hasFocus()) return;
+    notifyAgentDecision(state.approval, state.ask, {
+      approvalTitle: t("decision.notifyApproval"),
+      askTitle: t("decision.notifyAsk"),
+      bodyApproval: (tool) => t("decision.pendingApproval", { tool }),
+      bodyAsk: t("decision.pendingAsk"),
+    });
+  }, [decisionPending, state.approval, state.ask, t]);
+
+  const handleAnswerQuestion = useCallback(
+    (id: string, answers: QuestionAnswer[]) => {
+      clearAgentDecisionNotifications();
+      answerQuestion(id, answers);
+    },
+    [answerQuestion],
+  );
 
   const handleSddGenerate = useCallback(
     (prompt: string) => {
@@ -1629,6 +1735,7 @@ export default function App() {
           .join(" ")}
         style={layoutStyle}
       >
+        <DevMockBanner />
         <Sidebar
           drawerOpen={projectDrawerOpen}
           onCloseDrawer={closeProjectDrawer}
@@ -1636,7 +1743,6 @@ export default function App() {
           appMode={appMode}
           activeTab={activeTab}
           projectRevision={projectRevision}
-          currentWorkspaceName={activeTab?.workspaceName || state.meta?.cwd || undefined}
           onOpenTopic={(scope, workspaceRoot, topicId) => {
             void handleOpenTopic(scope, workspaceRoot, topicId);
           }}
@@ -1648,11 +1754,6 @@ export default function App() {
           onOpenSdd={() => setSddOpen(true)}
           onAddProject={async () => {
             await switchFolder();
-          }}
-          onUseCurrentProject={async () => {
-            const cwd = activeTab?.workspaceRoot || state.meta?.cwd;
-            if (cwd) await switchFolder(cwd);
-            else await switchFolder();
           }}
           onOpenProjectHistory={(scope, workspaceRoot) => {
             void openProjectHistory(scope, workspaceRoot);
@@ -1679,6 +1780,11 @@ export default function App() {
               running={state.running}
               goalLabel={goalLabel || undefined}
               sideConversationCount={sideConversationCount}
+              onOpenSideConversation={() => {
+                document.querySelector(".side-conversation")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+              }}
+              pendingDecisionLabel={pendingDecisionLabel}
+              onFocusPendingDecision={decisionPending ? focusPendingDecision : undefined}
             />
           ) : null}
 
@@ -1694,11 +1800,11 @@ export default function App() {
               filePreviewOpen ? "workbench__body--preview-open" : "",
               filePreviewExpanded ? "workbench__body--preview-expanded" : "",
               filePreviewComposerOpen ? "workbench__body--preview-composer-open" : "",
-              workspacePanelRenderable ? "workbench__body--dock-open" : "",
+              workspacePanelOpen ? "workbench__body--dock-open" : "",
             ]
               .filter(Boolean)
               .join(" ")}
-            style={{ "--studio-dock-w": `${workspacePanelRenderWidth}px` } as CSSProperties}
+            style={{ "--studio-dock-w": `${dockAnimWidth}px` } as CSSProperties}
           >
             <div className="workbench__stack">
               <div className="workbench__center">
@@ -1735,6 +1841,10 @@ export default function App() {
                     writeWorkspaceRoot={writeWorkspaceRoot}
                     onWriteWorkspaceChange={handleWriteWorkspaceChange}
                     onPrompt={handleSend}
+                    onComposerPrompt={(text) => {
+                      setAppMode("code");
+                      void handleSend(text);
+                    }}
                     onDraftComposer={addWriteContextToComposer}
                     onPickWriteWorkspace={pickWriteWorkspace}
                     onFilesChanged={() => setProjectRevision((value) => value + 1)}
@@ -1750,8 +1860,7 @@ export default function App() {
                       void openMemory();
                     }}
                     onOpenCapabilities={() => {
-                      setAppMode("code");
-                      setCapsOpen(true);
+                      setAppMode("plugins");
                     }}
                     onOpenTrash={() => {
                       setAppMode("code");
@@ -1767,7 +1876,11 @@ export default function App() {
                     }}
                     onOpenTerminal={() => {
                       setAppMode("code");
-                      setTerminalOpen(true);
+                      void openNewTerminal();
+                    }}
+                    onOpenOnboarding={() => {
+                      setOnboardingSession((session) => session + 1);
+                      setOnboardingManual(true);
                     }}
                   />
                 )}
@@ -1775,30 +1888,6 @@ export default function App() {
 
               {showWorkbenchFooter ? (
                 <div className="workbench__footer" ref={footerRef}>
-                  {chatMode && state.approval && !filePreviewComposerOpen && (
-                    <ApprovalModal
-                      approval={state.approval}
-                      onAnswer={(allow, session, persist) => {
-                        if (state.approval!.tool === "exit_plan_mode" && allow) applyMode("normal");
-                        approve(state.approval!.id, allow, session, persist);
-                      }}
-                      onRevisePlan={(text) => {
-                        setPendingPlanRevision(text);
-                        approve(state.approval!.id, false, false, false);
-                      }}
-                      onExitPlan={() => {
-                        applyMode("normal");
-                        approve(state.approval!.id, false, false, false);
-                      }}
-                    />
-                  )}
-                  {chatMode && state.ask && !filePreviewComposerOpen && (
-                    <AskCard
-                      ask={state.ask}
-                      onAnswer={answerQuestion}
-                      onDismiss={() => answerQuestion(state.ask!.id, [])}
-                    />
-                  )}
                   <div className={`workbench__footer-stack${terminalOpen ? " workbench__footer-stack--terminal-open" : ""}`}>
                     <div className="workbench__composer-zone">
                       <FloatingComposer
@@ -1839,9 +1928,10 @@ export default function App() {
                         terminalCount={terminalOpen ? terminalTabs.length : 0}
                       />
                     </div>
-                    {terminalOpen && !filePreviewComposerOpen && terminalTabs.length > 0 && resolvedActiveTerminalId && (
+                    {terminalPanelShown && !filePreviewComposerOpen && terminalTabs.length > 0 && resolvedActiveTerminalId && (
                       <BottomTerminalPanel
-                        height={terminalHeight}
+                        key={terminalMotionKey}
+                        height={terminalAnimHeight}
                         cwd={composerCwd}
                         tabs={terminalTabs}
                         activeId={resolvedActiveTerminalId}
@@ -1880,7 +1970,7 @@ export default function App() {
               </>
             )}
 
-            {showRightDock && workspacePanelRenderable && (
+            {showRightDock && workspacePanelOpen && (
               <>
                 <button
                   className="workbench__resizer workbench__resizer--dock wails-no-drag"
@@ -1891,7 +1981,9 @@ export default function App() {
                   onPointerDown={startDockResize}
                 />
                 <RightDock
-                  open={workspacePanelRenderable}
+                  key={dockMotionKey}
+                  open={workspacePanelOpen}
+                  closing={dockClosing}
                   tab={rightDockMode}
                   onTabChange={(tab) => openDockTab(tab, { toggle: false })}
                   onClose={closeWorkspacePanel}
@@ -1939,33 +2031,45 @@ export default function App() {
       </div>
 
       {memView !== null && (
-        <MemoryPanel
-          view={memView}
-          onClose={closeMemory}
-          onRemember={onRemember}
-          onForget={onForget}
-          onSaveDoc={onSaveDoc}
-        />
+        <Suspense fallback={null}>
+          <LazyMemoryPanel
+            view={memView}
+            onClose={closeMemory}
+            onRemember={onRemember}
+            onForget={onForget}
+            onSaveDoc={onSaveDoc}
+          />
+        </Suspense>
       )}
 
       {histView !== null && (
-        <HistoryPanel
-          kind={histView.kind}
-          sessions={histView.sessions}
-          running={state.running}
-          onResume={onResumeSession}
-          onPreview={previewSession}
-          onDelete={onDeleteSession}
-          onRename={onRenameSession}
-          onRestore={onRestoreTrashedSession}
-          onPurge={onPurgeTrashedSession}
-          onPurgeAll={onPurgeAllTrashedSessions}
-          onClose={closeHistory}
-        />
+        <Suspense fallback={null}>
+          <HistoryPanel
+            kind={histView.kind}
+            sessions={histView.sessions}
+            running={state.running}
+            onResume={onResumeSession}
+            onPreview={previewSession}
+            onDelete={onDeleteSession}
+            onRename={onRenameSession}
+            onRestore={onRestoreTrashedSession}
+            onPurge={onPurgeTrashedSession}
+            onPurgeAll={onPurgeAllTrashedSessions}
+            onClose={closeHistory}
+          />
+        </Suspense>
       )}
 
-      {capsOpen && <CapabilitiesPanel onClose={() => setCapsOpen(false)} />}
-      {needsOnboarding && <OnboardingOverlay onComplete={() => setNeedsOnboarding(false)} />}
+      {(onboardingManual || onboardingGate === true) && (
+        <OnboardingOverlay
+          key={onboardingSession}
+          manual={onboardingManual}
+          onComplete={() => {
+            setOnboardingManual(false);
+            setOnboardingGate(false);
+          }}
+        />
+      )}
       {sandboxSetup && (
         <SandboxSetupOverlay
           reason={sandboxSetup.reason}
@@ -1990,10 +2094,35 @@ export default function App() {
           onAiAssist={(stepText) => handleSend(t("sdd.aiAssistPrompt", { text: stepText }))}
         />
       )}
+      <AgentDecisionLayer
+        approval={state.approval}
+        ask={state.ask}
+        mode={mode}
+        planToolCount={planToolCount}
+        onApprove={(allow, session, persist) => {
+          clearAgentDecisionNotifications();
+          if (state.approval?.tool === "exit_plan_mode" && allow) applyMode("normal");
+          if (state.approval) approve(state.approval.id, allow, session, persist);
+        }}
+        onRevisePlan={(text) => {
+          setPendingPlanRevision(text);
+          if (state.approval) approve(state.approval.id, false, false, false);
+        }}
+        onExitPlan={() => {
+          applyMode("normal");
+          if (state.approval) approve(state.approval.id, false, false, false);
+        }}
+        onAnswerAsk={handleAnswerQuestion}
+        onDismissAsk={() => {
+          const askId = state.ask?.id;
+          if (askId) handleAnswerQuestion(askId, []);
+        }}
+      />
       <SideConversation
         mainTitle={topicTitle(activeTab)}
         messages={sideMessages}
-        onSend={handleSideSend}
+        busy={sideChatBusy}
+        onSend={(text) => void handleSideSend(text)}
         onClose={() => {
           setSideMessages([]);
           setSideConversationCount(0);

@@ -16,6 +16,8 @@ import {
   getCodeReviewDefaultScope,
   getCodeReviewSecurityByDefault,
 } from "../lib/codeReviewPrefs";
+import { CODE_REVIEW_SETTINGS_EVENT } from "../lib/events";
+import { hasGitChange, isDeletedGitChange } from "../lib/workspaceChangeHelpers";
 
 type SourceFilter = ReviewScope;
 
@@ -31,29 +33,21 @@ interface ChangesPanelProps {
   onClearReview?: () => void;
 }
 
-function isDeletedChange(row: WorkspaceChangeView): boolean {
-  return !!row.gitStatus && row.gitStatus.includes("D");
-}
-
 function hasSession(row: WorkspaceChangeView): boolean {
   return row.sources.includes("session");
-}
-
-function hasGit(row: WorkspaceChangeView): boolean {
-  return row.sources.includes("git");
 }
 
 function matchesSourceFilter(row: WorkspaceChangeView, filter: SourceFilter): boolean {
   if (filter === "all") return true;
   if (filter === "session") return hasSession(row);
-  if (filter === "git") return hasGit(row);
-  return hasSession(row) && hasGit(row);
+  if (filter === "git") return hasGitChange(row);
+  return hasSession(row) && hasGitChange(row);
 }
 
 function sortChanges(rows: WorkspaceChangeView[]): WorkspaceChangeView[] {
   return [...rows].sort((a, b) => {
-    const aBoth = hasSession(a) && hasGit(a) ? 1 : 0;
-    const bBoth = hasSession(b) && hasGit(b) ? 1 : 0;
+    const aBoth = hasSession(a) && hasGitChange(a) ? 1 : 0;
+    const bBoth = hasSession(b) && hasGitChange(b) ? 1 : 0;
     if (aBoth !== bBoth) return bBoth - aBoth;
     const aTime = a.latestTime ?? 0;
     const bTime = b.latestTime ?? 0;
@@ -96,8 +90,8 @@ export function ChangesPanel({
       setSourceFilter(getCodeReviewDefaultScope());
       setReviewMode(getCodeReviewSecurityByDefault() ? "security" : "standard");
     };
-    window.addEventListener("arcdesk:code-review-settings", syncFromSettings);
-    return () => window.removeEventListener("arcdesk:code-review-settings", syncFromSettings);
+    window.addEventListener(CODE_REVIEW_SETTINGS_EVENT, syncFromSettings);
+    return () => window.removeEventListener(CODE_REVIEW_SETTINGS_EVENT, syncFromSettings);
   }, []);
 
   useEffect(() => {
@@ -220,7 +214,7 @@ export function ChangesPanel({
           </li>
         ) : (
           filteredRows.map((row) => {
-            const deleted = isDeletedChange(row);
+            const deleted = isDeletedGitChange(row);
             const active = activeFilePath === row.path;
             const detail = changeDetail(row);
             return (
@@ -243,7 +237,7 @@ export function ChangesPanel({
                   <span className="dock-panel__row-tags">
                     {row.gitStatus && <span className="dock-panel__pill dock-panel__pill--git">{row.gitStatus.trim()}</span>}
                     {hasSession(row) && <span className="dock-panel__pill dock-panel__pill--session">{t("workspace.sourceSession")}</span>}
-                    {hasGit(row) && !row.gitStatus && <span className="dock-panel__pill dock-panel__pill--git">{t("workspace.sourceGit")}</span>}
+                    {hasGitChange(row) && !row.gitStatus && <span className="dock-panel__pill dock-panel__pill--git">{t("workspace.sourceGit")}</span>}
                     {deleted && <span className="dock-panel__pill dock-panel__pill--del">{t("workspace.deleted")}</span>}
                   </span>
                 </button>

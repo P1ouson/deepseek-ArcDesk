@@ -14,6 +14,351 @@ import (
 	"arcdesk/internal/config"
 )
 
+func writeScopedSession(t *testing.T, dir, name, scope, workspaceRoot, prompt string, updatedAt time.Time) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(`{"role":"user","content":`+strconv.Quote(prompt)+`}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write scoped session: %v", err)
+	}
+	if err := agent.SaveBranchMeta(path, agent.BranchMeta{
+		CreatedAt:     updatedAt.Add(-time.Minute),
+		UpdatedAt:     updatedAt,
+		Scope:         scope,
+		WorkspaceRoot: workspaceRoot,
+	}); err != nil {
+		t.Fatalf("save branch meta: %v", err)
+	}
+	return path
+}
+
+func writeEmptyScopedSession(t *testing.T, dir, name, scope, workspaceRoot string, updatedAt time.Time) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	// No user turns — only a system line, matching a fresh NewSession before first send.
+	if err := os.WriteFile(path, []byte(`{"role":"system","content":"system prompt"}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write empty scoped session: %v", err)
+	}
+	if err := agent.SaveBranchMeta(path, agent.BranchMeta{
+		CreatedAt:     updatedAt,
+		UpdatedAt:     updatedAt,
+		Scope:         scope,
+		WorkspaceRoot: workspaceRoot,
+	}); err != nil {
+		t.Fatalf("save branch meta: %v", err)
+	}
+	return path
+}
+
+func TestFindScopedTabSessionResumesLatestEmptyTopicSession(t *testing.T) {
+	isolateDesktopUserDirs(t)
+
+	dir := config.SessionDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	globalRoot := globalTabWorkspaceRoot()
+	older := writeScopedSession(t, dir, "older-global.jsonl", "global", globalRoot, "older prompt", time.Now().Add(-2*time.Hour))
+	newer := writeScopedSession(t, dir, "newer-global.jsonl", "global", globalRoot, "newer prompt", time.Now().Add(-time.Hour))
+	projectRoot := t.TempDir()
+	writeScopedSession(t, dir, "project.jsonl", "project", projectRoot, "project prompt", time.Now())
+
+	if got := findScopedTabSession(dir, "global", globalRoot); got != newer {
+		t.Fatalf("findScopedTabSession = %q, want %q (not %q)", got, newer, older)
+	}
+	if got := findScopedTabSession(dir, "project", projectRoot); got == "" {
+		t.Fatalf("findScopedTabSession for project scope should match")
+	}
+}
+
+func TestDefaultGlobalTabResumesScopedSessionWithEmptyTopicID(t *testing.T) {
+	isolateDesktopUserDirs(t)
+
+	dir := config.SessionDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	globalRoot := globalTabWorkspaceRoot()
+	sessionPath := writeScopedSession(t, dir, "autosaved-global.jsonl", "global", globalRoot, "resume after restart", time.Now().Add(-time.Minute))
+
+	tab := &WorkspaceTab{
+		ID:            "tab_global",
+		Scope:         "global",
+		WorkspaceRoot: globalRoot,
+		Ready:         false,
+		disabledMCP:   map[string]ServerView{},
+	}
+	app := &App{
+		tabs:        map[string]*WorkspaceTab{"tab_global": tab},
+		tabOrder:    []string{"tab_global"},
+		activeTabID: "tab_global",
+	}
+	app.buildTabController(tab)
+	if tab.Ctrl != nil {
+		defer tab.Ctrl.Close()
+	}
+	if tab.Ctrl == nil {
+		t.Fatalf("tab controller was not built")
+	}
+	if tab.Ctrl.SessionPath() != sessionPath {
+		t.Fatalf("tab session path = %q, want %q", tab.Ctrl.SessionPath(), sessionPath)
+	}
+	history := tab.Ctrl.History()
+	if len(history) == 0 || !strings.Contains(history[0].Content, "resume after restart") {
+		t.Fatalf("tab history = %#v, want resumed conversation", history)
+	}
+}
+
+func TestFindScopedTabSessionResumesLastActiveInABCSequence(t *testing.T) {
+	isolateDesktopUserDirs(t)
+
+	dir := config.SessionDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	globalRoot := globalTabWorkspaceRoot()
+	base := time.Now().Add(-3 * time.Hour)
+	sessionA := writeScopedSession(t, dir, "a-global.jsonl", "global", globalRoot, "session A", base)
+	sessionB := writeScopedSession(t, dir, "b-global.jsonl", "global", globalRoot, "session B", base.Add(time.Hour))
+	sessionC := writeScopedSession(t, dir, "c-global.jsonl", "global", globalRoot, "session C", base.Add(2*time.Hour))
+
+	if got := findScopedTabSession(dir, "global", globalRoot); got != sessionC {
+		t.Fatalf("A→B→C restore = %q, want last active %q (not %q or %q)", got, sessionC, sessionA, sessionB)
+	}
+}
+
+func TestFindScopedTabSessionPrefersMetaUpdatedAtOverFileModTime(t *testing.T) {
+	isolateDesktopUserDirs(t)
+
+	dir := config.SessionDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	globalRoot := globalTabWorkspaceRoot()
+	now := time.Now().UTC()
+	// File mtime is newer, but meta UpdatedAt is older.
+	staleMeta := writeScopedSession(t, dir, "stale-meta.jsonl", "global", globalRoot, "stale meta", now.Add(-2*time.Hour))
+	if err := os.Chtimes(staleMeta, now, now); err != nil {
+		t.Fatalf("chtimes stale meta session: %v", err)
+	}
+	freshMeta := writeScopedSession(t, dir, "fresh-meta.jsonl", "global", globalRoot, "fresh meta", now.Add(-time.Hour))
+	if err := os.Chtimes(freshMeta, now.Add(-3*time.Hour), now.Add(-3*time.Hour)); err != nil {
+		t.Fatalf("chtimes fresh meta session: %v", err)
+	}
+
+	if got := findScopedTabSession(dir, "global", globalRoot); got != freshMeta {
+		t.Fatalf("restore should follow meta UpdatedAt = %q, want %q (not file-mtime winner %q)", got, freshMeta, staleMeta)
+	}
+}
+
+func TestFindScopedTabSessionTieBreakIsStableByPath(t *testing.T) {
+	isolateDesktopUserDirs(t)
+
+	dir := config.SessionDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	globalRoot := globalTabWorkspaceRoot()
+	when := time.Now().UTC().Truncate(time.Second)
+	first := filepath.Join(dir, "aaa-tie.jsonl")
+	second := filepath.Join(dir, "zzz-tie.jsonl")
+	for _, item := range []struct {
+		path, prompt string
+	}{
+		{first, "tie first"},
+		{second, "tie second"},
+	} {
+		if err := os.WriteFile(item.path, []byte(`{"role":"user","content":`+strconv.Quote(item.prompt)+`}`+"\n"), 0o644); err != nil {
+			t.Fatalf("write tie session: %v", err)
+		}
+		if err := agent.SaveBranchMetaPreserveUpdated(item.path, agent.BranchMeta{
+			CreatedAt:     when,
+			UpdatedAt:     when,
+			Scope:         "global",
+			WorkspaceRoot: globalRoot,
+		}); err != nil {
+			t.Fatalf("save tie session meta: %v", err)
+		}
+	}
+
+	got := findScopedTabSession(dir, "global", globalRoot)
+	if got != first {
+		t.Fatalf("equal UpdatedAt tie-break = %q, want lexicographically first path %q (not %q)", got, first, second)
+	}
+}
+
+func TestFindScopedTabSessionSkipsEmptySessions(t *testing.T) {
+	isolateDesktopUserDirs(t)
+
+	dir := config.SessionDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	globalRoot := globalTabWorkspaceRoot()
+	now := time.Now().UTC()
+	writeEmptyScopedSession(t, dir, "empty-newest.jsonl", "global", globalRoot, now)
+	real := writeScopedSession(t, dir, "real-older.jsonl", "global", globalRoot, "has turns", now.Add(-time.Hour))
+
+	if got := findScopedTabSession(dir, "global", globalRoot); got != real {
+		t.Fatalf("empty session must be skipped: got %q, want %q", got, real)
+	}
+}
+
+func TestFindScopedTabSessionFallbackAfterDelete(t *testing.T) {
+	isolateDesktopUserDirs(t)
+
+	dir := config.SessionDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	globalRoot := globalTabWorkspaceRoot()
+	base := time.Now().Add(-3 * time.Hour)
+	writeScopedSession(t, dir, "a-global.jsonl", "global", globalRoot, "session A", base)
+	sessionB := writeScopedSession(t, dir, "b-global.jsonl", "global", globalRoot, "session B", base.Add(time.Hour))
+	sessionC := writeScopedSession(t, dir, "c-global.jsonl", "global", globalRoot, "session C", base.Add(2*time.Hour))
+
+	if err := deleteSessionFile(dir, sessionC); err != nil {
+		t.Fatalf("delete latest session: %v", err)
+	}
+	if got := findScopedTabSession(dir, "global", globalRoot); got != sessionB {
+		t.Fatalf("after deleting C, restore = %q, want %q", got, sessionB)
+	}
+}
+
+func TestFindScopedTabSessionIgnoresTopicBoundSessions(t *testing.T) {
+	isolateDesktopUserDirs(t)
+
+	dir := config.SessionDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	globalRoot := globalTabWorkspaceRoot()
+	now := time.Now().UTC()
+	topicPath := writeScopedSession(t, dir, "topic-newest.jsonl", "global", globalRoot, "topic bound", now)
+	meta, ok, err := agent.LoadBranchMeta(topicPath)
+	if err != nil || !ok {
+		t.Fatalf("load topic session meta: ok=%v err=%v", ok, err)
+	}
+	meta.TopicID = "topic_bound"
+	meta.TopicTitle = "Topic bound"
+	if err := agent.SaveBranchMeta(topicPath, meta); err != nil {
+		t.Fatalf("save topic-bound meta: %v", err)
+	}
+	unscoped := writeScopedSession(t, dir, "unscoped-older.jsonl", "global", globalRoot, "unscoped", now.Add(-time.Hour))
+
+	if got := findScopedTabSession(dir, "global", globalRoot); got != unscoped {
+		t.Fatalf("topic-bound session must not win for empty topic tab: got %q, want %q", got, unscoped)
+	}
+}
+
+func TestMultiTabScopedSessionRestoreUsesWorkspaceScope(t *testing.T) {
+	isolateDesktopUserDirs(t)
+
+	dir := config.SessionDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	globalRoot := globalTabWorkspaceRoot()
+	projectRoot := t.TempDir()
+	now := time.Now().UTC()
+	globalSession := writeScopedSession(t, dir, "global-tab.jsonl", "global", globalRoot, "global chat", now)
+	projectSession := writeScopedSession(t, dir, "project-tab.jsonl", "project", projectRoot, "project chat", now)
+
+	globalTab := &WorkspaceTab{
+		ID:            "tab_global",
+		Scope:         "global",
+		WorkspaceRoot: globalRoot,
+		disabledMCP:   map[string]ServerView{},
+	}
+	projectTab := &WorkspaceTab{
+		ID:            "tab_project",
+		Scope:         "project",
+		WorkspaceRoot: projectRoot,
+		disabledMCP:   map[string]ServerView{},
+	}
+	app := &App{
+		tabs: map[string]*WorkspaceTab{
+			"tab_global":  globalTab,
+			"tab_project": projectTab,
+		},
+		tabOrder:    []string{"tab_global", "tab_project"},
+		activeTabID: "tab_global",
+	}
+
+	app.buildTabController(globalTab)
+	if globalTab.Ctrl != nil {
+		defer globalTab.Ctrl.Close()
+	}
+	app.buildTabController(projectTab)
+	if projectTab.Ctrl != nil {
+		defer projectTab.Ctrl.Close()
+	}
+
+	if globalTab.Ctrl == nil || projectTab.Ctrl == nil {
+		t.Fatalf("controllers were not built")
+	}
+	if got := globalTab.Ctrl.SessionPath(); got != globalSession {
+		t.Fatalf("global tab session = %q, want %q", got, globalSession)
+	}
+	if got := projectTab.Ctrl.SessionPath(); got != projectSession {
+		t.Fatalf("project tab session = %q, want %q", got, projectSession)
+	}
+}
+
+func TestColdRestartResumesLastActiveGlobalSessionABC(t *testing.T) {
+	isolateDesktopUserDirs(t)
+
+	dir := config.SessionDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	globalRoot := globalTabWorkspaceRoot()
+	base := time.Now().Add(-3 * time.Hour)
+	writeScopedSession(t, dir, "a-global.jsonl", "global", globalRoot, "session A", base)
+	writeScopedSession(t, dir, "b-global.jsonl", "global", globalRoot, "session B", base.Add(time.Hour))
+	sessionC := writeScopedSession(t, dir, "c-global.jsonl", "global", globalRoot, "session C", base.Add(2*time.Hour))
+
+	buildGlobalTab := func() *WorkspaceTab {
+		tab := &WorkspaceTab{
+			ID:            "tab_global",
+			Scope:         "global",
+			WorkspaceRoot: globalRoot,
+			disabledMCP:   map[string]ServerView{},
+		}
+		app := &App{
+			tabs:        map[string]*WorkspaceTab{"tab_global": tab},
+			tabOrder:    []string{"tab_global"},
+			activeTabID: "tab_global",
+		}
+		app.buildTabController(tab)
+		return tab
+	}
+
+	first := buildGlobalTab()
+	if first.Ctrl == nil {
+		t.Fatalf("first boot controller missing")
+	}
+	if got := first.Ctrl.SessionPath(); got != sessionC {
+		t.Fatalf("first boot session = %q, want %q", got, sessionC)
+	}
+	first.Ctrl.Close()
+
+	second := buildGlobalTab()
+	defer func() {
+		if second.Ctrl != nil {
+			second.Ctrl.Close()
+		}
+	}()
+	if second.Ctrl == nil {
+		t.Fatalf("second boot controller missing")
+	}
+	if got := second.Ctrl.SessionPath(); got != sessionC {
+		t.Fatalf("cold restart session = %q, want last active %q", got, sessionC)
+	}
+	if history := second.Ctrl.History(); len(history) == 0 || !strings.Contains(history[0].Content, "session C") {
+		t.Fatalf("cold restart history = %#v, want session C content", history)
+	}
+}
+
 func writeTopicSession(t *testing.T, dir, name, topicID, topicTitle, workspaceRoot string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)

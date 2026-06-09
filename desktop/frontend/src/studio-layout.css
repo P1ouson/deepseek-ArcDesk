@@ -644,6 +644,21 @@
   place-items: center;
 }
 
+.studio-header__badge--btn {
+  border: 0;
+  cursor: pointer;
+  transition: transform var(--motion-fast), filter var(--motion-fast);
+}
+
+.studio-header__badge--btn:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.studio-header__badge--btn:active {
+  transform: translateY(0);
+}
+
 /* ========== Stage + vertical tool rail ========== */
 .workbench--studio .workbench__body {
   flex: 1 1 auto;
@@ -1208,12 +1223,11 @@
 
 /* ========== Terminal in studio ========== */
 .workbench--studio .terminal-panel {
-  margin: 0 -24px 0;
-  border: 1px solid var(--border);
-  border-left: 0;
-  border-right: 0;
+  margin: 0 12px 12px;
+  border: 0;
   border-radius: 0;
-  overflow: hidden;
+  background: transparent;
+  overflow: visible;
 }
 
 .workbench--studio .workbench__footer-stack--terminal-open .workbench__composer-zone {
@@ -1430,6 +1444,10 @@
   text-align: center;
 }
 
+.workbench--studio .write-sidebar__empty-btn {
+  white-space: nowrap;
+}
+
 .workbench--studio .write-studio__pick-folder-btn {
   min-height: 30px;
   padding: 0 12px;
@@ -1632,6 +1650,7 @@
   color: var(--fg-dim);
   font-size: 11px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .workbench--studio .write-studio__action-tab:hover:not(:disabled) {
@@ -2140,17 +2159,20 @@
 
 .workbench--studio .write-studio__apply-primary {
   width: 100%;
-  min-height: 34px;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 12px;
+  min-height: var(--button-height);
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--button-radius);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 13px;
   font-weight: 650;
+  white-space: nowrap;
 }
 
 .workbench--studio .write-studio__apply-primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 18%, var(--bg-elev));
+  background: color-mix(in srgb, var(--accent) 88%, #000);
+  border-color: color-mix(in srgb, var(--accent) 88%, #000);
 }
 
 .workbench--studio .write-studio__apply-primary:disabled {

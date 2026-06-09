@@ -36,8 +36,8 @@ mem.prof
 /desktop/.env
 /desktop/ARCDESK.toml
 
-# Node / frontend dependencies and caches
-node_modules/
+# Legacy Reasonix skill mirror (use bundled-skills/ instead)
+.reasonix/
 .pnpm-store/
 .npm/
 

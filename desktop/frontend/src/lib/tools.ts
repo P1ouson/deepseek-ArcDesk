@@ -5,6 +5,7 @@
 // highlight.js) so ToolCard stays a renderer and the main bundle stays light.
 
 import { diffLines } from "./diff";
+import { parseToolArgs, toolArgString } from "./parseToolArgs";
 import { t } from "./i18n";
 import { extToLang } from "./lang";
 import type { DictKey } from "../locales/en";
@@ -26,40 +27,28 @@ export interface ToolFileDiff {
   removed: number;
 }
 
-function parse(args: string): Record<string, unknown> {
-  try {
-    return JSON.parse(args) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
-function str(a: Record<string, unknown>, key: string): string {
-  return typeof a[key] === "string" ? (a[key] as string) : "";
-}
-
 // subjectOf pulls the most informative one-liner out of a call's args — the
 // command for bash, the pattern for search, the path for file tools, the
 // description for a sub-task — so the collapsed row reads at a glance.
 export function subjectOf(name: string, args: string): string {
-  const a = parse(args);
+  const a = parseToolArgs(args);
   switch (name) {
     case "bash":
-      return str(a, "command");
+      return toolArgString(a, "command");
     case "grep":
     case "glob":
-      return str(a, "pattern") || str(a, "path");
+      return toolArgString(a, "pattern") || toolArgString(a, "path");
     case "web_fetch":
-      return str(a, "url");
+      return toolArgString(a, "url");
     case "task":
-      return str(a, "description") || str(a, "prompt");
+      return toolArgString(a, "description") || toolArgString(a, "prompt");
     case "remember":
-      return str(a, "name") || str(a, "description");
+      return toolArgString(a, "name") || toolArgString(a, "description");
     case "todo_write":
     case "exit_plan_mode":
       return ""; // these get dedicated cards, not a subject line
     default:
-      return str(a, "path") || str(a, "file_path");
+      return toolArgString(a, "path") || toolArgString(a, "file_path");
   }
 }
 
@@ -68,8 +57,8 @@ export function subjectOf(name: string, args: string): string {
 // one pair per step. Returns [] for non-writers, so the card folds args/output
 // away instead.
 export function diffsFor(name: string, args: string): ToolDiff[] {
-  const a = parse(args);
-  const lang = extToLang(str(a, "path") || str(a, "file_path"));
+  const a = parseToolArgs(args);
+  const lang = extToLang(toolArgString(a, "path") || toolArgString(a, "file_path"));
   if (name === "edit_file") {
     if (typeof a.old_string === "string" && typeof a.new_string === "string") {
       return [{ original: a.old_string, modified: a.new_string, lang }];
@@ -93,8 +82,8 @@ export function diffsFor(name: string, args: string): ToolDiff[] {
 
 /** Preferred diff source: backend unified FileDiff, else LCS from tool args. */
 export function toolDiffPanels(name: string, args: string, fileDiff?: ToolFileDiff): ToolDiffPanel[] {
-  const a = parse(args);
-  const lang = extToLang(str(a, "path") || str(a, "file_path"));
+  const a = parseToolArgs(args);
+  const lang = extToLang(toolArgString(a, "path") || toolArgString(a, "file_path"));
   if (fileDiff?.diff) {
     return [{ kind: "unified", unified: fileDiff.diff, lang, added: fileDiff.added, removed: fileDiff.removed }];
   }
@@ -184,10 +173,10 @@ function countOf(n: number, one: DictKey, other: DictKey): string {
 // readers. "" means there's nothing worth a summary line.
 export function summarize(name: string, args: string, output?: string, error?: string): string {
   if (error) return "";
-  const a = parse(args);
+  const a = parseToolArgs(args);
   switch (name) {
     case "write_file":
-      return countOf(lineCount(str(a, "content")), "tool.lineOne", "tool.lineOther");
+      return countOf(lineCount(toolArgString(a, "content")), "tool.lineOne", "tool.lineOther");
     case "edit_file": {
       if (typeof a.old_string === "string" && typeof a.new_string === "string") {
         const { add, del } = plusMinus(a.old_string, a.new_string);

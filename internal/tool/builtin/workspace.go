@@ -44,7 +44,7 @@ func (w Workspace) Tools(enabled ...string) []tool.Tool {
 		multiEdit{workDir: w.Dir, roots: roots},
 		deleteRange{workDir: w.Dir, roots: roots},
 		deleteSymbol{workDir: w.Dir, roots: roots},
-		bash{workDir: w.Dir, sb: w.Bash},
+		bash{workDir: w.Dir, sb: w.Bash, bgJobs: boolPtr(false)},
 		listDir{workDir: w.Dir},
 		globTool{workDir: w.Dir},
 		grepTool{workDir: w.Dir, rg: w.Search.RgPath},
@@ -64,6 +64,10 @@ func (w Workspace) Tools(enabled ...string) []tool.Tool {
 		}
 	}
 	return out
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }
 
 // resolveIn maps a tool's path/pattern argument into a working directory. With

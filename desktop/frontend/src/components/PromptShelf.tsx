@@ -1,5 +1,5 @@
 import type { ReactNode, RefObject } from "react";
-import { ChevronDown, ChevronUp, PauseCircle } from "lucide-react";
+import { CircleDot } from "lucide-react";
 
 export function PromptShelf({
   titleId,
@@ -12,6 +12,7 @@ export function PromptShelf({
   quickActions,
   barRef,
   actionsWrap = false,
+  hint,
 }: {
   titleId: string;
   title: ReactNode;
@@ -23,38 +24,39 @@ export function PromptShelf({
   quickActions?: ReactNode;
   barRef?: RefObject<HTMLDivElement>;
   actionsWrap?: boolean;
+  hint?: ReactNode;
 }) {
   return (
-    <div className={`prompt-shelf${actionsWrap ? " prompt-shelf--actions-wrap" : ""}`} aria-live="polite">
+    <article className={`arc-decision${actionsWrap ? " arc-decision--wrap" : ""}`} aria-live="polite">
       <div
         ref={barRef}
-        className="prompt-shelf__bar"
-        role="dialog"
-        aria-modal="false"
+        className="arc-decision__head"
+        role="group"
         aria-labelledby={titleId}
         tabIndex={-1}
       >
-        <div className="prompt-shelf__summary">
-          <PauseCircle size={16} aria-hidden="true" />
-          <div className="prompt-shelf__copy">
-            <div id={titleId} className="prompt-shelf__title">
-              <span className="prompt-shelf__heading">{title}</span>
-              {badges && <span className="prompt-shelf__badges">{badges}</span>}
-            </div>
-            <div className="prompt-shelf__meta">{meta}</div>
-          </div>
+        <div className="arc-decision__mark" aria-hidden="true">
+          <CircleDot size={15} />
         </div>
-        <div className="prompt-shelf__actions">{actions}</div>
+        <div className="arc-decision__copy">
+          <div id={titleId} className="arc-decision__title-row">
+            <h2 className="arc-decision__title">{title}</h2>
+            {badges ? <div className="arc-decision__badges">{badges}</div> : null}
+          </div>
+          <p className="arc-decision__meta">{meta}</p>
+          {hint ? <p className="arc-decision__hint">{hint}</p> : null}
+        </div>
+        <div className="arc-decision__actions">{actions}</div>
       </div>
       {crumbs}
-      {children && <div className="prompt-shelf__panel">{children}</div>}
+      {children ? <div className="arc-decision__body">{children}</div> : null}
       {quickActions}
-    </div>
+    </article>
   );
 }
 
 export function PromptBadge({ children }: { children: ReactNode }) {
-  return <span className="prompt-shelf__badge">{children}</span>;
+  return <span className="arc-decision__badge">{children}</span>;
 }
 
 export function PromptAction({
@@ -71,9 +73,13 @@ export function PromptAction({
   selected?: boolean;
 }) {
   return (
-    <button className={`prompt-action${primary || selected ? " prompt-action--selected" : ""}`} onClick={onClick}>
-      <span className="prompt-action__key">{keyLabel}</span>
-      <span className="prompt-action__label">{label}</span>
+    <button
+      type="button"
+      className={`arc-decision__btn${primary || selected ? " arc-decision__btn--primary" : ""}`}
+      onClick={onClick}
+    >
+      <kbd className="arc-decision__kbd">{keyLabel}</kbd>
+      <span>{label}</span>
     </button>
   );
 }
@@ -90,9 +96,8 @@ export function PromptDetailToggle({
   onClick: () => void;
 }) {
   return (
-    <button className="prompt-detail-toggle" onClick={onClick}>
+    <button type="button" className="arc-decision__detail-toggle" onClick={onClick}>
       <span>{open ? openLabel : label}</span>
-      {open ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
     </button>
   );
 }

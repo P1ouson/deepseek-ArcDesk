@@ -1,10 +1,10 @@
 /*
   Editorial Studio — design system primitives
-  Shared tokens, states, forms, and motion for Reasonix Desktop
+  Shared tokens, states, forms, and motion for ArcDesk Desktop
 */
 
 :root {
-  --term-bg: #1f1f1f;
+  --term-bg: #14151a;
   --term-fg: #e8e8e8;
   --term-cursor: #8b95e6;
 

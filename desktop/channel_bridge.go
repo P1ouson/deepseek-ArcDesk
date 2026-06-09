@@ -61,6 +61,7 @@ func (b *clawBridge) start() error {
 	mux.HandleFunc("/mobile/api/pair", b.handleMobilePair)
 	mux.HandleFunc("/mobile/api/messages", b.handleMobileMessages)
 	mux.HandleFunc("/mobile/api/send", b.handleMobileSend)
+	mux.HandleFunc("/mobile/api/decision", b.handleMobileDecision)
 	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", b.port))
 	if err != nil {
 		return err

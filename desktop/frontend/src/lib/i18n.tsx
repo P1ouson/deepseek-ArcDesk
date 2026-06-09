@@ -13,14 +13,23 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { en, type DictKey } from "../locales/en";
-import { zh } from "../locales/zh";
 
 export type Locale = "en" | "zh";
 export type { DictKey };
-// LangPref is the stored preference: "" means auto-detect from the OS.
 export type LangPref = "" | "en" | "zh";
 
-const DICTS: Record<Locale, Record<DictKey, string>> = { en, zh };
+const DICTS: Partial<Record<Locale, Record<DictKey, string>>> = { en };
+let zhLoad: Promise<Record<DictKey, string>> | null = null;
+
+function loadZhDict(): Promise<Record<DictKey, string>> {
+  if (!zhLoad) {
+    zhLoad = import("../locales/zh").then((mod) => {
+      DICTS.zh = mod.zh;
+      return mod.zh;
+    });
+  }
+  return zhLoad;
+}
 const STORAGE_KEY = "ARCDESK-lang";
 
 // currentLocale mirrors the active locale for callers outside React (lib/tools.ts).
@@ -77,7 +86,8 @@ export function clearLegacyLangPref(): void {
 // translate resolves a key for a locale and fills {placeholders}. Missing keys fall
 // back to English, then to the raw key, so the UI never renders blank.
 function translate(locale: Locale, key: DictKey, vars?: Record<string, string | number>): string {
-  const s = DICTS[locale][key] ?? DICTS.en[key] ?? key;
+  const dict = DICTS[locale] ?? DICTS.en;
+  const s = dict?.[key] ?? DICTS.en?.[key] ?? key;
   if (!vars) return s;
   return s.replace(/\{(\w+)\}/g, (_, k) => (vars[k] !== undefined ? String(vars[k]) : `{${k}}`));
 }
@@ -106,7 +116,22 @@ const I18nContext = createContext<I18nValue | null>(null);
 export function LocaleProvider({ children }: { children: ReactNode }) {
   const [pref, setPrefState] = useState<LangPref>(() => readPref());
   const locale = detectLocale(pref);
-  currentLocale = locale; // keep the mirror fresh for non-React callers
+  const [zhReady, setZhReady] = useState(locale !== "zh");
+  currentLocale = locale;
+
+  useEffect(() => {
+    if (locale !== "zh") {
+      setZhReady(true);
+      return;
+    }
+    let live = true;
+    void loadZhDict().then(() => {
+      if (live) setZhReady(true);
+    });
+    return () => {
+      live = false;
+    };
+  }, [locale]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -118,7 +143,9 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     setPrefState(normalizeLangPref(next));
   }, []);
 
-  const tt = useCallback<Translator>((key, vars) => translate(detectLocale(pref), key, vars), [pref]);
+  const tt = useCallback<Translator>((key, vars) => translate(detectLocale(pref), key, vars), [pref, zhReady]);
+
+  if (locale === "zh" && !zhReady) return null;
 
   return <I18nContext.Provider value={{ locale, pref, setPref, t: tt }}>{children}</I18nContext.Provider>;
 }

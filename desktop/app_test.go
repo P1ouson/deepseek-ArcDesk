@@ -1172,3 +1172,30 @@ func hasDirEntry(entries []DirEntry, name string) bool {
 	}
 	return false
 }
+
+func TestNormalizeDeepSeekBaseURL(t *testing.T) {
+	if got := normalizeDeepSeekBaseURL(""); got != deepseekOfficialBase {
+		t.Fatalf("empty = %q, want %q", got, deepseekOfficialBase)
+	}
+	if got := normalizeDeepSeekBaseURL("  https://relay.example/v1/  "); got != "https://relay.example/v1" {
+		t.Fatalf("trim = %q", got)
+	}
+	if got := deepSeekBalanceURL("https://relay.example"); got != "https://relay.example/user/balance" {
+		t.Fatalf("balance = %q", got)
+	}
+}
+
+func TestCompleteWriteInlineUsesProviderConfig(t *testing.T) {
+	isolateDesktopUserDirs(t)
+	app := NewApp()
+	app.setTestCtrl(&control.Controller{}, "deepseek-chat")
+
+	_, err := app.CompleteWriteInline("hello ", " world")
+	if err == nil {
+		t.Fatal("expected error without configured API key")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "API key") && !strings.Contains(msg, "unknown model") && !strings.Contains(msg, "no model") {
+		t.Fatalf("CompleteWriteInline should route through provider config, got: %v", err)
+	}
+}

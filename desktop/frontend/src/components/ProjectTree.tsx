@@ -4,9 +4,10 @@
 // new topic.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
-import { Archive, ChevronRight, ChevronDown, Pencil, Plus, Folder, FolderGit2, FolderPlus, Search, BriefcaseBusiness, Copy, FolderOpen, XCircle, History, Check } from "lucide-react";
+import { Archive, ChevronRight, ChevronDown, Pencil, Plus, Folder, FolderPlus, Search, BriefcaseBusiness, Copy, FolderOpen, XCircle, History, Check } from "lucide-react";
 import { asArray } from "../lib/array";
 import { app } from "../lib/bridge";
+import { logBridgeError } from "../lib/logBridgeError";
 import type { ProjectNode } from "../lib/types";
 import { getLocale, useT, type Translator } from "../lib/i18n";
 import { PROJECT_COLOR_OPTIONS, projectColorValue } from "../lib/projectColors";
@@ -18,11 +19,9 @@ interface ProjectTreeProps {
   activeScope?: string;
   activeWorkspaceRoot?: string;
   activeTopicId?: string;
-  currentWorkspaceName?: string;
   onOpenTopic: (scope: string, workspaceRoot: string, topicId: string) => Promise<void> | void;
   onOpenProjectHistory: (scope: "global" | "project", workspaceRoot: string) => Promise<void> | void;
   onAddProject: () => Promise<void>;
-  onUseCurrentProject?: () => Promise<void>;
   onRenameTopic?: (topicId: string, title: string) => Promise<void> | void;
   onTopicsChanged?: () => Promise<void> | void;
   refreshSignal?: number;
@@ -143,11 +142,9 @@ export function ProjectTree({
   activeScope,
   activeWorkspaceRoot,
   activeTopicId,
-  currentWorkspaceName,
   onOpenTopic,
   onOpenProjectHistory,
   onAddProject,
-  onUseCurrentProject,
   onRenameTopic,
   onTopicsChanged,
   refreshSignal,
@@ -209,7 +206,7 @@ export function ProjectTree({
     let cancelled = false;
     void app.Platform().then((value) => {
       if (!cancelled) setPlatform(value);
-    }).catch(() => {});
+    }).catch((err) => logBridgeError("Platform", err));
     return () => {
       cancelled = true;
     };
@@ -826,32 +823,8 @@ export function ProjectTree({
               <div className="project-tree__empty-copy">
                 <strong>{t("projectTree.emptyNoProjects")}</strong>
                 <span>{t("projectTree.emptyNoProjectsDesc")}</span>
+                <span className="project-tree__empty-hint">{t("projectTree.emptyHeaderHint")}</span>
               </div>
-              <div className="project-tree__empty-actions">
-                <button
-                  type="button"
-                  className="project-tree__empty-primary"
-                  onClick={() => void handleAddProject()}
-                  disabled={addingProject}
-                >
-                  <FolderPlus size={14} />
-                  <span>{t("projectTree.emptyAddProject")}</span>
-                </button>
-                {onUseCurrentProject && currentWorkspaceName && (
-                  <button
-                    type="button"
-                    className="project-tree__empty-secondary"
-                    onClick={async () => {
-                      await onUseCurrentProject();
-                      await refresh();
-                    }}
-                  >
-                    <FolderGit2 size={14} />
-                    <span>{t("projectTree.emptyUseCurrentDir")}</span>
-                  </button>
-                )}
-              </div>
-              {currentWorkspaceName && <div className="project-tree__empty-current">{t("projectTree.emptyCurrentDir", { dir: currentWorkspaceName })}</div>}
             </div>
           )
         ) : (

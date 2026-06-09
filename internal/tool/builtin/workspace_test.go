@@ -114,6 +114,17 @@ func TestWorkspaceEnabledFilter(t *testing.T) {
 	}
 }
 
+func TestWorkspaceBashSchemaOmitsBackgroundJobs(t *testing.T) {
+	b := byName(Workspace{Dir: t.TempDir()}.Tools())["bash"]
+	if b == nil {
+		t.Fatal("workspace bash tool missing")
+	}
+	schema := string(b.Schema())
+	if strings.Contains(schema, "run_in_background") || strings.Contains(schema, "bash_output") {
+		t.Fatalf("workspace bash schema should not advertise background jobs: %s", schema)
+	}
+}
+
 // TestWorkspaceEmptyDirUnchanged confirms a zero-Dir workspace yields tools that
 // behave exactly like the process-cwd built-ins (relative path unchanged).
 func TestWorkspaceEmptyDirUnchanged(t *testing.T) {

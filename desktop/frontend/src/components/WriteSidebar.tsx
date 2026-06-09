@@ -13,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { app } from "../lib/bridge";
+import { confirmAction } from "../lib/confirmAction";
 import { getLocale, useT } from "../lib/i18n";
 import type { FileEntry } from "../lib/types";
 import { getRecentWorkspacePaths, recordRecentWorkspace } from "../lib/workspaceRecents";
@@ -162,19 +163,25 @@ export function WriteSidebar({
     onSelectFile(path);
   };
 
-  const requestSelect = (path: string, isDir: boolean) => {
+  const requestSelect = async (path: string, isDir: boolean) => {
     if (isDir) {
       setBrowsePath(path);
       return;
     }
     if (dirty && selectedPath && path !== selectedPath) {
-      if (!window.confirm(t("write.unsavedLeave"))) return;
+      const ok = await confirmAction({ title: t("write.unsavedLeaveTitle"), message: t("write.unsavedLeave") });
+      if (!ok) return;
     }
     onSelectFile(path);
   };
 
   const deleteDraft = async (path: string) => {
-    if (!window.confirm(t("write.sidebar.confirmDelete", { name: baseName(path) }))) return;
+    const ok = await confirmAction({
+      title: t("write.sidebar.confirmDeleteTitle"),
+      message: t("write.sidebar.confirmDelete", { name: baseName(path) }),
+      destructive: true,
+    });
+    if (!ok) return;
     await app.DeleteWriteFile(path);
     await reload();
     onFilesChanged?.();
@@ -191,9 +198,12 @@ export function WriteSidebar({
     if (selectedPath === path) onSelectFile(nextPath);
   };
 
-  const switchWorkspaceRoot = (nextRoot: string) => {
+  const switchWorkspaceRoot = async (nextRoot: string) => {
     if (nextRoot === workspaceRoot) return;
-    if (dirty && !window.confirm(t("write.unsavedLeave"))) return;
+    if (dirty) {
+      const ok = await confirmAction({ title: t("write.unsavedLeaveTitle"), message: t("write.unsavedLeave") });
+      if (!ok) return;
+    }
     recordRecentWorkspace(nextRoot);
     onWorkspaceChange?.(nextRoot);
   };
@@ -383,11 +393,11 @@ export function WriteSidebar({
             <Folder size={16} />
             <span>{noWorkspace ? t("write.sidebar.noWorkspaceEmpty") : t("write.sidebar.empty")}</span>
             {noWorkspace ? (
-              <button type="button" className="write-studio__pick-folder-btn" onClick={() => void createDraft()}>
+              <button type="button" className="btn btn--primary btn--small write-sidebar__empty-btn" onClick={() => void createDraft()}>
                 {t("write.sidebar.newDraft")}
               </button>
             ) : onPickWorkspace ? (
-              <button type="button" className="write-studio__pick-folder-btn" onClick={() => void onPickWorkspace()}>
+              <button type="button" className="btn btn--primary btn--small write-sidebar__empty-btn" onClick={() => void onPickWorkspace()}>
                 {t("write.sidebar.chooseWorkspace")}
               </button>
             ) : null}

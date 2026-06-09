@@ -161,8 +161,8 @@ export function AskCard({
       actions={
         <>
           {active > 0 && (
-            <button className="prompt-action prompt-action--quiet" onClick={goBack}>
-              <span className="prompt-action__label">{t("ask.back")}</span>
+            <button type="button" className="arc-decision__btn arc-decision__btn--ghost" onClick={goBack}>
+              {t("ask.back")}
             </button>
           )}
           {q.options.map((o, index) => {

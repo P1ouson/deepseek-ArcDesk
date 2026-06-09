@@ -26,6 +26,7 @@ import type {
   ClawMessage,
   MobileConnectConfig,
   MobilePairingInfo,
+  MobilePendingDecision,
   MobileTunnelStatus,
   MCPCatalogEntry,
   MCPServerInput,
@@ -228,7 +229,10 @@ export interface AppBindings {
   ApplyUpdate(): Promise<void>;
   OpenDownloadPage(): Promise<void>;
   NeedsOnboarding(): Promise<boolean>;
-  ConnectKey(apiKey: string): Promise<void>;
+  ConnectKey(apiKey: string, baseUrl?: string): Promise<void>;
+  SideChatReply(message: string): Promise<string>;
+  GetMobilePendingDecision(): Promise<MobilePendingDecision | null>;
+  RespondMobileDecision(decisionId: string, allow: boolean, answers?: QuestionAnswer[]): Promise<void>;
   ListTabs(): Promise<TabMeta[]>;
   OpenProjectTab(workspaceRoot: string, topicID: string): Promise<TabMeta>;
   OpenGlobalTab(topicID: string): Promise<TabMeta>;
@@ -451,6 +455,8 @@ function baseName(path: string): string {
   return path.replace(/[/\\]+$/, "").split(/[/\\]/).filter(Boolean).pop() ?? path;
 }
 
+// Browser dev mock — signatures must match AppBindings (`pnpm check:bridge`).
+// Stubs UI-facing state only; does not replicate Go kernel/agent/MCP behavior.
 function makeMockApp(): AppBindings {
   let cancelled = false;
   let pendingAskPreview = false;
@@ -1931,13 +1937,27 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
     async NeedsOnboarding() {
       return !settings.providers.find((p) => p.apiKeyEnv === "DEEPSEEK_API_KEY")?.keySet;
     },
-    async ConnectKey(apiKey: string) {
+    async ConnectKey(apiKey: string, baseUrl?: string) {
       if (!apiKey.trim()) throw new Error("key is required");
+      const base = (baseUrl?.trim() || "https://api.deepseek.com").replace(/\/$/, "");
       settings.providers.forEach((p) => {
-        if (p.apiKeyEnv === "DEEPSEEK_API_KEY") p.keySet = true;
+        if (p.apiKeyEnv === "DEEPSEEK_API_KEY") {
+          p.keySet = true;
+          p.baseUrl = base;
+          p.balanceUrl = `${base}/user/balance`;
+        }
       });
       await delay(300);
     },
+    async SideChatReply(message: string) {
+      if (!message.trim()) throw new Error("message is required");
+      await delay(200);
+      return `（侧对话 mock）已收到：${message.trim()}`;
+    },
+    async GetMobilePendingDecision() {
+      return null;
+    },
+    async RespondMobileDecision(_decisionId: string, _allow: boolean, _answers?: QuestionAnswer[]) {},
     // Tab management mocks.
     async ListTabs() {
       return mockTabs.map((tab) => ({ ...tab }));
@@ -2195,6 +2215,7 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
         tunnelRunning: false,
         tunnelUrl: "",
         connectMode: "lan",
+        bridgeReady: true,
       };
     },
     async RefreshMobilePairing() {

@@ -126,15 +126,15 @@ export function BottomTerminalPanel({
                 <span>{tab.title}</span>
               </button>
               {tabs.length > 1 && (
-              <button
-                type="button"
-                className="terminal-panel__tab-close"
-                aria-label={t("terminal.closeTab", { title: tab.title })}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onCloseTab(tab.id, index);
-                }}
-              >
+                <button
+                  type="button"
+                  className="terminal-panel__tab-close"
+                  aria-label={t("terminal.closeTab", { title: tab.title })}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCloseTab(tab.id, index);
+                  }}
+                >
                   <X size={12} />
                 </button>
               )}
@@ -151,7 +151,7 @@ export function BottomTerminalPanel({
           </button>
         </div>
       </header>
-      <div className="terminal-panel__body terminal-panel__body--xterm">
+      <div className="terminal-panel__screen">
         {tabs.map((tab) => (
           <TerminalView key={tab.clientKey} sessionId={tab.id} active={tab.id === activeId} shell={tab.shell} />
         ))}

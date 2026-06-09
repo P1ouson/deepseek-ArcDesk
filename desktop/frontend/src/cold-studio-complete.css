@@ -267,10 +267,6 @@
   color: var(--warn);
 }
 
-.session-metrics__value {
-  font-variant-numeric: tabular-nums;
-}
-
 /* ========== Banner & update ========== */
 .banner {
   display: flex;
@@ -668,23 +664,23 @@
 
 /* ========== Terminal ========== */
 .terminal-panel {
-  border-top: 1px solid var(--border);
-  background: var(--term-bg);
+  border: 0;
+  background: transparent;
 }
 
 .terminal-panel__head {
-  background: color-mix(in srgb, var(--term-bg) 92%, #fff 8%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  color: var(--term-fg);
+  background: transparent;
+  border-bottom: 0;
+  color: var(--fg);
 }
 
 .terminal-panel__tab {
-  color: rgba(228, 228, 231, 0.65);
+  color: var(--fg-dim);
 }
 
 .terminal-panel__tab--active {
-  color: var(--term-fg);
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--bg-soft) 70%, transparent);
 }
 
 .terminal-panel__boot,

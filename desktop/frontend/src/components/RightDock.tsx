@@ -32,6 +32,8 @@ export interface RightDockProps {
 
   open: boolean;
 
+  closing?: boolean;
+
   tab: RightDockTab;
 
   onTabChange: (tab: RightDockTab) => void;
@@ -95,6 +97,8 @@ export interface RightDockProps {
 export function RightDock({
 
   open,
+
+  closing = false,
 
   tab,
 
@@ -171,7 +175,13 @@ export function RightDock({
   return (
 
     <aside
-      className={`right-dock${tab === "browser" && browserExpanded ? " right-dock--browser-expanded" : ""}`}
+      className={[
+        "right-dock",
+        tab === "browser" && browserExpanded ? "right-dock--browser-expanded" : "",
+        closing ? "motion-panel--closing" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       aria-label={t("rightDock.workbench")}
     >
 

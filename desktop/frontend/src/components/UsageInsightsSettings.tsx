@@ -5,7 +5,6 @@ import { formatMoney, formatTokens } from "../lib/formatMoney";
 import { useT } from "../lib/i18n";
 import { Tooltip } from "./Tooltip";
 import {
-  buildSampleUsageChart,
   buildUsageChart,
   hasUsageActivity,
   loadUsageActivity,
@@ -17,11 +16,11 @@ import type { BalanceInfo, CapabilitiesView } from "../lib/types";
 
 function UsageActivityChart({
   points,
-  sample,
+  empty,
   currency,
 }: {
   points: UsageChartPoint[];
-  sample: boolean;
+  empty: boolean;
   currency: string;
 }) {
   const t = useT();
@@ -29,8 +28,12 @@ function UsageActivityChart({
   const max = Math.max(...points.map((p) => p.tokens), 1);
   const hovered = points.find((p) => p.date === hoveredDate) ?? null;
 
+  if (empty) {
+    return <p className="usage-chart__empty">{t("settings.usage.chartEmpty")}</p>;
+  }
+
   return (
-    <div className={`usage-chart${sample ? " usage-chart--sample" : ""}`}>
+    <div className="usage-chart">
       <div className="usage-chart__plot" role="img" aria-label={t("settings.usage.chartAria")}>
         {hovered ? (
           <div className="usage-chart__tooltip" role="tooltip">
@@ -112,11 +115,8 @@ export function UsageInsightsSettings() {
   }, [refresh]);
 
   const summary = useMemo(() => summarizeUsageActivity(buckets), [buckets]);
-  const usingSample = !hasUsageActivity(buckets);
-  const chartPoints = useMemo(
-    () => (usingSample ? buildSampleUsageChart(14) : buildUsageChart(buckets, 14)),
-    [buckets, usingSample],
-  );
+  const chartEmpty = !hasUsageActivity(buckets);
+  const chartPoints = useMemo(() => buildUsageChart(buckets, 14), [buckets]);
   const skillsEnabled = caps?.skills.filter((sk) => sk.enabled).length ?? 0;
   const skillsTotal = caps?.skills.length ?? 0;
   const mcpConnected = caps?.servers.filter((srv) => srv.status === "connected").length ?? 0;
@@ -142,7 +142,7 @@ export function UsageInsightsSettings() {
         </div>
         <div className="settings-block__card">
           <div className="settings-block__card-content">
-            <UsageActivityChart points={chartPoints} sample={usingSample} currency={currency} />
+            <UsageActivityChart points={chartPoints} empty={chartEmpty} currency={currency} />
           </div>
         </div>
       </section>

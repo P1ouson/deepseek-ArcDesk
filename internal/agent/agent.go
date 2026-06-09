@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -28,6 +29,10 @@ import (
 const maxToolOutputBytes = 32 * 1024
 
 const maxFinalReadinessBlocks = 3
+
+// ErrEmptyModelResponse is returned when the provider completes a stream with
+// no assistant text, reasoning, or tool calls.
+var ErrEmptyModelResponse = errors.New("empty model response")
 
 // Renderer redraws the assistant's final-answer text as styled output. It is
 // applied only after a turn's text stream completes, so the user sees raw
@@ -409,6 +414,9 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 		text, reasoning, signature, calls, usage, err := a.stream(ctx, step+1)
 		if err != nil {
 			return err
+		}
+		if len(calls) == 0 && strings.TrimSpace(text) == "" && strings.TrimSpace(reasoning) == "" {
+			return ErrEmptyModelResponse
 		}
 		cacheDiagnostics := CompareShape(prevPrefixShape, prefixShape, usage)
 		a.lastPrefixShape = prefixShape

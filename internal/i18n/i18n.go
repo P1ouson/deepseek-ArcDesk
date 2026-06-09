@@ -133,6 +133,10 @@ type Messages struct {
 	ShellExecTimeoutFmt string // "shell command timed out (> %s)"
 	ShellModeHint       string // status line hint when input starts with !
 
+	// agent turn lifecycle (desktop + CLI share via event.Notice / turn_done).
+	AgentBusy          string // concurrent Send while a turn is in flight
+	AgentEmptyResponse string // provider stream finished with no content or tool calls
+
 	// slash command + sub-command descriptions shown in the menu (CLI and desktop
 	// share these via i18n.M, so both frontends localize identically).
 	CmdNew          string // /new

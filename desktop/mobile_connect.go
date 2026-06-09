@@ -56,6 +56,7 @@ type MobilePairingInfo struct {
 	TunnelRunning  bool   `json:"tunnelRunning"`
 	TunnelURL      string `json:"tunnelUrl"`
 	ConnectMode    string `json:"connectMode"`
+	BridgeReady    bool   `json:"bridgeReady"`
 }
 
 // MobileSessionSummary is a paired phone session for the desktop UI.
@@ -426,18 +427,21 @@ func (a *App) GetMobilePairingInfo() MobilePairingInfo {
 
 func (a *App) RefreshMobilePairing() MobilePairingInfo {
 	if a == nil || a.clawBridge == nil || a.clawBridge.mobile == nil {
-		return MobilePairingInfo{Port: defaultClawBridgePort, Enabled: true}
+		return MobilePairingInfo{Port: defaultClawBridgePort, Enabled: true, BridgeReady: false}
 	}
 	info := a.clawBridge.mobile.refreshPairing(a.clawBridge.port, a.clawBridge.tunnelPublicURL(), a.clawBridge.relayConnected())
+	info.BridgeReady = true
 	a.clawBridge.pushRelayPairToken()
 	return info
 }
 
 func (b *clawBridge) mobilePairingInfo() MobilePairingInfo {
 	if b == nil || b.mobile == nil {
-		return MobilePairingInfo{Port: defaultClawBridgePort, Enabled: true}
+		return MobilePairingInfo{Port: defaultClawBridgePort, Enabled: true, BridgeReady: false}
 	}
-	return b.mobile.pairingInfo(b.port, b.tunnelPublicURL(), b.relayConnected())
+	info := b.mobile.pairingInfo(b.port, b.tunnelPublicURL(), b.relayConnected())
+	info.BridgeReady = true
+	return info
 }
 
 func (b *clawBridge) mobileRefreshPairing() MobilePairingInfo {

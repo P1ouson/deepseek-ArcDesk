@@ -1,3 +1,4 @@
+import { CODE_REVIEW_SETTINGS_EVENT } from "./events";
 import type { DesktopCodeReviewView } from "./types";
 
 export type CodeReviewDefaultScope = "all" | "session" | "git";
@@ -17,7 +18,7 @@ export function syncCodeReviewSettings(view: DesktopCodeReviewView | undefined |
   currentScope = normalizeScope(view?.defaultScope);
   currentSecurity = view?.securityByDefault === true;
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("ARCDESK:code-review-settings"));
+    window.dispatchEvent(new CustomEvent(CODE_REVIEW_SETTINGS_EVENT));
   }
 }
 
@@ -77,13 +78,13 @@ export function markLocalCodeReviewMigrated(): void {
 export function saveCodeReviewDefaultScope(scope: CodeReviewDefaultScope): void {
   currentScope = scope;
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("ARCDESK:code-review-settings"));
+    window.dispatchEvent(new CustomEvent(CODE_REVIEW_SETTINGS_EVENT));
   }
 }
 
 export function saveCodeReviewSecurityByDefault(on: boolean): void {
   currentSecurity = on;
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("ARCDESK:code-review-settings"));
+    window.dispatchEvent(new CustomEvent(CODE_REVIEW_SETTINGS_EVENT));
   }
 }

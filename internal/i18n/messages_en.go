@@ -145,6 +145,8 @@ var English = Messages{
 	ShellExecFailedFmt:  "shell command failed: %v",
 	ShellExecTimeoutFmt: "shell command timed out (> %s)",
 	ShellModeHint:       "Enter runs shell · Esc cancels · click output to expand",
+	AgentBusy:           "Agent is still working on the previous message — wait for it to finish or press Stop before sending again.",
+	AgentEmptyResponse:  "Model returned an empty response. Please retry.",
 
 	CmdNew:          "fork a fresh session",
 	CmdCompact:      "compact context",

@@ -30,7 +30,7 @@ function uniqueLinks(body: string, names: Set<string>): LinkInfo[] {
 }
 
 // MemoryPanel is the desktop memory manager: a right-side drawer over the loaded
-// REASONIX.md hierarchy and saved auto-memories. Unlike Claude Code's /memory
+// ARCDESK.md hierarchy and saved auto-memories. Unlike Claude Code's /memory
 // (which shells out to $EDITOR) it edits docs in place, and unlike Codex (no UI
 // at all) it shows the saved facts. Docs are editable; facts are read-only
 // (the model owns them via the `remember` tool). Quick-add mirrors the "#"

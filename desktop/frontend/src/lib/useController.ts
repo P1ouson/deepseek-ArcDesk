@@ -6,6 +6,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { asArray } from "./array";
 import { app, onEvent, onReady } from "./bridge";
+import { logBridgeError } from "./logBridgeError";
+import { notifyTabMetasChanged } from "./events";
 import { recordCompactionActivity, recordUsageActivity } from "./usageActivity";
 import { t } from "./i18n";
 import type {
@@ -59,9 +61,17 @@ export type Item =
       isShell?: boolean; // true for !-prefix shell commands (controls default expand)
       parentId?: string; // a sub-agent call nests under the `task` call with this id
       fileDiff?: { diff: string; added: number; removed: number };
+    }
+  | {
+      kind: "ask";
+      id: string;
+      ask: WireAsk;
+      pending: boolean;
+      dismissed?: boolean;
+      answers?: QuestionAnswer[];
     };
 
-interface State {
+export interface State {
   items: Item[];
   running: boolean;
   turnActive: boolean;
@@ -101,7 +111,7 @@ const initialState: State = {
   seq: 0,
 };
 
-type Action =
+export type Action =
   | { type: "event"; e: WireEvent }
   | { type: "user"; text: string }
   | { type: "unsend" }
@@ -117,6 +127,7 @@ type Action =
   | { type: "local_notice"; level: "info" | "warn"; text: string }
   | { type: "clearApproval" }
   | { type: "clearAsk" }
+  | { type: "resolveAsk"; id: string; answers: QuestionAnswer[]; dismissed: boolean }
   | { type: "reset" };
 
 // ---- reducer helpers (unchanged logic) ----
@@ -129,6 +140,23 @@ function ensureAssistant(s: State): { items: Item[]; id: string; seq: number } {
   const id = `a${s.seq}`;
   const item: Item = { kind: "assistant", id, text: "", reasoning: "", streaming: true };
   return { items: [...s.items, item], id, seq: s.seq + 1 };
+}
+
+function shouldBlockConcurrentSend(state: State): boolean {
+  return state.running || state.turnActive;
+}
+
+function isAgentBusyNotice(text: string): boolean {
+  return text.includes("still working") || text.includes("仍在处理");
+}
+
+function revertRejectedSend(s: State): State {
+  return {
+    ...s,
+    running: s.turnActive,
+    pendingUser: undefined,
+    discardTurn: false,
+  };
 }
 
 function flushPendingUser(s: State): State {
@@ -147,7 +175,9 @@ function applyEvent(s: State, e: WireEvent): State {
     return s;
   }
   if (s.pendingUser !== undefined && e.kind !== "turn_started" && e.kind !== "turn_done") {
-    s = flushPendingUser(s);
+    if (e.kind !== "notice" || !isAgentBusyNotice(e.text ?? "")) {
+      s = flushPendingUser(s);
+    }
   }
   if (e.kind === "retrying") {
     return { ...s, retry: { attempt: e.retryAttempt ?? 0, max: e.retryMax ?? 0 } };
@@ -246,8 +276,12 @@ function applyEvent(s: State, e: WireEvent): State {
       const sessionCurrency = e.usage?.currency || s.sessionCurrency || "¥";
       return { ...s, usage: e.usage, context: { ...s.context, used }, turnTokens, sessionCost, sessionCurrency };
     }
-    case "notice":
-      return { ...s, running: s.turnActive ? s.running : false, seq: s.seq + 1, items: [...s.items, { kind: "notice", id: `n${s.seq}`, level: e.level ?? "info", text: e.text ?? "" }] };
+    case "notice": {
+      const text = e.text ?? "";
+      const rejected = isAgentBusyNotice(text);
+      const base = rejected ? revertRejectedSend(s) : s;
+      return { ...base, running: base.turnActive ? base.running : false, seq: base.seq + 1, items: [...base.items, { kind: "notice", id: `n${base.seq}`, level: e.level ?? "info", text }] };
+    }
     case "phase":
       return { ...s, seq: s.seq + 1, items: [...s.items, { kind: "phase", id: `p${s.seq}`, text: e.text ?? "" }] };
     case "compaction_started":
@@ -265,7 +299,15 @@ function applyEvent(s: State, e: WireEvent): State {
       return { ...s, running: s.turnActive ? s.running : false, seq: s.seq + 1, items };
     }
     case "approval_request": return { ...s, approval: e.approval };
-    case "ask_request": return { ...s, ask: e.ask };
+    case "ask_request": {
+      const ask = e.ask;
+      if (!ask) return { ...s, ask };
+      const exists = s.items.some((it) => it.kind === "ask" && it.id === ask.id);
+      const items = exists
+        ? s.items
+        : [...s.items, { kind: "ask" as const, id: ask.id, ask, pending: true }];
+      return { ...s, ask, items, seq: exists ? s.seq : s.seq + 1 };
+    }
     case "turn_done": {
       if (s.pendingUser !== undefined) s = flushPendingUser(s);
       const finalized = s.items.map((it) => {
@@ -308,6 +350,14 @@ function reducer(s: State, a: Action): State {
     case "local_notice": return { ...s, running: false, turnActive: false, seq: s.seq + 1, items: [...s.items, { kind: "notice", id: `n${s.seq}`, level: a.level, text: a.text }] };
     case "clearApproval": return { ...s, approval: undefined };
     case "clearAsk": return { ...s, ask: undefined };
+    case "resolveAsk": {
+      const items = s.items.map((it) =>
+        it.kind === "ask" && it.id === a.id
+          ? { ...it, answers: a.answers, dismissed: a.dismissed, pending: false }
+          : it,
+      );
+      return { ...s, ask: undefined, items };
+    }
     case "reset": return { ...initialState, meta: s.meta, context: { ...s.context, used: 0 }, balance: s.balance, effort: s.effort, jobs: s.jobs };
     case "event": return applyEvent(s, a.e);
     default: return s;
@@ -376,17 +426,29 @@ export function useController() {
       dispatchTo(tabId, { type: "checkpoints", checkpoints: asArray(await app.CheckpointsForTab(tabId)) });
       const history = asArray(await app.HistoryForTab(tabId));
       if (history && history.length) dispatchTo(tabId, { type: "history", messages: history });
-    } catch { /* ignore */ }
+    } catch (err) {
+      logBridgeError(`loadSessionDataForTab(${tabId})`, err);
+    }
   }, [dispatchTo]);
 
   const activeTabFromBackend = useCallback(async (): Promise<TabMeta | undefined> => {
-    const tabs = asArray(await app.ListTabs().catch(() => [] as TabMeta[]));
+    const tabs = asArray(
+      await app.ListTabs().catch((err) => {
+        logBridgeError("ListTabs", err);
+        return [] as TabMeta[];
+      }),
+    );
     return tabs.find((tab) => tab.active) ?? tabs[0];
   }, []);
 
   const waitForTabReady = useCallback(async (tabId: string): Promise<void> => {
     for (let attempt = 0; attempt < 60; attempt += 1) {
-      const tabs = asArray(await app.ListTabs().catch(() => [] as TabMeta[]));
+      const tabs = asArray(
+      await app.ListTabs().catch((err) => {
+        logBridgeError("ListTabs", err);
+        return [] as TabMeta[];
+      }),
+    );
       const tab = tabs.find((candidate) => candidate.id === tabId);
       if (!tab || tab.ready || tab.startupErr) return;
       await new Promise((resolve) => window.setTimeout(resolve, 100));
@@ -424,12 +486,18 @@ export function useController() {
         app
           .ContextUsageForTab(targetTabId)
           .then((context) => dispatchTo(targetTabId, { type: "context", context }))
-          .catch(() => {});
-        app.BalanceForTab(targetTabId).then((balance) => dispatchTo(targetTabId, { type: "balance", balance })).catch(() => {});
-        app.EffortForTab(targetTabId).then((effort) => dispatchTo(targetTabId, { type: "effort", effort })).catch(() => {});
+          .catch((err) => logBridgeError("ContextUsageForTab", err));
+        app
+          .BalanceForTab(targetTabId)
+          .then((balance) => dispatchTo(targetTabId, { type: "balance", balance }))
+          .catch((err) => logBridgeError("BalanceForTab", err));
+        app
+          .EffortForTab(targetTabId)
+          .then((effort) => dispatchTo(targetTabId, { type: "effort", effort }))
+          .catch((err) => logBridgeError("EffortForTab", err));
       }
       if (e.kind === "turn_done" || e.kind === "notice") {
-        app.JobsForTab(targetTabId).then((jobs) => dispatchTo(targetTabId, { type: "jobs", jobs: asArray(jobs) })).catch(() => {});
+        app.JobsForTab(targetTabId).then((jobs) => dispatchTo(targetTabId, { type: "jobs", jobs: asArray(jobs) })).catch((err) => logBridgeError("JobsForTab", err));
       }
     });
 
@@ -437,39 +505,57 @@ export function useController() {
       void loadSessionData();
       const readyTabId = activeTabId;
       if (readyTabId) {
-        app.BalanceForTab(readyTabId).then((balance) => dispatchTo(readyTabId, { type: "balance", balance })).catch(() => {});
-        app.JobsForTab(readyTabId).then((jobs) => dispatchTo(readyTabId, { type: "jobs", jobs: asArray(jobs) })).catch(() => {});
-        app.EffortForTab(readyTabId).then((effort) => dispatchTo(readyTabId, { type: "effort", effort })).catch(() => {});
+        app.BalanceForTab(readyTabId).then((balance) => dispatchTo(readyTabId, { type: "balance", balance })).catch((err) => logBridgeError("BalanceForTab", err));
+        app.JobsForTab(readyTabId).then((jobs) => dispatchTo(readyTabId, { type: "jobs", jobs: asArray(jobs) })).catch((err) => logBridgeError("JobsForTab", err));
+        app.EffortForTab(readyTabId).then((effort) => dispatchTo(readyTabId, { type: "effort", effort })).catch((err) => logBridgeError("EffortForTab", err));
       }
     });
 
     void loadSessionData();
     if (activeTabId) {
-      app.BalanceForTab(activeTabId).then((balance) => dispatchTo(activeTabId, { type: "balance", balance })).catch(() => {});
-      app.EffortForTab(activeTabId).then((effort) => dispatchTo(activeTabId, { type: "effort", effort })).catch(() => {});
-      app.JobsForTab(activeTabId).then((jobs) => dispatchTo(activeTabId, { type: "jobs", jobs: asArray(jobs) })).catch(() => {});
+      app.BalanceForTab(activeTabId).then((balance) => dispatchTo(activeTabId, { type: "balance", balance })).catch((err) => logBridgeError("BalanceForTab", err));
+      app.EffortForTab(activeTabId).then((effort) => dispatchTo(activeTabId, { type: "effort", effort })).catch((err) => logBridgeError("EffortForTab", err));
+      app.JobsForTab(activeTabId).then((jobs) => dispatchTo(activeTabId, { type: "jobs", jobs: asArray(jobs) })).catch((err) => logBridgeError("JobsForTab", err));
     }
 
     return () => { off(); offReady(); };
   }, [loadSessionData, activeTabId, dispatchTo]);
 
-  const send = useCallback((displayText: string, submitText = displayText) => {
-    if (!activeTabId) return;
-    dispatchTo(activeTabId, { type: "user", text: displayText });
-    const display = displayText.trim(); const submit = submitText.trim();
-    (display !== submit ? app.SubmitDisplayToTab(activeTabId, display, submit) : app.SubmitToTab(activeTabId, submit)).catch(() => {});
-  }, [activeTabId, dispatchTo]);
-
-  const runShell = useCallback((command: string) => {
-    if (!activeTabId) return;
-    dispatchTo(activeTabId, { type: "user", text: `!${command}` });
-    app.RunShell(command).catch(() => {});
-  }, [activeTabId, dispatchTo]);
-
   const notice = useCallback((text: string, level: "info" | "warn" = "info") => {
     if (!activeTabId) return;
     dispatchTo(activeTabId, { type: "local_notice", level, text });
   }, [activeTabId, dispatchTo]);
+
+  const reportFailure = useCallback((err: unknown) => {
+    if (!activeTabId) return;
+    const msg = String((err as Error)?.message ?? err ?? "");
+    dispatchTo(activeTabId, {
+      type: "local_notice",
+      level: "warn",
+      text: t("common.operationFailed", { msg: msg || "unknown" }),
+    });
+  }, [activeTabId, dispatchTo]);
+
+  const send = useCallback((displayText: string, submitText = displayText) => {
+    if (!activeTabId) return;
+    const cur = stateRef.current;
+    if (shouldBlockConcurrentSend(cur)) {
+      notice(t("composer.agentBusy"), "warn");
+      return;
+    }
+    dispatchTo(activeTabId, { type: "user", text: displayText });
+    const display = displayText.trim(); const submit = submitText.trim();
+    (display !== submit ? app.SubmitDisplayToTab(activeTabId, display, submit) : app.SubmitToTab(activeTabId, submit)).catch((err) => {
+      dispatchTo(activeTabId, { type: "unsend" });
+      reportFailure(err);
+    });
+  }, [activeTabId, dispatchTo, reportFailure]);
+
+  const runShell = useCallback((command: string) => {
+    if (!activeTabId) return;
+    dispatchTo(activeTabId, { type: "user", text: `!${command}` });
+    app.RunShell(command).catch(reportFailure);
+  }, [activeTabId, dispatchTo, reportFailure]);
 
   const cancel = useCallback((): string | undefined => {
     const cur = stateRef.current;
@@ -478,37 +564,45 @@ export function useController() {
       const text = cur.pendingUser;
       if (tabId) {
         dispatchTo(tabId, { type: "unsend" });
-        app.CancelTab(tabId).catch(() => {});
+        app.CancelTab(tabId).catch(reportFailure);
       }
       return text;
     }
-    if (tabId) app.CancelTab(tabId).catch(() => {});
+    if (tabId) app.CancelTab(tabId).catch(reportFailure);
     return undefined;
-  }, [activeTabId, dispatchTo]);
+  }, [activeTabId, dispatchTo, reportFailure]);
 
   const approve = useCallback((id: string, allow: boolean, session: boolean, persist: boolean) => {
     if (!activeTabId) return;
     dispatchTo(activeTabId, { type: "clearApproval" });
-    app.ApproveTab(activeTabId, id, allow, session, persist).catch(() => {});
-  }, [activeTabId, dispatchTo]);
+    app.ApproveTab(activeTabId, id, allow, session, persist).catch(reportFailure);
+  }, [activeTabId, dispatchTo, reportFailure]);
 
   const answerQuestion = useCallback((id: string, answers: QuestionAnswer[]) => {
     if (!activeTabId) return;
-    dispatchTo(activeTabId, { type: "clearAsk" });
-    app.AnswerQuestionForTab(activeTabId, id, answers).catch(() => {});
-  }, [activeTabId, dispatchTo]);
+    const dismissed = answers.length === 0 || answers.every((a) => (a.selected?.length ?? 0) === 0);
+    dispatchTo(activeTabId, { type: "resolveAsk", id, answers, dismissed });
+    app.AnswerQuestionForTab(activeTabId, id, answers).catch(reportFailure);
+  }, [activeTabId, dispatchTo, reportFailure]);
 
   const setControllerMode = useCallback((mode: "plan" | "yolo" | "normal"): Promise<void> => {
     if (!activeTabId) return Promise.resolve();
     return app.SetModeForTab(activeTabId, mode).then(() => {
       if (mode === "yolo" && activeTabId) dispatchTo(activeTabId, { type: "clearApproval" });
-    }).catch(() => {});
-  }, [activeTabId, dispatchTo]);
+    }).catch((err) => {
+      reportFailure(err);
+    });
+  }, [activeTabId, dispatchTo, reportFailure]);
 
   const newSession = useCallback(async () => {
-    await app.NewSession().catch(() => {});
+    try {
+      await app.NewSession();
+    } catch (err) {
+      reportFailure(err);
+      return;
+    }
     if (activeTabId) dispatchTo(activeTabId, { type: "reset" });
-  }, [activeTabId, dispatchTo]);
+  }, [activeTabId, dispatchTo, reportFailure]);
 
   const listSessions = useCallback(async (): Promise<SessionMeta[]> => asArray<SessionMeta>(await app.ListSessions().catch(() => [])), []);
   const listTrashedSessions = useCallback(async (): Promise<SessionMeta[]> => asArray<SessionMeta>(await app.ListTrashedSessions().catch(() => [])), []);
@@ -517,18 +611,21 @@ export function useController() {
     if (!targetTabId) return;
     if (tabId) await waitForTabReady(tabId);
     const messages = asArray(
-      await (tabId ? app.ResumeSessionForTab(tabId, path) : app.ResumeSession(path)).catch(() => [] as HistoryMessage[]),
+      await (tabId ? app.ResumeSessionForTab(tabId, path) : app.ResumeSession(path)).catch((err) => {
+        reportFailure(err);
+        return [] as HistoryMessage[];
+      }),
     );
     dispatchTo(targetTabId, { type: "reset" });
     if (messages.length) dispatchTo(targetTabId, { type: "history", messages });
-    app.ContextUsageForTab(targetTabId).then((context) => dispatchTo(targetTabId, { type: "context", context })).catch(() => {});
-  }, [activeTabId, dispatchTo, waitForTabReady]);
+    app.ContextUsageForTab(targetTabId).then((context) => dispatchTo(targetTabId, { type: "context", context })).catch((err) => logBridgeError("ContextUsageForTab", err));
+  }, [activeTabId, dispatchTo, waitForTabReady, reportFailure]);
 
   const previewSession = useCallback(async (path: string): Promise<HistoryMessage[]> => asArray<HistoryMessage>(await app.PreviewSession(path).catch(() => [])), []);
-  const deleteSession = useCallback((path: string) => app.DeleteSession(path).catch(() => {}), []);
-  const restoreSession = useCallback((path: string) => app.RestoreSession(path).catch(() => {}), []);
-  const purgeTrashedSession = useCallback((path: string) => app.PurgeTrashedSession(path).catch(() => {}), []);
-  const renameSession = useCallback((path: string, title: string) => app.RenameSession(path, title).catch(() => {}), []);
+  const deleteSession = useCallback((path: string) => app.DeleteSession(path).catch(reportFailure), [reportFailure]);
+  const restoreSession = useCallback((path: string) => app.RestoreSession(path).catch(reportFailure), [reportFailure]);
+  const purgeTrashedSession = useCallback((path: string) => app.PurgeTrashedSession(path).catch(reportFailure), [reportFailure]);
+  const renameSession = useCallback((path: string, title: string) => app.RenameSession(path, title).catch(reportFailure), [reportFailure]);
 
   const refreshMeta = useCallback(async () => {
     if (!activeTabId) return;
@@ -536,8 +633,10 @@ export function useController() {
       dispatchTo(activeTabId, { type: "meta", meta: await app.MetaForTab(activeTabId) });
       dispatchTo(activeTabId, { type: "context", context: await app.ContextUsageForTab(activeTabId) });
       dispatchTo(activeTabId, { type: "effort", effort: await app.EffortForTab(activeTabId) });
-    } catch { /* ignore */ }
-  }, [activeTabId, dispatchTo]);
+    } catch (err) {
+      logBridgeError("refreshMeta", err);
+    }
+  }, [activeTabId, dispatchTo, reportFailure]);
 
   const refreshWorkspaceState = useCallback(async (path: string): Promise<string> => {
     if (path) await syncActiveTabFromBackend(true);
@@ -549,37 +648,72 @@ export function useController() {
     return refreshWorkspaceState(path);
   }, [refreshWorkspaceState]);
   const switchWorkspace = useCallback(async (path: string): Promise<string> => {
-    const next = await app.SwitchWorkspace(path).catch(() => "");
+    const next = await app.SwitchWorkspace(path).catch((err) => {
+      reportFailure(err);
+      return "";
+    });
     return refreshWorkspaceState(next);
-  }, [refreshWorkspaceState]);
+  }, [refreshWorkspaceState, reportFailure]);
 
-  const compact = useCallback(() => { app.Compact().catch(() => {}); }, []);
+  const compact = useCallback(() => { app.Compact().catch(reportFailure); }, [reportFailure]);
 
   const setModel = useCallback(async (name: string) => {
     if (!activeTabId) return;
-    await app.SetModelForTab(activeTabId, name).catch(() => {});
+    try {
+      await app.SetModelForTab(activeTabId, name);
+    } catch (err) {
+      reportFailure(err);
+      return;
+    }
     try {
       dispatchTo(activeTabId, { type: "meta", meta: await app.MetaForTab(activeTabId) });
       dispatchTo(activeTabId, { type: "context", context: await app.ContextUsageForTab(activeTabId) });
       dispatchTo(activeTabId, { type: "effort", effort: await app.EffortForTab(activeTabId) });
-    } catch { /* ignore */ }
-  }, [activeTabId, dispatchTo]);
+    } catch (err) {
+      logBridgeError("setModel.refresh", err);
+    }
+  }, [activeTabId, dispatchTo, reportFailure]);
 
   const setEffort = useCallback(async (level: string) => {
     if (!activeTabId) return;
-    await app.SetEffortForTab(activeTabId, level).catch(() => {});
+    try {
+      await app.SetEffortForTab(activeTabId, level);
+    } catch (err) {
+      reportFailure(err);
+      return;
+    }
     try {
       dispatchTo(activeTabId, { type: "meta", meta: await app.MetaForTab(activeTabId) });
       dispatchTo(activeTabId, { type: "context", context: await app.ContextUsageForTab(activeTabId) });
       dispatchTo(activeTabId, { type: "effort", effort: await app.EffortForTab(activeTabId) });
-    } catch { /* ignore */ }
-  }, [activeTabId, dispatchTo]);
+    } catch (err) {
+      logBridgeError("setEffort.refresh", err);
+    }
+  }, [activeTabId, dispatchTo, reportFailure]);
 
   const fetchMemory = useCallback((): Promise<MemoryView> =>
     app.Memory().catch(() => ({ docs: [], facts: [], scopes: [], storeDir: "", available: false })), []);
-  const remember = useCallback(async (scope: string, note: string) => { await app.Remember(scope, note).catch(() => {}); }, []);
-  const forget = useCallback(async (name: string) => { await app.Forget(name).catch(() => {}); }, []);
-  const saveDoc = useCallback(async (path: string, body: string) => { await app.SaveDoc(path, body).catch(() => {}); }, []);
+  const remember = useCallback(async (scope: string, note: string) => {
+    try {
+      await app.Remember(scope, note);
+    } catch (err) {
+      reportFailure(err);
+    }
+  }, [reportFailure]);
+  const forget = useCallback(async (name: string) => {
+    try {
+      await app.Forget(name);
+    } catch (err) {
+      reportFailure(err);
+    }
+  }, [reportFailure]);
+  const saveDoc = useCallback(async (path: string, body: string) => {
+    try {
+      await app.SaveDoc(path, body);
+    } catch (err) {
+      reportFailure(err);
+    }
+  }, [reportFailure]);
 
   const rewind = useCallback(async (turn: number, scope: string) => {
     const sourceTabId = activeTabId;
@@ -625,27 +759,38 @@ export function useController() {
       if (!states.has(tabId) || !states.get(tabId)?.meta) {
         await loadSessionDataForTab(tabId);
       }
-    } catch { /* ignore */ }
+      notifyTabMetasChanged();
+    } catch (err) {
+      logBridgeError("switchTab", err);
+    }
   }, [loadSessionDataForTab]);
 
   const openProjectTab = useCallback(async (workspaceRoot: string, topicId: string, reload = false): Promise<TabMeta | undefined> => {
     try {
       const meta = await app.OpenProjectTab(workspaceRoot, topicId);
-      await app.SetActiveTab(meta.id).catch(() => {});
+      await app.SetActiveTab(meta.id).catch((err) => logBridgeError("SetActiveTab", err));
       setActiveTabId(meta.id);
       await loadSessionDataForTab(meta.id, reload || !statesRef.current.has(meta.id));
+      notifyTabMetasChanged();
       return meta;
-    } catch { return undefined; }
+    } catch (err) {
+      logBridgeError("openProjectTab", err);
+      return undefined;
+    }
   }, [loadSessionDataForTab]);
 
   const openGlobalTab = useCallback(async (topicId: string, reload = false): Promise<TabMeta | undefined> => {
     try {
       const meta = await app.OpenGlobalTab(topicId);
-      await app.SetActiveTab(meta.id).catch(() => {});
+      await app.SetActiveTab(meta.id).catch((err) => logBridgeError("SetActiveTab", err));
       setActiveTabId(meta.id);
       await loadSessionDataForTab(meta.id, reload || !statesRef.current.has(meta.id));
+      notifyTabMetasChanged();
       return meta;
-    } catch { return undefined; }
+    } catch (err) {
+      logBridgeError("openGlobalTab", err);
+      return undefined;
+    }
   }, [loadSessionDataForTab]);
 
   const closeTab = useCallback(async (tabId: string) => {
@@ -654,13 +799,19 @@ export function useController() {
       statesRef.current.delete(tabId);
       bump();
       if (tabId === activeTabId) await syncActiveTabFromBackend(true);
-    } catch { /* ignore */ }
+      notifyTabMetasChanged();
+    } catch (err) {
+      logBridgeError("closeTab", err);
+    }
   }, [activeTabId, bump, syncActiveTabFromBackend]);
 
   const reorderTabs = useCallback(async (tabIds: string[]) => {
     try {
       await app.ReorderTabs(tabIds);
-    } catch { /* ignore */ }
+      notifyTabMetasChanged();
+    } catch (err) {
+      logBridgeError("reorderTabs", err);
+    }
   }, []);
 
   return {
@@ -674,3 +825,6 @@ export function useController() {
     syncActiveTab: syncActiveTabFromBackend,
   };
 }
+
+export { applyEvent as controllerApplyWireEvent, initialState as controllerInitialState, reducer as controllerReducer, shouldBlockConcurrentSend };
+export type { State as ControllerState, Action as ControllerAction };

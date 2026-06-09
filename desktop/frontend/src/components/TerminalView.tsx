@@ -46,7 +46,7 @@ export function TerminalView({ sessionId, active, shell }: TerminalViewProps) {
       fontSize: Math.round(13 * codeScale * 10) / 10,
       fontFamily: "Cascadia Mono, Consolas, 'Courier New', monospace",
       theme: {
-        background: readVar("--term-bg", "#0c0e10"),
+        background: readVar("--term-bg", "#14151a"),
         foreground: readVar("--term-fg", "#e4e4e7"),
         cursor: readVar("--term-cursor", "#8b95e6"),
       },

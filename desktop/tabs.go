@@ -104,11 +104,18 @@ type tabEventSink struct {
 	tabID string
 	app   *App
 	ctx   context.Context
+	tap   event.Sink // optional mirror for integration tests (betagate); nil in production
 }
 
 func (s *tabEventSink) Emit(e event.Event) {
+	if s.tap != nil {
+		s.tap.Emit(e)
+	}
 	if s.ctx != nil {
 		runtime.EventsEmit(s.ctx, eventChannel, toWireTab(e, s.tabID))
+	}
+	if s.app != nil {
+		s.app.noteAgentDecision(s.tabID, e)
 	}
 	// Record read_file successes in the tab's telemetry.
 	if e.Kind == event.ToolResult && e.Tool.Name == "read_file" && e.Tool.Err == "" {
@@ -549,6 +556,16 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 		// so the user continues the conversation rather than starting fresh.
 		if tab.TopicID != "" {
 			existingPath := findTopicSession(dir, tab.TopicID)
+			if existingPath != "" {
+				if loaded, err := agent.LoadSession(existingPath); err == nil {
+					ctrl.Resume(loaded, existingPath)
+					path = existingPath
+				}
+			}
+		} else {
+			// Default Global / unscoped tabs keep topicId empty; resume the most
+			// recent autosaved session for this tab's scope and workspace.
+			existingPath := findScopedTabSession(dir, tab.Scope, tab.WorkspaceRoot)
 			if existingPath != "" {
 				if loaded, err := agent.LoadSession(existingPath); err == nil {
 					ctrl.Resume(loaded, existingPath)
@@ -2216,6 +2233,54 @@ func globalTabWorkspaceRoot() string {
 		return globalWorkspaceRoot()
 	}
 	return root
+}
+
+func sessionWorkspaceMatches(tabRoot, metaRoot string) bool {
+	tabRoot = filepath.Clean(strings.TrimSpace(tabRoot))
+	metaRoot = filepath.Clean(strings.TrimSpace(metaRoot))
+	return tabRoot == metaRoot || strings.EqualFold(tabRoot, metaRoot)
+}
+
+// findScopedTabSession returns the most recently updated session for a tab
+// without a topicId, matched by scope and workspace root.
+func findScopedTabSession(dir, scope, workspaceRoot string) string {
+	if dir == "" {
+		return ""
+	}
+	wantScope := strings.TrimSpace(scope)
+	if wantScope == "" {
+		wantScope = "global"
+	}
+	infos, err := agent.ListSessions(dir)
+	if err != nil {
+		return ""
+	}
+	var bestPath string
+	var bestTime time.Time
+	for _, info := range infos {
+		if strings.TrimSpace(info.TopicID) != "" {
+			continue
+		}
+		gotScope := strings.TrimSpace(info.Scope)
+		if gotScope == "" {
+			gotScope = "global"
+		}
+		if gotScope != wantScope {
+			continue
+		}
+		if !sessionWorkspaceMatches(workspaceRoot, info.WorkspaceRoot) {
+			continue
+		}
+		when := info.LastActivityAt
+		if when.IsZero() {
+			when = info.ModTime
+		}
+		if when.After(bestTime) {
+			bestTime = when
+			bestPath = info.Path
+		}
+	}
+	return bestPath
 }
 
 // findTopicSession scans the session directory for a .jsonl file whose .meta

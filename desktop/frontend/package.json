@@ -9,6 +9,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "check:bridge": "node scripts/check-bridge-drift.mjs",
+    "check:wire": "node scripts/check-wire-drift.mjs",
+    "test:unit": "vitest run",
+    "release:check": "node scripts/release-check.mjs",
     "test:todo-visibility": "node scripts/test-todo-visibility.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium"
@@ -34,7 +37,8 @@
     "@vitejs/plugin-react": "^4.3.4",
     "terser": "^5.48.0",
     "typescript": "^5.6.3",
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "vitest": "^3.2.4"
   },
   "pnpm": {
     "overrides": {

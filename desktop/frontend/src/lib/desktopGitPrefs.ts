@@ -1,3 +1,4 @@
+import { DESKTOP_GIT_SETTINGS_EVENT } from "./events";
 import type { DesktopGitView } from "./types";
 
 const DEFAULT_GIT: DesktopGitView = {
@@ -29,7 +30,7 @@ export function syncDesktopGitSettings(git: Partial<DesktopGitView> | undefined 
   root.setAttribute("data-git-check-github-cli", current.checkGitHubCli ? "1" : "0");
   root.setAttribute("data-git-sync-repo-merge", current.syncRepoMergeToGitHub ? "1" : "0");
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("ARCDESK:desktop-git-settings"));
+    window.dispatchEvent(new CustomEvent(DESKTOP_GIT_SETTINGS_EVENT));
   }
   return current;
 }

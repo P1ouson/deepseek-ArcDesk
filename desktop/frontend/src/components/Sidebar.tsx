@@ -26,13 +26,11 @@ export interface SidebarProps {
   appMode: AppMode;
   activeTab?: TabMeta;
   projectRevision: number;
-  currentWorkspaceName?: string;
   onOpenTopic: (scope: string, workspaceRoot: string, topicId: string) => void;
   onNewChat: () => void;
   onModeChange: (mode: AppMode) => void;
   onOpenSdd: () => void;
   onAddProject: () => Promise<void>;
-  onUseCurrentProject?: () => Promise<void>;
   onOpenProjectHistory: (scope: "global" | "project", workspaceRoot: string) => void;
   onTopicsChanged?: () => Promise<void>;
   writeConversation?: WriteTurn[];
@@ -90,13 +88,11 @@ export function Sidebar({
   appMode,
   activeTab,
   projectRevision,
-  currentWorkspaceName,
   onOpenTopic,
   onNewChat,
   onModeChange,
   onOpenSdd,
   onAddProject,
-  onUseCurrentProject,
   onOpenProjectHistory,
   onTopicsChanged,
   writeConversation = [],
@@ -191,12 +187,10 @@ export function Sidebar({
                 activeScope={activeTab?.scope}
                 activeWorkspaceRoot={activeTab?.workspaceRoot}
                 activeTopicId={activeTab?.topicId}
-                currentWorkspaceName={currentWorkspaceName}
                 refreshSignal={projectRevision}
                 onOpenTopic={onOpenTopic}
                 onOpenProjectHistory={onOpenProjectHistory}
                 onAddProject={onAddProject}
-                onUseCurrentProject={onUseCurrentProject}
                 onTopicsChanged={onTopicsChanged}
               />
             </div>

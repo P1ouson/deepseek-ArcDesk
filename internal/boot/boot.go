@@ -33,6 +33,7 @@ import (
 	"arcdesk/internal/outputstyle"
 	"arcdesk/internal/permission"
 	"arcdesk/internal/plugin"
+	"arcdesk/internal/prompt"
 	"arcdesk/internal/provider"
 	"arcdesk/internal/sandbox"
 	"arcdesk/internal/skill"
@@ -461,6 +462,8 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	for _, t := range skill.BuiltinSubagentTools(skillStore, skillRunner) {
 		reg.Add(t)
 	}
+
+	sysPrompt = prompt.AlignWithRegistry(sysPrompt, reg)
 
 	execSess := agent.NewSession(sysPrompt)
 	executor := agent.New(execProv, reg, execSess, agent.Options{

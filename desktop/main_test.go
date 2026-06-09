@@ -1,3 +1,5 @@
+//go:build !betagate
+
 package main
 
 import (

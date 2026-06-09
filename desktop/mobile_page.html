@@ -51,6 +51,13 @@
     .bubble.in { align-self: flex-start; background: var(--incoming); }
     .bubble.out { align-self: flex-end; background: var(--outgoing); color: #ffd8bf; }
     .bubble.pending { opacity: 0.7; font-style: italic; }
+    .bubble.decision {
+      align-self: stretch;
+      max-width: none;
+      border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+      background: rgba(224, 122, 58, 0.08);
+      color: var(--fg);
+    }
     .empty {
       margin: auto;
       text-align: center;
@@ -58,6 +65,47 @@
       font-size: 14px;
       padding: 24px;
     }
+    #decision-bar {
+      display: none;
+      margin: 0 12px 8px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--border));
+      background: linear-gradient(180deg, rgba(224, 122, 58, 0.12), rgba(26, 28, 32, 0.96));
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+    }
+    #decision-bar.show { display: block; }
+    #decision-bar h2 {
+      font-size: 13px;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+      margin-bottom: 6px;
+    }
+    #decision-bar p {
+      font-size: 13px;
+      line-height: 1.45;
+      color: #d7dbe3;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    #decision-bar .decision-summary {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    #decision-bar .decision-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    #decision-bar button.secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--fg);
+    }
+    #decision-bar button.secondary:disabled,
+    #decision-bar button:disabled { opacity: 0.45; }
     footer {
       border-top: 1px solid var(--border);
       background: var(--panel);
@@ -98,6 +146,12 @@
     <div id="status">正在连接电脑…</div>
   </header>
   <main id="log"><div class="empty" id="placeholder">配对成功后，可在这里查看 Agent 回复并继续发指令。</div></main>
+  <section id="decision-bar" aria-live="polite">
+    <h2 id="decision-title">等待你批准</h2>
+    <p id="decision-body"></p>
+    <p id="decision-summary" class="decision-summary"></p>
+    <div class="decision-actions" id="decision-actions"></div>
+  </section>
   <footer>
     <textarea id="input" rows="1" placeholder="发消息给电脑上的 Agent…" disabled></textarea>
     <button id="send" type="button" disabled>发送</button>
@@ -108,11 +162,18 @@
     let sessionId = localStorage.getItem(storageKey) || "";
     let pollTimer = null;
     let sending = false;
+    let decisionBusy = false;
+    let pendingDecision = null;
     const statusEl = document.getElementById("status");
     const logEl = document.getElementById("log");
     const inputEl = document.getElementById("input");
     const sendBtn = document.getElementById("send");
     const placeholder = document.getElementById("placeholder");
+    const decisionBar = document.getElementById("decision-bar");
+    const decisionTitle = document.getElementById("decision-title");
+    const decisionBody = document.getElementById("decision-body");
+    const decisionSummary = document.getElementById("decision-summary");
+    const decisionActions = document.getElementById("decision-actions");
 
     function setStatus(text, kind) {
       statusEl.textContent = text;
@@ -124,13 +185,79 @@
       placeholder?.remove();
       logEl.innerHTML = "";
       for (const item of items) {
+        if (item.status === "decision_clear") continue;
         const el = document.createElement("article");
-        const side = item.outgoing ? "out" : "in";
+        let side = item.outgoing ? "out" : "in";
+        if (item.status === "decision") side = "decision";
         el.className = "bubble " + side + (item.status === "pending" ? " pending" : "");
         el.textContent = item.text;
         logEl.appendChild(el);
       }
       logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function renderDecisionBar(decision) {
+      pendingDecision = decision;
+      if (!decision) {
+        decisionBar.classList.remove("show");
+        decisionActions.innerHTML = "";
+        return;
+      }
+      decisionBar.classList.add("show");
+      decisionTitle.textContent = decision.kind === "ask" ? "等待你在电脑上选择" : "等待你批准操作";
+      decisionBody.textContent = decision.title || "电脑端需要你确认";
+      decisionSummary.textContent = decision.summary || "";
+      decisionSummary.style.display = decision.summary ? "block" : "none";
+      decisionActions.innerHTML = "";
+
+      if (decision.kind === "approval") {
+        const allowBtn = document.createElement("button");
+        allowBtn.type = "button";
+        allowBtn.textContent = "允许一次";
+        allowBtn.disabled = decisionBusy;
+        allowBtn.addEventListener("click", () => respondDecision(decision.id, true));
+        decisionActions.appendChild(allowBtn);
+
+        const denyBtn = document.createElement("button");
+        denyBtn.type = "button";
+        denyBtn.className = "secondary";
+        denyBtn.textContent = "拒绝";
+        denyBtn.disabled = decisionBusy;
+        denyBtn.addEventListener("click", () => respondDecision(decision.id, false, []));
+        decisionActions.appendChild(denyBtn);
+      } else {
+        const questions = Array.isArray(decision.questions) ? decision.questions : [];
+        const question = questions[0];
+        if (question && Array.isArray(question.options) && question.options.length) {
+          const prompt = document.createElement("p");
+          prompt.className = "decision-summary";
+          prompt.textContent = question.prompt || decision.summary || "";
+          decisionActions.appendChild(prompt);
+          question.options.forEach((opt, index) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = (index + 1) + ". " + (opt.label || "选项");
+            btn.disabled = decisionBusy;
+            btn.addEventListener("click", () =>
+              respondDecision(decision.id, true, [{ questionId: question.id, selected: [opt.label] }])
+            );
+            decisionActions.appendChild(btn);
+          });
+        } else {
+          const hint = document.createElement("p");
+          hint.className = "decision-summary";
+          hint.textContent = "请在电脑端完成选择，或点击下方跳过。";
+          decisionActions.appendChild(hint);
+        }
+
+        const skipBtn = document.createElement("button");
+        skipBtn.type = "button";
+        skipBtn.className = "secondary";
+        skipBtn.textContent = "跳过（只是聊聊）";
+        skipBtn.disabled = decisionBusy;
+        skipBtn.addEventListener("click", () => respondDecision(decision.id, false, []));
+        decisionActions.appendChild(skipBtn);
+      }
     }
 
     async function api(path, body) {
@@ -144,6 +271,34 @@
       return data;
     }
 
+    async function refreshDecision() {
+      if (!sessionId) return;
+      try {
+        const data = await api("/mobile/api/decision");
+        renderDecisionBar(data.decision || null);
+      } catch (_) {
+        /* keep last known decision */
+      }
+    }
+
+    async function respondDecision(decisionId, allow, answers) {
+      if (!sessionId || !decisionId || decisionBusy) return;
+      decisionBusy = true;
+      decisionActions.querySelectorAll("button").forEach((btn) => { btn.disabled = true; });
+      try {
+        await api("/mobile/api/decision", { sessionId, decisionId, allow, answers: answers || [] });
+        pendingDecision = null;
+        renderDecisionBar(null);
+        await refreshMessages();
+        setStatus("已同步到电脑", "ok");
+      } catch (err) {
+        setStatus(String(err.message || err), "err");
+      } finally {
+        decisionBusy = false;
+        if (pendingDecision) renderDecisionBar(pendingDecision);
+      }
+    }
+
     async function pair() {
       const data = await api("/mobile/api/pair", { token });
       sessionId = data.sessionId;
@@ -152,7 +307,8 @@
       inputEl.disabled = false;
       sendBtn.disabled = false;
       await refreshMessages();
-      if (!pollTimer) pollTimer = setInterval(refreshMessages, 1500);
+      await refreshDecision();
+      if (!pollTimer) pollTimer = setInterval(() => { refreshMessages(); refreshDecision(); }, 1500);
     }
 
     async function refreshMessages() {
@@ -194,10 +350,11 @@
       try {
         if (sessionId) {
           await refreshMessages();
+          await refreshDecision();
           setStatus("已连接到此电脑", "ok");
           inputEl.disabled = false;
           sendBtn.disabled = false;
-          pollTimer = setInterval(refreshMessages, 1500);
+          pollTimer = setInterval(() => { refreshMessages(); refreshDecision(); }, 1500);
           return;
         }
         await pair();

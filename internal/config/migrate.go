@@ -60,27 +60,33 @@ func (r *MigrationResult) Notice() string {
 }
 
 // MigrateLegacyIfNeeded performs a one-time, non-destructive import of older
-// installs into the current user config when the latter does not exist yet. It
-// checks v1-era TOML first, then Reasonix v1 user config.toml, then v0.5/v0.x
+// installs into the current user config. When config.toml is absent it checks
+// v1-era TOML first, then Reasonix v1 user config.toml, then v0.5/v0.x
 // ~/.reasonix/config.json, and never modifies or deletes the legacy files.
-// Returns nil when there is nothing to migrate, or when the current user config already exists.
+// When config.toml already exists but the credentials store lacks
+// DEEPSEEK_API_KEY, only the legacy JSON apiKey is backfilled into credentials
+// so upgraded users are not forced through onboarding again.
 func MigrateLegacyIfNeeded() (*MigrationResult, error) {
 	dest := userConfigPath()
 	if dest == "" {
-		return nil, nil
-	}
-	if _, err := os.Stat(dest); err == nil {
 		return nil, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, nil
 	}
-	if res, err := migrateLegacyTOMLIfNeeded(dest, home); res != nil || err != nil {
-		return res, err
-	}
-	if res, err := migrateFromReasonixV1IfNeeded(dest); res != nil || err != nil {
-		return res, err
+	if _, err := os.Stat(dest); err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+		if res, err := migrateLegacyTOMLIfNeeded(dest, home); res != nil || err != nil {
+			return res, err
+		}
+		if res, err := migrateFromReasonixV1IfNeeded(dest); res != nil || err != nil {
+			return res, err
+		}
+	} else {
+		return migrateLegacyAPIKeyFromReasonixJSON(home)
 	}
 	src := filepath.Join(home, LegacyHomeDir, "config.json")
 	data, err := os.ReadFile(src)
@@ -125,6 +131,71 @@ func MigrateLegacyIfNeeded() (*MigrationResult, error) {
 		}
 	}
 	return res, nil
+}
+
+// migrateLegacyAPIKeyFromReasonixJSON imports only DEEPSEEK_API_KEY from
+// ~/.reasonix/config.json when the v1+ user config already exists but
+// credentials are still empty. Existing config.toml is never rewritten.
+func migrateLegacyAPIKeyFromReasonixJSON(home string) (*MigrationResult, error) {
+	if !credentialsMissingDeepSeekKey() {
+		return nil, nil
+	}
+	src := filepath.Join(home, LegacyHomeDir, "config.json")
+	data, err := os.ReadFile(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var legacy legacyConfig
+	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return nil, fmt.Errorf("parse legacy config %s: %w", src, err)
+	}
+	key := strings.TrimSpace(legacy.APIKey)
+	if key == "" {
+		return nil, nil
+	}
+	credPath := UserCredentialsPath()
+	if credPath == "" {
+		credPath = filepath.Join(home, ".env")
+	}
+	if err := writeCredentialsEnv(home, []string{"DEEPSEEK_API_KEY=" + key}); err != nil {
+		return nil, fmt.Errorf("write credentials: %w", err)
+	}
+	res := &MigrationResult{From: src, To: credPath, KeyToEnv: true}
+	if base := strings.TrimSpace(legacy.BaseURL); base != "" && !strings.Contains(base, "deepseek.com") {
+		res.Warnings = append(res.Warnings, "your previous base_url was "+base+
+			" — only the API key was imported; verify provider base_url in config.toml if this endpoint is not DeepSeek-compatible")
+	}
+	return res, nil
+}
+
+func credentialsMissingDeepSeekKey() bool {
+	path := UserCredentialsPath()
+	if path == "" {
+		return true
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return os.IsNotExist(err)
+	}
+	return !dotEnvHasNonEmptyKey(string(data), "DEEPSEEK_API_KEY")
+}
+
+func dotEnvHasNonEmptyKey(content, key string) bool {
+	for _, raw := range strings.Split(content, "\n") {
+		line := strings.TrimPrefix(strings.TrimSpace(raw), "export ")
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if ok && strings.TrimSpace(k) == key && strings.TrimSpace(v) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func migrateLegacyTOMLIfNeeded(dest, home string) (*MigrationResult, error) {

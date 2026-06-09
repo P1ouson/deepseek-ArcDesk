@@ -38,11 +38,22 @@
 @keyframes motion-panel-in-right {
   from {
     opacity: 0;
-    transform: translateX(12px);
+    transform: translateX(20px);
   }
   to {
     opacity: 1;
     transform: translateX(0);
+  }
+}
+
+@keyframes motion-panel-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -174,8 +185,39 @@
   animation: motion-panel-in-left var(--duration-normal) var(--ease-out);
 }
 
+.workbench--studio .workbench__resizer--dock {
+  flex: 0 0 4px;
+  width: 4px;
+  opacity: 0;
+  transition:
+    opacity var(--duration-normal) var(--ease-out),
+    flex-basis var(--duration-normal) var(--ease-out),
+    width var(--duration-normal) var(--ease-out);
+}
+
+.workbench--studio .workbench__body--dock-open .workbench__resizer--dock {
+  opacity: 1;
+}
+
 .workbench--studio .right-dock {
   animation: motion-panel-in-right var(--duration-normal) var(--ease-out);
+  transition:
+    width var(--duration-normal) var(--ease-out),
+    flex-basis var(--duration-normal) var(--ease-out),
+    opacity var(--duration-normal) var(--ease-out);
+  will-change: width, transform;
+}
+
+.workbench--studio .right-dock.motion-panel--closing {
+  animation: none;
+  opacity: 0;
+}
+
+.workbench--studio .terminal-panel {
+  animation: motion-panel-in-up var(--duration-normal) var(--ease-out);
+  transition: height var(--duration-normal) var(--ease-out);
+  will-change: height, transform;
+  transform-origin: bottom center;
 }
 
 .workbench.workbench--studio {
@@ -194,8 +236,11 @@
   .project-tree__children,
   .files-panel__branch,
   .studio-drawer,
-  .workbench--studio .right-dock {
+  .workbench--studio .right-dock,
+  .workbench--studio .terminal-panel,
+  .workbench--studio .workbench__resizer--dock {
     animation: none;
+    transition: none;
   }
 
   .workbench.workbench--studio {

@@ -723,16 +723,16 @@ const DefaultSystemPrompt = `You are ArcDesk, a coding agent focused on executin
 Use the provided tools to read and write files and run shell commands.
 Principles: understand the request before acting; verify with tools instead of
 guessing; keep changes minimal and correct; briefly summarize what you did.
-When the request leaves a real choice to the user 鈥?which approach or library,
-the scope, or a consequential or ambiguous decision 鈥?call the ask tool to offer
+When the request leaves a real choice to the user — which approach or library,
+the scope, or a consequential or ambiguous decision — call the ask tool to offer
 2-4 concrete options rather than guessing or burying the question in prose. Skip
 it when there's an obvious default; don't ask just to confirm.
-For multi-step work, track progress with the todo_write tool: lay out the steps,
-keep exactly one in_progress, and flip each to completed as you finish it 鈥?update
-the list as you go, not just at the end.
+For multi-step work, break the task into clear phases, work through them in order,
+and state progress in your replies. Prefer dedicated file tools (read_file, grep,
+glob, ls) over shell when searching or reading code.
 In plan mode the harness blocks writer tools: do read-only research, then write a
 concise plan as your reply and stop. The user is asked to approve before anything
-is changed; once approved, work through the steps, updating the task list as you go.`
+is changed; once approved, execute the plan step by step and verify before claiming done.`
 
 // LanguagePolicy is the auto fallback appended to the system prompt when no
 // concrete UI language is resolved. It is static English text, so it stays part
@@ -740,7 +740,7 @@ is changed; once approved, work through the steps, updating the task list as you
 const LanguagePolicy = `Reply in the same language the user is using in their most recent message: ` +
 	`if they write in Chinese answer in Chinese, in English answer in English, and switch ` +
 	`whenever they switch. Let this also guide the language you think in. Always keep code, ` +
-	`identifiers, file paths, shell commands, and technical terms in their original form 鈥?never translate them.`
+	`identifiers, file paths, shell commands, and technical terms in their original form — never translate them.`
 
 // Default returns the built-in default configuration (DeepSeek + MiMo presets).
 func Default() *Config {

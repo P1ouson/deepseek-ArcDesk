@@ -290,12 +290,13 @@ func (c *Controller) beginCheckpoint(input string) {
 
 // runGuarded runs body on a background goroutine under a fresh cancellable
 // context, guarding against concurrent turns and emitting a TurnDone event when
-// it finishes (Err set on failure; nil also for a user Cancel). A no-op if a
-// turn is already in flight.
+// it finishes (Err set on failure; nil also for a user Cancel). When a turn is
+// already in flight, emits a visible Notice instead of silently discarding.
 func (c *Controller) runGuarded(body func(ctx context.Context) error) {
 	c.mu.Lock()
 	if c.running {
 		c.mu.Unlock()
+		c.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: i18n.M.AgentBusy})
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -336,7 +337,7 @@ const planApprovalTool = "exit_plan_mode"
 
 // planApprovedMessage is the follow-up turn sent once the user approves a plan —
 // the in-context nudge to execute and keep the (already-seeded) task list honest.
-const planApprovedMessage = "Plan approved — plan mode is off; you're cleared to make the changes without asking again. Implement the plan now. Keep the task list current with todo_write, preserving its two-level shape (phases at level 0, their sub-steps at level 1): mark the sub-step you start as in_progress, one in_progress at a time. Sign off each finished sub-step with complete_step, attaching the evidence it's done — the verification you ran, the diff/files you changed, or a manual check. Don't claim a step is done without evidence."
+const planApprovedMessage = "Plan approved — plan mode is off; you're cleared to make the changes without asking again. Implement the plan now, one step at a time. Before claiming a step is done, verify it (run tests/builds when relevant, or re-read the changed files) and briefly state what you checked."
 
 // runTurn runs one model turn, then applies the plan-approval gate. This is the
 // single, frontend-agnostic plan flow: in plan mode the model just researches

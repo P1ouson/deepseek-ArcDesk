@@ -146,6 +146,8 @@ var Chinese = Messages{
 	ShellExecFailedFmt:  "Shell 命令执行失败：%v",
 	ShellExecTimeoutFmt: "Shell 命令超时（>%s）",
 	ShellModeHint:       "Enter 执行 Shell · Esc 取消 · 点击输出展开",
+	AgentBusy:           "上一条消息仍在处理中 — 请等待完成或按停止后再发送。",
+	AgentEmptyResponse:  "模型返回了空响应，请重试。",
 
 	CmdNew:          "开启新会话",
 	CmdCompact:      "压缩上下文",

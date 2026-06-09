@@ -17,6 +17,9 @@ export interface TopbarProps {
   running: boolean;
   goalLabel?: string;
   sideConversationCount: number;
+  onOpenSideConversation?: () => void;
+  pendingDecisionLabel?: string;
+  onFocusPendingDecision?: () => void;
   dockOpen?: boolean;
   activeDockTab?: RightDockTab | null;
   terminalOpen?: boolean;
@@ -37,6 +40,9 @@ export function Topbar({
   running,
   goalLabel,
   sideConversationCount,
+  onOpenSideConversation,
+  pendingDecisionLabel,
+  onFocusPendingDecision,
 }: TopbarProps) {
   const t = useT();
 
@@ -92,11 +98,27 @@ export function Topbar({
       </div>
 
       <div className="studio-header__aside wails-no-drag">
-        {sideConversationCount > 0 && (
-          <span className="studio-header__badge" aria-label={t("sideChat.badge", { count: sideConversationCount })}>
-            {sideConversationCount}
-          </span>
-        )}
+        {pendingDecisionLabel && onFocusPendingDecision ? (
+          <button type="button" className="studio-header__decision-pill" onClick={onFocusPendingDecision}>
+            {pendingDecisionLabel}
+          </button>
+        ) : null}
+        {sideConversationCount > 0 ? (
+          onOpenSideConversation ? (
+            <button
+              type="button"
+              className="studio-header__badge studio-header__badge--btn"
+              aria-label={t("sideChat.badge", { count: sideConversationCount })}
+              onClick={onOpenSideConversation}
+            >
+              {sideConversationCount}
+            </button>
+          ) : (
+            <span className="studio-header__badge" aria-label={t("sideChat.badge", { count: sideConversationCount })}>
+              {sideConversationCount}
+            </span>
+          )
+        ) : null}
       </div>
     </header>
   );

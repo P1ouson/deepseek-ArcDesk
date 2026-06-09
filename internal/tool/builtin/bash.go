@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"arcdesk/internal/jobs"
+	"arcdesk/internal/proc"
 	"arcdesk/internal/sandbox"
 	"arcdesk/internal/tool"
 )
@@ -59,11 +60,21 @@ func cachedBashShellPATH(ctx context.Context) string {
 // unconfined and is overridden per run by ConfineBash. shell is the resolved
 // interpreter (real bash, or PowerShell on a Windows host without bash); the
 // zero value resolves lazily. workDir, when non-empty, is the directory the
-// command runs in (cmd.Dir); empty uses the process cwd.
+// command runs in (cmd.Dir); empty uses the process cwd. bgJobs nil means
+// background jobs are advertised; explicit false hides run_in_background when
+// bash_output/wait/kill_shell are not registered.
 type bash struct {
 	sb      sandbox.Spec
 	shell   sandbox.Shell
 	workDir string
+	bgJobs  *bool
+}
+
+func (b bash) bgJobsEnabled() bool {
+	if b.bgJobs == nil {
+		return true
+	}
+	return *b.bgJobs
 }
 
 func (bash) Name() string { return "bash" }
@@ -96,7 +107,10 @@ func (b bash) resolved() sandbox.Shell {
 	return sandbox.ResolveShell()
 }
 
-func (bash) Schema() json.RawMessage {
+func (b bash) Schema() json.RawMessage {
+	if !b.bgJobsEnabled() {
+		return json.RawMessage(`{"type":"object","properties":{"command":{"type":"string","description":"Shell command to execute"}},"required":["command"]}`)
+	}
 	return json.RawMessage(`{"type":"object","properties":{"command":{"type":"string","description":"Shell command to execute"},"run_in_background":{"type":"boolean","description":"Run detached: returns a job id immediately and keeps running across turns (no timeout). Read new output with bash_output, wait for it with wait, stop it with kill_shell. Use for long-running commands like servers, watchers, or builds you don't need to block on."}},"required":["command"]}`)
 }
 
@@ -129,6 +143,9 @@ func (b bash) Execute(ctx context.Context, args json.RawMessage) (string, error)
 	cmdEnv := bashCommandEnv(ctx)
 
 	if p.RunInBackground {
+		if !b.bgJobsEnabled() {
+			return "", fmt.Errorf("run_in_background is not available in this session; run the command in the foreground or split it into smaller steps")
+		}
 		jm, ok := jobs.FromContext(ctx)
 		if !ok {
 			return "", fmt.Errorf("background execution is not available in this context")
@@ -254,7 +271,7 @@ func defaultBashShellPATH(ctx context.Context) string {
 		{"-c", script},
 	} {
 		out := runShellPATHCommand(ctx, shell, args)
-		if path := parseShellPATH(out, marker); path != "" {
+		if path := proc.ParseShellPATH(out, marker); path != "" {
 			return path
 		}
 	}
@@ -286,16 +303,6 @@ func runShellPATHCommand(parent context.Context, shell string, args []string) []
 	cmd.Stdin = strings.NewReader("")
 	out, _ := cmd.CombinedOutput()
 	return out
-}
-
-func parseShellPATH(out []byte, marker string) string {
-	lines := strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		if strings.HasPrefix(lines[i], marker) {
-			return strings.TrimSpace(strings.TrimPrefix(lines[i], marker))
-		}
-	}
-	return ""
 }
 
 func hasPathSeparator(s string) bool {

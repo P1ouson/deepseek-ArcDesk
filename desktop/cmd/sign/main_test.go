@@ -87,7 +87,7 @@ func TestGenManifest(t *testing.T) {
 	if !ok {
 		t.Fatal("windows-amd64 missing")
 	}
-	wantURL := "https://github.com/esengine/arcdesk/releases/download/desktop-v1.2.0/ARCDESK-windows-amd64-installer.exe"
+	wantURL := "https://github.com/esengine/ARCDESK/releases/download/desktop-v1.2.0/arcdesk-windows-amd64-installer.exe"
 	if win.URL != wantURL {
 		t.Fatalf("windows url = %q, want %q", win.URL, wantURL)
 	}

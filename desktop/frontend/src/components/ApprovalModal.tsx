@@ -1,15 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../lib/i18n";
+import { suggestPermissionRule } from "../lib/permissionSuggest";
 import type { WireApproval } from "../lib/types";
 import { PromptAction, PromptDetailToggle, PromptShelf } from "./PromptShelf";
 
 export function ApprovalModal({
   approval,
+  planToolCount,
   onAnswer,
   onRevisePlan,
   onExitPlan,
 }: {
   approval: WireApproval;
+  planToolCount?: number;
   onAnswer: (allow: boolean, session: boolean, persist: boolean) => void;
   onRevisePlan?: (text: string) => void;
   onExitPlan?: () => void;
@@ -23,6 +26,7 @@ export function ApprovalModal({
   const isPlanApproval = approval.tool === "exit_plan_mode";
   const subject = approval.subject.trim();
   const subjectSummary = subject.split("\n").find((line) => line.trim())?.trim() ?? "";
+  const ruleSuggest = useMemo(() => suggestPermissionRule(approval.tool, subject), [approval.tool, subject]);
 
   const choosePlanAction = (key: string) => {
     if (key === "1") setRevisionOpen((open) => !open);
@@ -73,12 +77,17 @@ export function ApprovalModal({
 
   // The plan is already shown above as the assistant's reply; this is just the gate.
   if (isPlanApproval) {
+    const planHint =
+      typeof planToolCount === "number" && planToolCount > 0
+        ? t("approval.planPreviewStats", { count: String(planToolCount) })
+        : undefined;
     return (
       <PromptShelf
         barRef={cardRef}
         titleId="plan-approval-title"
         title={t("approval.planReady")}
         meta={t("approval.planReadyHint")}
+        hint={planHint}
         actions={
           <>
             <PromptAction keyLabel="1" label={t("approval.revisePlan")} onClick={() => setRevisionOpen((open) => !open)} />
@@ -128,7 +137,7 @@ export function ApprovalModal({
       meta={
         <>
           <span className="tool__name">{approval.tool}</span>
-          {subjectSummary && <span className="prompt-shelf__subject"> · {subjectSummary}</span>}
+          {subjectSummary && <span className="arc-decision__subject"> · {subjectSummary}</span>}
         </>
       }
       actions={
@@ -151,6 +160,11 @@ export function ApprovalModal({
       {detailsOpen && subject && (
         <pre className="approval-subject">{subject}</pre>
       )}
+      {ruleSuggest ? (
+        <p className="arc-decision__rule-hint">
+          {t("approval.ruleSuggest", { rule: ruleSuggest })}
+        </p>
+      ) : null}
     </PromptShelf>
   );
 }

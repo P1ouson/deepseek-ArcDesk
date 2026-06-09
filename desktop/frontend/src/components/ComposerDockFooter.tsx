@@ -1,4 +1,5 @@
 import { useT } from "../lib/i18n";
+import { formatMoney } from "../lib/formatMoney";
 import type { BalanceInfo, ContextInfo, WireUsage } from "../lib/types";
 
 function formatRate(hit: number, denom: number): string | null {
@@ -17,19 +18,6 @@ function avgRate(u?: WireUsage): string | null {
   if (!u) return null;
   const denom = u.sessionCacheHitTokens + u.sessionCacheMissTokens;
   return formatRate(u.sessionCacheHitTokens, denom);
-}
-
-function currencySymbol(currency?: string): string {
-  const value = (currency || "¥").trim();
-  if (/^(cny|rmb|yuan)$/i.test(value)) return "¥";
-  if (/^(usd|dollar)$/i.test(value)) return "$";
-  return value || "¥";
-}
-
-function formatMoney(amount?: number, currency?: string): string {
-  const symbol = currencySymbol(currency);
-  if (typeof amount !== "number" || amount <= 0) return `${symbol}0.0000`;
-  return `${symbol}${amount < 1 ? amount.toFixed(4) : amount.toFixed(2)}`;
 }
 
 export interface ComposerDockFooterProps {

@@ -98,9 +98,78 @@ func TestMigrateRoundTripsThroughLoad(t *testing.T) {
 	}
 }
 
-func TestMigrateSkipsWhenDestExists(t *testing.T) {
+func TestMigrateBackfillsCredentialsWhenDestExists(t *testing.T) {
 	src, dest, _ := legacyHome(t)
-	writeLegacy(t, src, `{"apiKey":"sk-x"}`)
+	writeLegacy(t, src, `{"apiKey":"sk-legacy-backfill"}`)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := "default_model = \"deepseek-flash\"\nlanguage = \"en\"\n"
+	if err := os.WriteFile(dest, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := MigrateLegacyIfNeeded()
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if res == nil || !res.KeyToEnv || res.From != src {
+		t.Fatalf("expected credentials backfill from legacy JSON, got %+v", res)
+	}
+
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != existing {
+		t.Errorf("existing config.toml must not be rewritten:\n got %q\nwant %q", got, existing)
+	}
+
+	envData, err := os.ReadFile(UserCredentialsPath())
+	if err != nil {
+		t.Fatalf("read credentials: %v", err)
+	}
+	if !strings.Contains(string(envData), "DEEPSEEK_API_KEY=sk-legacy-backfill") {
+		t.Errorf("credentials missing backfilled key: %q", envData)
+	}
+}
+
+func TestMigrateSkipsCredentialsBackfillWhenKeyPresent(t *testing.T) {
+	src, dest, _ := legacyHome(t)
+	writeLegacy(t, src, `{"apiKey":"sk-legacy-should-not-overwrite"}`)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("default_model = \"deepseek-flash\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(UserCredentialsPath(), []byte("DEEPSEEK_API_KEY=sk-already-set\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := MigrateLegacyIfNeeded()
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if res != nil {
+		t.Errorf("must not backfill when credentials already has a key, got %+v", res)
+	}
+
+	envData, err := os.ReadFile(UserCredentialsPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(envData), "DEEPSEEK_API_KEY=sk-already-set") {
+		t.Errorf("existing credentials key was overwritten: %q", envData)
+	}
+	if strings.Contains(string(envData), "sk-legacy-should-not-overwrite") {
+		t.Errorf("legacy key must not replace an existing credentials key: %q", envData)
+	}
+}
+
+func TestMigrateSkipsWhenDestExistsAndLegacyKeyAbsent(t *testing.T) {
+	src, dest, _ := legacyHome(t)
+	writeLegacy(t, src, `{}`)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +182,30 @@ func TestMigrateSkipsWhenDestExists(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 	if res != nil {
-		t.Errorf("must not migrate over an existing v1+ config, got %+v", res)
+		t.Errorf("must not migrate when legacy JSON has no apiKey, got %+v", res)
+	}
+}
+
+func TestMigrateCredentialsBackfillIsIdempotent(t *testing.T) {
+	src, dest, _ := legacyHome(t)
+	writeLegacy(t, src, `{"apiKey":"sk-idempotent"}`)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("default_model = \"deepseek-flash\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res1, err := MigrateLegacyIfNeeded()
+	if err != nil || res1 == nil || !res1.KeyToEnv {
+		t.Fatalf("first backfill = %+v err=%v", res1, err)
+	}
+	res2, err := MigrateLegacyIfNeeded()
+	if err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+	if res2 != nil {
+		t.Errorf("second migrate must be a no-op, got %+v", res2)
 	}
 }
 

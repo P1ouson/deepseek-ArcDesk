@@ -1,4 +1,5 @@
 import { basename } from "./workspaceFilePreview";
+import { parseToolArgs, toolArgString } from "./parseToolArgs";
 import { subjectOf } from "./tools";
 import type { Item, LiveStream, ToolStatus } from "./useController";
 
@@ -27,18 +28,6 @@ export type TimelineRow =
 
 const WRITE_TOOLS = new Set(["edit_file", "write_file", "multi_edit"]);
 const READ_TOOLS = new Set(["read_file", "grep", "glob", "ls"]);
-
-function parseArgs(args: string): Record<string, unknown> {
-  try {
-    return JSON.parse(args) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
-function argStr(args: Record<string, unknown>, key: string): string {
-  return typeof args[key] === "string" ? (args[key] as string) : "";
-}
 
 function normalizeSlashes(path: string): string {
   return path.replace(/\\/g, "/");
@@ -100,18 +89,18 @@ function pathsFromListOutput(output: string): string[] {
 }
 
 export function filesForTool(item: ToolItem, workspaceRoot: string): ActionFileRef[] {
-  const args = parseArgs(item.args);
+  const args = parseToolArgs(item.args);
   switch (item.name) {
     case "read_file":
     case "edit_file":
     case "write_file": {
-      const path = argStr(args, "path") || argStr(args, "file_path");
+      const path = toolArgString(args, "path") || toolArgString(args, "file_path");
       return path ? [makeFileRef(path, workspaceRoot)] : [];
     }
     case "multi_edit": {
       const edits = Array.isArray(args.edits) ? (args.edits as Record<string, unknown>[]) : [];
       return uniqueFileRefs(
-        edits.map((step) => argStr(step, "path") || argStr(step, "file_path")).filter(Boolean),
+        edits.map((step) => toolArgString(step, "path") || toolArgString(step, "file_path")).filter(Boolean),
         workspaceRoot,
       );
     }

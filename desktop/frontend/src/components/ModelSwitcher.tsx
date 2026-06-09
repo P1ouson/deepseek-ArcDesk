@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Brain, Check, ChevronsUpDown } from "lucide-react";
 import { asArray } from "../lib/array";
 import { app } from "../lib/bridge";
+import { logBridgeError } from "../lib/logBridgeError";
 import { useT } from "../lib/i18n";
 import type { ModelInfo } from "../lib/types";
 
@@ -16,7 +17,7 @@ export function ModelSwitcherMenu({
   const [models, setModels] = useState<ModelInfo[]>([]);
 
   useEffect(() => {
-    (tabId ? app.ModelsForTab(tabId) : app.Models()).then((next) => setModels(asArray(next))).catch(() => {});
+    (tabId ? app.ModelsForTab(tabId) : app.Models()).then((next) => setModels(asArray(next))).catch((err) => logBridgeError("Models", err));
   }, [tabId]);
 
   return (

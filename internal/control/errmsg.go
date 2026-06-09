@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"arcdesk/internal/agent"
 	"arcdesk/internal/i18n"
 	"arcdesk/internal/provider"
 )
@@ -15,6 +16,9 @@ import (
 func explainError(err error) error {
 	if err == nil {
 		return nil
+	}
+	if errors.Is(err, agent.ErrEmptyModelResponse) {
+		return errors.New(i18n.M.AgentEmptyResponse)
 	}
 	var apiErr *provider.APIError
 	if errors.As(err, &apiErr) {

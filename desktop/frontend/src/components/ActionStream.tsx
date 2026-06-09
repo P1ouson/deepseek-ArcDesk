@@ -16,18 +16,11 @@ import {
 import type { ToolItem } from "../lib/actionStream";
 import type { ToolFileDiff } from "../lib/tools";
 import { useT } from "../lib/i18n";
+import { prettyJson } from "../lib/prettyJson";
 
 export interface ActionFileOpenRequest {
   path: string;
   diff?: ToolFileDiff;
-}
-
-function prettyJson(json: string): string {
-  try {
-    return JSON.stringify(JSON.parse(json), null, 2);
-  } catch {
-    return json;
-  }
 }
 
 function ActionFileLinks({

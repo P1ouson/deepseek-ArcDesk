@@ -71,6 +71,7 @@ type App struct {
 	tray      *desktopTray
 	sched     *taskScheduler
 	clawBridge *clawBridge
+	mobileDecision *mobileDecisionStore
 	term      *terminalManager
 }
 
@@ -78,8 +79,9 @@ type App struct {
 // last session's desktop-tabs.json.
 func NewApp() *App {
 	return &App{
-		tabs: map[string]*WorkspaceTab{},
-		term: newTerminalManager(),
+		tabs:           map[string]*WorkspaceTab{},
+		term:           newTerminalManager(),
+		mobileDecision: newMobileDecisionStore(),
 	}
 }
 
@@ -3145,9 +3147,19 @@ func parseScope(s string) memory.Scope {
 // onboardingKeyEnv is the default provider (deepseek) key from config.Default().
 const onboardingKeyEnv = "DEEPSEEK_API_KEY"
 
-// onboardingBalanceURL doubles as a zero-token connectivity + auth probe:
-// billing.FetchWithClient surfaces 401/403 for a bad key.
-const onboardingBalanceURL = "https://api.deepseek.com/user/balance"
+const deepseekOfficialBase = "https://api.deepseek.com"
+
+func normalizeDeepSeekBaseURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return deepseekOfficialBase
+	}
+	return strings.TrimRight(raw, "/")
+}
+
+func deepSeekBalanceURL(base string) string {
+	return normalizeDeepSeekBaseURL(base) + "/user/balance"
+}
 
 // NativeConfirmRequest is the payload for ConfirmAction �?a native OS confirmation
 // dialog that replaces web-style confirm() for destructive or important actions.
@@ -3217,26 +3229,31 @@ func (a *App) NeedsOnboarding() bool {
 
 // ConnectKey validates apiKey against the balance endpoint, persists it to the
 // global credentials file, and rebuilds the controller so the new key takes effect.
-func (a *App) ConnectKey(apiKey string) error {
+func (a *App) ConnectKey(apiKey string, baseUrl string) error {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
 		return fmt.Errorf("key is required")
 	}
+	base := normalizeDeepSeekBaseURL(baseUrl)
+	balanceURL := deepSeekBalanceURL(base)
 	ctx, cancel := context.WithTimeout(a.ctx, 8*time.Second)
 	defer cancel()
-	if _, err := billing.FetchWithClient(ctx, nil, onboardingBalanceURL, apiKey); err != nil {
+	if _, err := billing.FetchWithClient(ctx, nil, balanceURL, apiKey); err != nil {
 		return fmt.Errorf("validate: %w", err)
 	}
 	if err := upsertDotEnv(onboardingKeyEnv, apiKey); err != nil {
 		return fmt.Errorf("save: %w", err)
 	}
-	if err := a.rebuild(); err != nil {
-		// Key is persisted; surface the failure but let the next rebuild load it.
-		a.mu.Lock()
-		if tab := a.activeTabLocked(); tab != nil {
-			tab.StartupErr = err.Error()
+	if err := a.applyConfigChange(func(c *config.Config) error {
+		for i := range c.Providers {
+			if c.Providers[i].APIKeyEnv == onboardingKeyEnv {
+				c.Providers[i].BaseURL = base
+				c.Providers[i].BalanceURL = balanceURL
+			}
 		}
-		a.mu.Unlock()
+		return nil
+	}); err != nil {
+		return fmt.Errorf("base url: %w", err)
 	}
 	return nil
 }
@@ -3404,64 +3421,29 @@ func (a *App) RenameWriteFile(oldPath, newPath string) error {
 
 // CompleteWriteInline returns a short fill-in-the-middle completion for the write editor.
 func (a *App) CompleteWriteInline(textBefore, textAfter string) (string, error) {
-	apiKey := strings.TrimSpace(os.Getenv(onboardingKeyEnv))
-	if apiKey == "" {
-		return "", fmt.Errorf("API key not configured")
-	}
 	before := strings.TrimSpace(textBefore)
 	after := strings.TrimSpace(textAfter)
 	if before == "" && after == "" {
 		return "", fmt.Errorf("no editor context")
 	}
+	a.mu.RLock()
+	tabID := ""
+	if tab := a.activeTabLocked(); tab != nil {
+		tabID = tab.ID
+	}
+	a.mu.RUnlock()
 	prompt := fmt.Sprintf(
 		"Continue the markdown draft with ONLY the missing middle text. No explanation, no quotes, no markdown fences.\n\nBEFORE:\n%s\n\nAFTER:\n%s",
 		before,
 		after,
 	)
-	payload, err := json.Marshal(map[string]any{
-		"model": "deepseek-chat",
-		"messages": []map[string]string{
-			{"role": "system", "content": "You are a concise writing assistant doing fill-in-the-middle completion."},
-			{"role": "user", "content": prompt},
-		},
-		"max_tokens": 120,
-		"temperature": 0.4,
-	})
-	if err != nil {
-		return "", err
-	}
-	req, err := http.NewRequest(http.MethodPost, "https://api.deepseek.com/chat/completions", bytes.NewReader(payload))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("completion failed: %s", strings.TrimSpace(string(body)))
-	}
-	var parsed struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "", err
-	}
-	if len(parsed.Choices) == 0 {
-		return "", fmt.Errorf("empty completion")
-	}
-	return strings.TrimSpace(parsed.Choices[0].Message.Content), nil
+	return a.chatCompletionHTTP(
+		tabID,
+		"You are a concise writing assistant doing fill-in-the-middle completion.",
+		prompt,
+		120,
+		0.4,
+	)
 }
 
 // EnsureBundledSkills installs shipped global skills (e.g. copywriting) into ~/.arcdesk/skills.
@@ -3730,38 +3712,7 @@ type MCPCatalogEntry struct {
 
 // ListMCPCatalog returns curated MCP servers for the plugin marketplace.
 func (a *App) ListMCPCatalog() []MCPCatalogEntry {
-	return []MCPCatalogEntry{
-		{
-			ID: "github", Name: "GitHub", Category: "Developer",
-			Description: "Browse repos, issues, and pull requests through the official GitHub MCP server.",
-			Transport: "stdio", Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-github"}, Tier: "lazy", Official: true,
-		},
-		{
-			ID: "filesystem", Name: "Filesystem", Category: "Files",
-			Description: "Read and write files within allowed workspace directories.",
-			Transport: "stdio", Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-filesystem"}, Tier: "eager", Official: true,
-		},
-		{
-			ID: "brave-search", Name: "Brave Search", Category: "Search",
-			Description: "Web search for live documentation, release notes, and troubleshooting.",
-			Transport: "stdio", Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-brave-search"}, Tier: "lazy", Official: true,
-		},
-		{
-			ID: "linear", Name: "Linear", Category: "Project",
-			Description: "Create and update Linear issues, projects, and teams.",
-			Transport: "http", URL: "https://mcp.linear.app/mcp", Tier: "lazy", Official: true,
-		},
-		{
-			ID: "playwright", Name: "Playwright", Category: "Browser",
-			Description: "Drive a browser for UI verification, screenshots, and end-to-end checks.",
-			Transport: "stdio", Command: "npx", Args: []string{"-y", "@playwright/mcp@latest"}, Tier: "background",
-		},
-		{
-			ID: "postgres", Name: "PostgreSQL", Category: "Database",
-			Description: "Inspect schemas and run read-only SQL against a configured database.",
-			Transport: "stdio", Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-postgres"}, Tier: "lazy", Official: true,
-		},
-	}
+	return mergeMCPCatalog(builtinMCPCatalog(), loadMCPCatalogExtras())
 }
 
 func ARCDESKDesktopDataPath(name string) string {

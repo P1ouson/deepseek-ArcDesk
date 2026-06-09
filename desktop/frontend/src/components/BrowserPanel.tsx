@@ -9,6 +9,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { app } from "../lib/bridge";
+import { confirmAction } from "../lib/confirmAction";
 import { useT } from "../lib/i18n";
 import type { PreviewURLValidation } from "../lib/types";
 import {
@@ -77,7 +78,10 @@ export function BrowserPanel({ expanded = false, onToggleExpanded }: BrowserPane
         return;
       }
       if (next.decision === "confirm" && !skipConfirm) {
-        const ok = window.confirm(t("browser.externalConfirm", { url: next.url }));
+        const ok = await confirmAction({
+          title: t("browser.externalConfirmTitle"),
+          message: t("browser.externalConfirm", { url: next.url }),
+        });
         if (!ok) {
           setPhase("idle");
           return;

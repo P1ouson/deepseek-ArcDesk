@@ -570,6 +570,29 @@ export interface MobileConnectConfig {
   deviceSecret?: string;
 }
 
+export interface MobileAskOption {
+  label: string;
+  description?: string;
+}
+
+export interface MobileAskQuestion {
+  id: string;
+  header?: string;
+  prompt: string;
+  options: MobileAskOption[];
+  multi?: boolean;
+}
+
+export interface MobilePendingDecision {
+  kind: "approval" | "ask";
+  id: string;
+  tabId: string;
+  title: string;
+  summary: string;
+  tool?: string;
+  questions?: MobileAskQuestion[];
+}
+
 export interface MobilePairingInfo {
   token: string;
   pairUrl: string;
@@ -585,6 +608,7 @@ export interface MobilePairingInfo {
   tunnelRunning: boolean;
   tunnelUrl: string;
   connectMode: "tunnel" | "relay" | "lan" | "none" | string;
+  bridgeReady?: boolean;
 }
 
 export interface MobileTunnelStatus {

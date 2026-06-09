@@ -192,7 +192,7 @@ func defaultStdioShellPATH(ctx context.Context) string {
 		{"-c", script},
 	} {
 		out := runShellPATHCommand(ctx, shell, args)
-		if path := parseShellPATH(out, marker); path != "" {
+		if path := proc.ParseShellPATH(out, marker); path != "" {
 			return path
 		}
 	}
@@ -225,16 +225,6 @@ func runShellPATHCommand(parent context.Context, shell string, args []string) []
 	cmd.Stdin = strings.NewReader("")
 	out, _ := cmd.CombinedOutput()
 	return out
-}
-
-func parseShellPATH(out []byte, marker string) string {
-	lines := strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		if strings.HasPrefix(lines[i], marker) {
-			return strings.TrimSpace(strings.TrimPrefix(lines[i], marker))
-		}
-	}
-	return ""
 }
 
 func mergeEnv(base []string, overrides map[string]string) []string {

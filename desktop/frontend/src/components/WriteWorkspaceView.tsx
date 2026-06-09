@@ -6,7 +6,6 @@ import {
   Download,
   FileText,
   ListTree,
-  Loader2,
   Minimize2,
   PenLine,
   Save,
@@ -427,12 +426,6 @@ export function WriteWorkspaceView({
                 <Sparkles size={15} />
                 <h3>{t("write.assistant")}</h3>
               </div>
-              {agentRunning ? (
-                <span className="write-studio__panel-badge write-studio__panel-badge--busy">
-                  <Loader2 size={12} className="dock-panel__spin" />
-                  {t("write.assistantWorking")}
-                </span>
-              ) : null}
             </header>
 
             <div className="write-studio__action-tabs" role="tablist" aria-label={t("write.actionsTitle")}>

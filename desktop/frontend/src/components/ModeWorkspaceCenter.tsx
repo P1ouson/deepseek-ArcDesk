@@ -1,14 +1,25 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import type { AppMode } from "../lib/appMode";
 import type { ComposerWriteContext } from "../lib/types";
 import type { WriteTurn } from "../lib/writeConversation";
 import type { RightDockTab } from "./Topbar";
 import { ConnectPhoneView } from "./ConnectPhoneView";
-import { PluginMarketplace } from "./PluginMarketplace";
 import { ScheduleTasksView } from "./ScheduleTasksView";
-import { SettingsPage } from "./SettingsPanel";
 import { WriteSidebar } from "./WriteSidebar";
 import { WriteWorkspaceView } from "./WriteWorkspaceView";
+import { useT } from "../lib/i18n";
+
+const PluginMarketplace = lazy(() =>
+  import("./PluginMarketplace").then((module) => ({ default: module.PluginMarketplace })),
+);
+const SettingsPage = lazy(() =>
+  import("./SettingsPanel").then((module) => ({ default: module.SettingsPage })),
+);
+
+function ModeCenterFallback() {
+  const t = useT();
+  return <div className="mode-center mode-center--loading">{t("common.loading")}</div>;
+}
 
 export interface ModeWorkspaceCenterProps {
   mode: AppMode;
@@ -19,6 +30,7 @@ export interface ModeWorkspaceCenterProps {
   writeWorkspaceRoot?: string;
   onWriteWorkspaceChange?: (root: string) => void;
   onPrompt?: (text: string) => void;
+  onComposerPrompt?: (text: string) => void;
   onDraftComposer?: (context: ComposerWriteContext) => void;
   onPickWriteWorkspace?: () => Promise<string | undefined>;
   onFilesChanged?: () => void;
@@ -33,6 +45,7 @@ export interface ModeWorkspaceCenterProps {
   onModeChange?: (mode: AppMode) => void;
   onOpenDockTab?: (tab: RightDockTab) => void;
   onOpenTerminal?: () => void;
+  onOpenOnboarding?: () => void;
 }
 
 function WriteModeWorkspace({
@@ -97,6 +110,7 @@ export function ModeWorkspaceCenter({
   onFilesChanged,
   writeConversation,
   writeAgentRunning,
+  onComposerPrompt,
   onSettingsChanged,
   onOpenHistory,
   onOpenMemory,
@@ -106,6 +120,7 @@ export function ModeWorkspaceCenter({
   onModeChange,
   onOpenDockTab,
   onOpenTerminal,
+  onOpenOnboarding,
 }: ModeWorkspaceCenterProps) {
   switch (mode) {
     case "write":
@@ -132,11 +147,17 @@ export function ModeWorkspaceCenter({
     case "schedule":
       return <ScheduleTasksView workspaceRoot={workspaceRoot} />;
     case "plugins":
-      return <PluginMarketplace />;
+      return (
+        <Suspense fallback={<ModeCenterFallback />}>
+          <PluginMarketplace />
+        </Suspense>
+      );
     case "settings":
       return (
-        <SettingsPage
+        <Suspense fallback={<ModeCenterFallback />}>
+          <SettingsPage
           workspaceRoot={workspaceRoot}
+          onComposerPrompt={onComposerPrompt}
           onChanged={() => onSettingsChanged?.()}
           onOpenHistory={onOpenHistory}
           onOpenMemory={onOpenMemory}
@@ -146,7 +167,9 @@ export function ModeWorkspaceCenter({
           onModeChange={onModeChange}
           onOpenDockTab={onOpenDockTab}
           onOpenTerminal={onOpenTerminal}
-        />
+          onOpenOnboarding={onOpenOnboarding}
+          />
+        </Suspense>
       );
     default:
       return null;

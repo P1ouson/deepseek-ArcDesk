@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"arcdesk/internal/agent"
 	"arcdesk/internal/i18n"
 	"arcdesk/internal/provider"
 )
@@ -12,6 +13,11 @@ import (
 func TestExplainError(t *testing.T) {
 	if explainError(nil) != nil {
 		t.Error("nil should stay nil")
+	}
+
+	empty := explainError(agent.ErrEmptyModelResponse)
+	if empty == nil || empty.Error() != i18n.M.AgentEmptyResponse {
+		t.Errorf("empty response = %v, want %q", empty, i18n.M.AgentEmptyResponse)
 	}
 
 	bal := explainError(&provider.APIError{Provider: "deepseek", Status: 402, Body: "Insufficient Balance"})

@@ -6,6 +6,7 @@ import type { TimelineRow as BuiltTimelineRow } from "../lib/actionStream";
 import type { Item, LiveStream } from "../lib/useController";
 import { useT } from "../lib/i18n";
 import { ActionSegmentView, type ActionFileOpenRequest } from "./ActionStream";
+import { AskTimelineBlock } from "./AskTimelineBlock";
 import { AssistantMessage, UserMessage } from "./Message";
 import { Welcome } from "./Welcome";
 import { CopyButton } from "./CopyButton";
@@ -112,6 +113,15 @@ function TimelineRow({
       return <div className={`notice notice--${item.level}`}>{item.text}</div>;
     case "compaction":
       return <CompactionBlock item={item} />;
+    case "ask":
+      return (
+        <AskTimelineBlock
+          ask={item.ask}
+          answers={item.answers}
+          dismissed={item.dismissed}
+          pending={item.pending}
+        />
+      );
     default:
       return null;
   }
