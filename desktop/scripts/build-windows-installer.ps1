@@ -46,6 +46,18 @@ Push-Location $DesktopRoot
 wails build -nsis -s
 Pop-Location
 
+# Installer only embeds arcdesk-desktop.exe (+ WebView2 bootstrapper). Sanity-check staging.
+$bin = Join-Path $DesktopRoot "build\bin"
+$allowed = @(
+    "arcdesk-desktop.exe",
+    "arcdesk-desktop-amd64-installer.exe"
+)
+Get-ChildItem -LiteralPath $bin -File -ErrorAction SilentlyContinue | ForEach-Object {
+    if ($allowed -notcontains $_.Name) {
+        Write-Warning "Unexpected file in build/bin (will NOT be in installer): $($_.Name)"
+    }
+}
+
 $installer = Join-Path $DesktopRoot "build\bin\arcdesk-desktop-amd64-installer.exe"
 if (-not (Test-Path $installer)) {
     throw "Installer not produced: $installer"

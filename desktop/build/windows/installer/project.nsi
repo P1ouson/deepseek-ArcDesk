@@ -56,6 +56,27 @@ ManifestDPIAware true
 !define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps
 !define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
 
+; Reject install into a source/dev tree (installer only ships the app exe).
+Function .onVerifyInstDir
+    ; Updating an existing per-user install is always OK.
+    IfFileExists "$INSTDIR\uninstall.exe" allow
+
+    IfFileExists "$INSTDIR\.git\*.*" block_dev
+    IfFileExists "$INSTDIR\go.mod" block_dev
+    IfFileExists "$INSTDIR\DeepSeek-ARCDESK\*.*" block_dev
+    IfFileExists "$INSTDIR\desktop\wails.json" block_dev
+    IfFileExists "$INSTDIR\_rename-to-arcdesk.ps1" block_dev
+    IfFileExists "$INSTDIR\reasonix.toml.bak" block_dev
+    IfFileExists "$INSTDIR\reasonix.toml.bak.migrated" block_dev
+    Goto allow
+
+    block_dev:
+        MessageBox MB_OK|MB_ICONEXCLAMATION "所选文件夹像是源码或开发项目目录，不能作为安装位置。$\n$\n请使用默认路径（例如 %LOCALAPPDATA%\Programs\ArcDesk），或新建一个空文件夹。$\n$\n安装包只会安装 ArcDesk 程序本身，不会打包开发文件。"
+        Abort
+
+    allow:
+FunctionEnd
+
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
 # !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
 !insertmacro MUI_PAGE_DIRECTORY # In which folder install page.

@@ -60,3 +60,5 @@ Thumbs.db
 # Scratch / agent working dirs (never committed)
 /tmp/
 /.codex/
+/_rename-to-arcdesk.ps1
+reasonix.toml.bak*
