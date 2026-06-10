@@ -57,7 +57,7 @@
 
 Linux: `tar -xzf arcdesk-desktop-linux-amd64-installer.tar.gz && ./install.sh && arcdesk-desktop`
 
-> Installers are not code-signed yet. See [Troubleshooting](#troubleshooting) if macOS / Windows blocks first launch.
+> Installers are not code-signed (common for OSS). macOS / Windows may block first launch — see [Troubleshooting](#troubleshooting). On Linux, launch from the app menu; PATH changes are optional.
 
 ### CLI / from source {#cli}
 
@@ -130,8 +130,9 @@ Full schema, permissions, slash commands, plugins → [`docs/SPEC.md`](./docs/SP
 | Symptom | Fix |
 |---------|-----|
 | macOS "app is damaged" | `xattr -dr com.apple.quarantine /Applications/ArcDesk.app` |
-| Windows SmartScreen | *More info → Run anyway* |
-| Windows blank window | Install [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) |
+| Windows SmartScreen | Expected for unsigned installers → *More info → Run anyway* (setup also installs WebView2) |
+| Windows blank window | Install [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) manually |
+| Linux command not found | Add `~/.local/bin` to PATH (not needed when launching from app menu) |
 | Linux blank / flicker | WebKitGTK 4.1; try `WEBKIT_DISABLE_COMPOSITING_MODE=1` |
 | MCP not loading | Trust project/server in desktop UI; check `.mcp.json` |
 
