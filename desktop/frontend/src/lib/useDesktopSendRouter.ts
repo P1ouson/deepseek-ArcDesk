@@ -1,0 +1,151 @@
+import { useCallback } from "react";
+import type { RightDockTab } from "../components/Topbar";
+import type { ReviewMode, ReviewScope } from "./codeReview";
+import { app } from "./bridge";
+import { routeDesktopSend, type DesktopSendRoute } from "./desktopSendRouter";
+import type { AppMode } from "./appMode";
+import type { Translator } from "./i18n";
+import type { Mode } from "./types";
+import { applyTheme, getTheme, getThemeStyle, normalizeThemeStyleForTheme } from "./theme";
+import { applyWriteModeSkill } from "./writeSkill";
+
+export type DesktopSendRouterDeps = {
+  appMode: AppMode;
+  mode: Mode;
+  filePreviewComposerOpen: boolean;
+  t: Translator;
+  notice: (text: string, level?: "info" | "warn") => void;
+  runShell: (command: string) => void;
+  switchModel: (name: string) => void | Promise<void>;
+  openMemory: () => void | Promise<void>;
+  setGoalLabel: (label: string) => void;
+  dispatchSideChat: (text: string) => void | Promise<void>;
+  setAppMode: (mode: AppMode) => void;
+  openDockTab: (tab: RightDockTab, options?: { toggle?: boolean }) => void;
+  runCodeReview: (reviewMode: ReviewMode, scope: ReviewScope, paths: string[]) => void | Promise<void>;
+  setSddOpen: (open: boolean) => void;
+  syncModeToController: (mode: Mode) => void | Promise<void>;
+  send: (displayText: string, submitText?: string) => void;
+  exitExpandedPreviewComposer: () => void;
+};
+
+async function executeDesktopSendRoute(route: DesktopSendRoute, deps: DesktopSendRouterDeps): Promise<void> {
+  switch (route.action) {
+    case "shellUsage":
+      deps.notice("usage: !<command>  (e.g. !ls -la)");
+      return;
+    case "shell":
+      deps.runShell(route.cmd);
+      return;
+    case "switchModel":
+      void deps.switchModel(route.model);
+      return;
+    case "openMemory":
+      void deps.openMemory();
+      return;
+    case "setGoal":
+      deps.setGoalLabel(route.label);
+      deps.notice(deps.t("goal.set", { label: route.label }));
+      return;
+    case "sideChat":
+      if (route.text) void deps.dispatchSideChat(route.text);
+      deps.notice(deps.t("sideChat.opened"));
+      return;
+    case "reviewOpen":
+      deps.setAppMode("code");
+      deps.openDockTab("changes", { toggle: false });
+      deps.notice(deps.t("slash.reviewOpened"));
+      return;
+    case "reviewRun":
+      deps.setAppMode("code");
+      deps.openDockTab("changes", { toggle: false });
+      void app
+        .WorkspaceChanges()
+        .then((view) => {
+          const paths = view.files.map((file) => file.path);
+          void deps.runCodeReview("standard", "all", paths);
+        })
+        .catch((err) => {
+          deps.notice(deps.t("common.operationFailed", { msg: String((err as Error)?.message ?? err) }), "warn");
+        });
+      return;
+    case "openSdd":
+      deps.setSddOpen(true);
+      deps.notice(deps.t("slash.sddOpened"));
+      return;
+    case "themeShowCurrent":
+      deps.notice(deps.t("settings.themeCurrentSimple", { theme: getTheme() }));
+      return;
+    case "themeSet": {
+      const nextStyle = normalizeThemeStyleForTheme(getThemeStyle(), route.theme);
+      await app.SetDesktopAppearance(route.theme, nextStyle);
+      applyTheme(route.theme, nextStyle, { syncSurfaces: true });
+      deps.notice(deps.t("settings.themeChangedSimple", { theme: route.theme }));
+      return;
+    }
+    case "themeUnknown":
+      deps.notice(deps.t("settings.themeUnknown", { name: route.name }), "warn");
+      return;
+    case "send":
+      await deps.syncModeToController(deps.mode);
+      {
+        const outbound =
+          deps.appMode === "write"
+            ? applyWriteModeSkill(route.displayText, route.submitText)
+            : { displayText: route.displayText, submitText: route.submitText };
+        deps.send(outbound.displayText, outbound.submitText);
+      }
+      if (deps.filePreviewComposerOpen) deps.exitExpandedPreviewComposer();
+      return;
+    default:
+      return;
+  }
+}
+
+export function useDesktopSendRouter(deps: DesktopSendRouterDeps) {
+  const {
+    appMode,
+    mode,
+    filePreviewComposerOpen,
+    t,
+    notice,
+    runShell,
+    switchModel,
+    openMemory,
+    setGoalLabel,
+    dispatchSideChat,
+    setAppMode,
+    openDockTab,
+    runCodeReview,
+    setSddOpen,
+    syncModeToController,
+    send,
+    exitExpandedPreviewComposer,
+  } = deps;
+
+  return useCallback(
+    async (displayText: string, submitText = displayText) => {
+      const route = routeDesktopSend(displayText, submitText);
+      await executeDesktopSendRoute(route, deps);
+    },
+    [
+      appMode,
+      mode,
+      filePreviewComposerOpen,
+      t,
+      notice,
+      runShell,
+      switchModel,
+      openMemory,
+      setGoalLabel,
+      dispatchSideChat,
+      setAppMode,
+      openDockTab,
+      runCodeReview,
+      setSddOpen,
+      syncModeToController,
+      send,
+      exitExpandedPreviewComposer,
+    ],
+  );
+}

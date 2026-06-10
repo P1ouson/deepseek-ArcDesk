@@ -260,6 +260,14 @@
       }
     }
 
+    async function rePairOnAuthFailure() {
+      sessionId = "";
+      localStorage.removeItem(storageKey);
+      inputEl.disabled = true;
+      sendBtn.disabled = true;
+      await pair();
+    }
+
     async function api(path, body) {
       const res = await fetch(path, {
         method: body ? "POST" : "GET",
@@ -267,6 +275,13 @@
         body: body ? JSON.stringify(body) : undefined,
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 401 && path !== "/mobile/api/pair") {
+        try {
+          await rePairOnAuthFailure();
+        } catch (_) {
+          /* pair failure surfaced below */
+        }
+      }
       if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
       return data;
     }
@@ -274,7 +289,7 @@
     async function refreshDecision() {
       if (!sessionId) return;
       try {
-        const data = await api("/mobile/api/decision");
+        const data = await api("/mobile/api/decision?session=" + encodeURIComponent(sessionId));
         renderDecisionBar(data.decision || null);
       } catch (_) {
         /* keep last known decision */

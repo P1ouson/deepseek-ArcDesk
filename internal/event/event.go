@@ -89,6 +89,11 @@ const (
 	LevelWarn
 )
 
+// Notice codes for Event.Code when Kind == Notice. Text stays localized for display.
+const (
+	NoticeCodeAgentBusy = "agent_busy"
+)
+
 // Tool describes a tool call for ToolDispatch / ToolResult events. On dispatch
 // only ID/Name/Args/ReadOnly are set; on result Output/Err/Truncated are filled
 // in. Args is the raw JSON arguments — a sink compacts it for display.
@@ -202,6 +207,7 @@ type Event struct {
 	SessionHit   int        // Usage: cumulative cache-hit prompt tokens this session
 	SessionMiss  int        // Usage: cumulative cache-miss prompt tokens this session
 	Level        Level      // Notice
+	Code         string     // Notice: stable machine code (e.g. agent_busy); Text remains human-readable
 	Approval     Approval   // ApprovalRequest
 	Ask          Ask        // AskRequest
 	Err          error      // TurnDone: non-nil on failure

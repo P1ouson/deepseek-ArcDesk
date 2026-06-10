@@ -1,6 +1,7 @@
 package control
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -142,6 +143,54 @@ func TestReadFileRef(t *testing.T) {
 	// Missing path: error.
 	if _, _, err := readFileRef(filepath.Join(dir, "nope")); err == nil {
 		t.Error("missing path should error")
+	}
+}
+
+func TestResolveRefsReadConfinement(t *testing.T) {
+	root := t.TempDir()
+	inside := filepath.Join(root, "in.txt")
+	if err := os.WriteFile(inside, []byte("inside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "out.txt")
+	if err := os.WriteFile(outside, []byte("outside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := New(Options{
+		WorkspaceRoot: root,
+		ReadRoots:     []string{root},
+	})
+
+	block, errs := c.ResolveRefs(context.Background(), "see @"+inside+" and @"+outside)
+	if !strings.Contains(strings.Join(errs, " "), "outside the workspace") {
+		t.Fatalf("outside ref should be blocked: errs=%v", errs)
+	}
+	if !strings.Contains(block, "inside") {
+		t.Fatalf("inside ref should resolve: block=%q", block)
+	}
+}
+
+func TestResolveRefsSymlinkEscapeBlocked(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	link := filepath.Join(root, "out")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("nope\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := New(Options{
+		WorkspaceRoot: root,
+		ReadRoots:     []string{root},
+	})
+
+	_, errs := c.ResolveRefs(context.Background(), "@"+filepath.Join(link, "secret.txt"))
+	if len(errs) == 0 || !strings.Contains(errs[0], "outside the workspace") {
+		t.Fatalf("symlink escape should be blocked, got errs=%v", errs)
 	}
 }
 

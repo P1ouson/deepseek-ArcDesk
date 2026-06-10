@@ -6,6 +6,7 @@
 // developed and laid out without rebuilding the Go side.
 
 import { t } from "./i18n";
+import { hasGoBinding, isRuntimeReady } from "./runtime";
 
 import type {
   BalanceInfo,
@@ -315,12 +316,49 @@ declare global {
 // Must match desktop/app.go's eventChannel constant.
 const EVENT_CHANNEL = "agent:event";
 
-// Resolve the Wails binding at CALL time, not module-load time: in dev the Wails
+// Resolve the Wails binding at CALL time
 // runtime can inject window.go AFTER this module first evaluates, so snapshotting
 // once would pin the browser mock for the whole session (and show fake data — the
 // dev mock's model list leaking into the real app was exactly this bug).
 function realApp(): AppBindings | undefined {
   return typeof window !== "undefined" ? window.go?.main?.App : undefined;
+}
+
+function boundApp(): AppBindings | undefined {
+  return isRuntimeReady() ? realApp() : undefined;
+}
+
+/** Test seam: IPC + event stream use the same readiness gate. */
+export function bridgeBindingSource(): "wails" | "mock" {
+  return isRuntimeReady() ? "wails" : "mock";
+}
+
+/** Test seam: agent event subscribe branch (deferred while go exists without runtime). */
+export function bridgeEventStreamSource(): "wails" | "mock" | "deferred" {
+  if (isRuntimeReady()) return "wails";
+  if (hasGoBinding()) return "deferred";
+  return "mock";
+}
+
+function subscribeWhenRuntimeReady(subscribe: () => () => void): () => void {
+  if (isRuntimeReady()) {
+    return subscribe();
+  }
+  if (hasGoBinding()) {
+    let alive = true;
+    let off = () => {};
+    const poll = window.setInterval(() => {
+      if (!alive || !isRuntimeReady()) return;
+      window.clearInterval(poll);
+      off = subscribe();
+    }, 50);
+    return () => {
+      alive = false;
+      window.clearInterval(poll);
+      off();
+    };
+  }
+  return subscribe();
 }
 
 let mockSingleton: AppBindings | null = null;
@@ -331,8 +369,13 @@ function getMock(): AppBindings {
 
 // onEvent subscribes to the agent's typed event stream; returns an unsubscribe.
 export function onEvent(cb: (e: WireEvent) => void): () => void {
-  if (realApp() && typeof window !== "undefined" && window.runtime) {
-    return window.runtime.EventsOn(EVENT_CHANNEL, (payload) => cb(payload as WireEvent));
+  if (isRuntimeReady()) {
+    return window.runtime!.EventsOn(EVENT_CHANNEL, (payload) => cb(payload as WireEvent));
+  }
+  if (hasGoBinding()) {
+    return subscribeWhenRuntimeReady(() =>
+      window.runtime!.EventsOn(EVENT_CHANNEL, (payload) => cb(payload as WireEvent)),
+    );
   }
   return mockSubscribe(cb);
 }
@@ -341,8 +384,8 @@ export function onEvent(cb: (e: WireEvent) => void): () => void {
 // channel from the agent stream); returns an unsubscribe. Must match the event
 // name emitted in desktop/updater_app.go.
 export function onUpdaterProgress(cb: (p: UpdateProgress) => void): () => void {
-  if (realApp() && typeof window !== "undefined" && window.runtime) {
-    return window.runtime.EventsOn("updater:progress", (p) => cb(p as UpdateProgress));
+  if (isRuntimeReady()) {
+    return window.runtime!.EventsOn("updater:progress", (p) => cb(p as UpdateProgress));
   }
   updaterListeners.add(cb);
   return () => {
@@ -365,8 +408,11 @@ export function onFilesDropped(cb: (paths: string[]) => void): () => void {
 // onReady subscribes to the agent:ready event fired when boot.Build completes.
 // The frontend re-fetches Meta/Context/History when this lands.
 export function onReady(cb: () => void): () => void {
-  if (realApp() && typeof window !== "undefined" && window.runtime) {
-    return window.runtime.EventsOn("agent:ready", () => cb());
+  if (isRuntimeReady()) {
+    return window.runtime!.EventsOn("agent:ready", () => cb());
+  }
+  if (hasGoBinding()) {
+    return subscribeWhenRuntimeReady(() => window.runtime!.EventsOn("agent:ready", () => cb()));
   }
   // In dev mock, fire immediately since there's no real boot sequence.
   cb();
@@ -374,8 +420,8 @@ export function onReady(cb: () => void): () => void {
 }
 
 export function onProjectTreeChanged(cb: () => void): () => void {
-  if (realApp() && typeof window !== "undefined" && window.runtime) {
-    return window.runtime.EventsOn("project-tree:changed", () => cb());
+  if (isRuntimeReady()) {
+    return window.runtime!.EventsOn("project-tree:changed", () => cb());
   }
   return () => {};
 }
@@ -389,8 +435,8 @@ export interface ScheduleTaskEvent {
 }
 
 export function onScheduleTask(cb: (event: ScheduleTaskEvent) => void): () => void {
-  if (realApp() && typeof window !== "undefined" && window.runtime) {
-    return window.runtime.EventsOn("schedule:task", (payload) => cb(payload as ScheduleTaskEvent));
+  if (isRuntimeReady()) {
+    return window.runtime!.EventsOn("schedule:task", (payload) => cb(payload as ScheduleTaskEvent));
   }
   scheduleListeners.add(cb);
   return () => {
@@ -406,7 +452,7 @@ function emitScheduleTask(event: ScheduleTaskEvent) {
 // outside the shell), so a late-injected window.go is picked up transparently.
 export const app: AppBindings = new Proxy({} as AppBindings, {
   get(_t, prop) {
-    const target = realApp() ?? getMock();
+    const target = boundApp() ?? getMock();
     const v = (target as unknown as Record<string, unknown>)[String(prop)];
     return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(target) : v;
   },

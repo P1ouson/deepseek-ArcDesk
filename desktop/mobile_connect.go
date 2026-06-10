@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -23,21 +24,30 @@ import (
 var mobilePageHTML []byte
 
 const (
-	mobilePairTokenTTL   = 15 * time.Minute
-	mobileSessionTTL     = 7 * 24 * time.Hour
-	mobilePairTokenBytes = 16
-	mobileSessionBytes   = 24
+	mobilePairTokenTTL      = 15 * time.Minute
+	mobileSessionIdleTTL    = 72 * time.Hour
+	mobileSessionMaxAge     = 7 * 24 * time.Hour
+	mobilePairTokenBytes    = 16
+	mobileSessionBytes      = 24
+	defaultTunnelIdleMin    = 30
 )
+
+// errMobileSessionUnauthorized is returned when a mutating mobile API call
+// references a session that was never created through the pairing flow.
+var errMobileSessionUnauthorized = errors.New("session not found")
 
 // MobileConnectConfig is persisted mobile-remote settings.
 type MobileConnectConfig struct {
-	Enabled       bool   `json:"enabled"`
-	Model         string `json:"model"`
-	Persona       string `json:"persona"`
-	WorkspaceRoot string `json:"workspaceRoot"`
-	RelayBaseURL  string `json:"relayBaseURL,omitempty"`
-	DeviceID      string `json:"deviceId,omitempty"`
-	DeviceSecret  string `json:"deviceSecret,omitempty"`
+	Enabled                    bool   `json:"enabled"`
+	AllowLAN                   bool   `json:"allowLAN,omitempty"`
+	Model                      string `json:"model"`
+	Persona                    string `json:"persona"`
+	WorkspaceRoot              string `json:"workspaceRoot"`
+	RelayBaseURL               string `json:"relayBaseURL,omitempty"`
+	DeviceID                   string `json:"deviceId,omitempty"`
+	DeviceSecret               string `json:"deviceSecret,omitempty"`
+	TunnelDisableIdleShutdown  bool   `json:"tunnelDisableIdleShutdown,omitempty"`
+	TunnelIdleTimeoutMinutes   int    `json:"tunnelIdleTimeoutMinutes,omitempty"`
 }
 
 // MobilePairingInfo is shown on the desktop Connect page (QR + URL).
@@ -122,7 +132,7 @@ func (s *mobileConnectStore) loadConfig() {
 }
 
 func (s *mobileConnectStore) saveConfig() error {
-	return saveJSON(ARCDESKDesktopDataPath("mobile-connect.json"), s.config)
+	return saveSensitiveJSON(ARCDESKDesktopDataPath("mobile-connect.json"), s.config)
 }
 
 func (s *mobileConnectStore) loadSessions() {
@@ -137,7 +147,7 @@ func (s *mobileConnectStore) loadSessions() {
 	now := time.Now().UnixMilli()
 	for i := range items {
 		item := items[i]
-		if now-item.LastSeen > mobileSessionTTL.Milliseconds() {
+		if !mobileSessionStillValid(&item, now) {
 			continue
 		}
 		cp := item
@@ -145,12 +155,25 @@ func (s *mobileConnectStore) loadSessions() {
 	}
 }
 
+func mobileSessionStillValid(sess *mobileSession, nowMs int64) bool {
+	if sess == nil {
+		return false
+	}
+	if nowMs-sess.LastSeen > mobileSessionIdleTTL.Milliseconds() {
+		return false
+	}
+	if nowMs-sess.CreatedAt > mobileSessionMaxAge.Milliseconds() {
+		return false
+	}
+	return true
+}
+
 func (s *mobileConnectStore) saveSessions() error {
 	items := make([]mobileSession, 0, len(s.sessions))
 	for _, sess := range s.sessions {
 		items = append(items, *sess)
 	}
-	return saveJSON(s.sessionPath, items)
+	return saveSensitiveJSON(s.sessionPath, items)
 }
 
 func (s *mobileConnectStore) rotatePairToken() mobilePairToken {
@@ -188,10 +211,11 @@ func (s *mobileConnectStore) currentPairToken() (string, int64) {
 	return s.pairToken.Token, s.pairToken.ExpiresAt
 }
 
-func buildMobilePairURLs(token string, port int, tunnelBase, relayBase string, relayOnline bool) (primary string, lan string, relay string, mode string) {
-	lanIP := primaryLANIP()
-	if lanIP != "" {
-		lan = fmt.Sprintf("http://%s:%d/mobile/p/%s", lanIP, port, token)
+func buildMobilePairURLs(token string, port int, tunnelBase, relayBase string, relayOnline, allowLAN bool) (primary string, lan string, relay string, mode string) {
+	if allowLAN {
+		if lanIP := primaryLANIP(); lanIP != "" {
+			lan = fmt.Sprintf("http://%s:%d/mobile/p/%s", lanIP, port, token)
+		}
 	}
 	relay = ""
 	if base := strings.TrimRight(strings.TrimSpace(relayBase), "/"); base != "" {
@@ -217,13 +241,13 @@ func (s *mobileConnectStore) pairingInfo(port int, tunnelBase string, relayOnlin
 		s.rotatePairTokenLocked()
 	}
 	tunnelBase = strings.TrimSpace(tunnelBase)
-	primary, lan, relay, mode := buildMobilePairURLs(s.pairToken.Token, port, tunnelBase, s.config.RelayBaseURL, relayOnline)
+	primary, lan, relay, mode := buildMobilePairURLs(s.pairToken.Token, port, tunnelBase, s.config.RelayBaseURL, relayOnline, s.config.AllowLAN)
 	return MobilePairingInfo{
 		Token:          s.pairToken.Token,
 		PairURL:        primary,
 		LanPairURL:     lan,
 		RelayURL:       relay,
-		LanIP:          primaryLANIP(),
+		LanIP:          lanBindIP(s.config.AllowLAN),
 		Port:           port,
 		ExpiresAt:      s.pairToken.ExpiresAt,
 		PairedCount:    len(s.sessions),
@@ -245,13 +269,13 @@ func (s *mobileConnectStore) refreshPairing(port int, tunnelBase string, relayOn
 
 func (s *mobileConnectStore) pairingInfoLocked(port int, tunnelBase string, relayOnline bool) MobilePairingInfo {
 	tunnelBase = strings.TrimSpace(tunnelBase)
-	primary, lan, relay, mode := buildMobilePairURLs(s.pairToken.Token, port, tunnelBase, s.config.RelayBaseURL, relayOnline)
+	primary, lan, relay, mode := buildMobilePairURLs(s.pairToken.Token, port, tunnelBase, s.config.RelayBaseURL, relayOnline, s.config.AllowLAN)
 	return MobilePairingInfo{
 		Token:          s.pairToken.Token,
 		PairURL:        primary,
 		LanPairURL:     lan,
 		RelayURL:       relay,
-		LanIP:          primaryLANIP(),
+		LanIP:          lanBindIP(s.config.AllowLAN),
 		Port:           port,
 		ExpiresAt:      s.pairToken.ExpiresAt,
 		PairedCount:    len(s.sessions),
@@ -276,8 +300,13 @@ func (s *mobileConnectStore) rotatePairTokenLocked() mobilePairToken {
 func (s *mobileConnectStore) listSessions() []MobileSessionSummary {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := time.Now().UnixMilli()
 	out := make([]MobileSessionSummary, 0, len(s.sessions))
-	for _, sess := range s.sessions {
+	for id, sess := range s.sessions {
+		if !mobileSessionStillValid(sess, now) {
+			delete(s.sessions, id)
+			continue
+		}
 		out = append(out, MobileSessionSummary{
 			ID:        sess.ID,
 			CreatedAt: sess.CreatedAt,
@@ -287,25 +316,31 @@ func (s *mobileConnectStore) listSessions() []MobileSessionSummary {
 	return out
 }
 
-func (s *mobileConnectStore) ensureSession(id string) *mobileSession {
+func (s *mobileConnectStore) pairedCount() int {
+	return len(s.listSessions())
+}
+
+// requirePairedSession reports whether id names a session created by pair().
+// It never creates sessions — unknown or expired ids return errMobileSessionUnauthorized.
+func (s *mobileConnectStore) requirePairedSession(id string) error {
 	key := strings.TrimSpace(id)
 	if key == "" {
-		return nil
+		return fmt.Errorf("session is required")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if sess, ok := s.sessions[key]; ok {
-		sess.LastSeen = time.Now().UnixMilli()
-		return sess
+	sess, ok := s.sessions[key]
+	if !ok {
+		return errMobileSessionUnauthorized
 	}
-	sess := &mobileSession{
-		ID:        key,
-		CreatedAt: time.Now().UnixMilli(),
-		LastSeen:  time.Now().UnixMilli(),
+	now := time.Now().UnixMilli()
+	if !mobileSessionStillValid(sess, now) {
+		delete(s.sessions, key)
+		_ = s.saveSessions()
+		return errMobileSessionUnauthorized
 	}
-	s.sessions[key] = sess
-	_ = s.saveSessions()
-	return sess
+	sess.LastSeen = now
+	return nil
 }
 
 func (s *mobileConnectStore) pair(token string) (*mobileSession, error) {
@@ -335,11 +370,18 @@ func (s *mobileConnectStore) pair(token string) (*mobileSession, error) {
 func (s *mobileConnectStore) session(id string) (*mobileSession, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sess, ok := s.sessions[strings.TrimSpace(id)]
+	key := strings.TrimSpace(id)
+	sess, ok := s.sessions[key]
 	if !ok {
 		return nil, false
 	}
-	sess.LastSeen = time.Now().UnixMilli()
+	now := time.Now().UnixMilli()
+	if !mobileSessionStillValid(sess, now) {
+		delete(s.sessions, key)
+		_ = s.saveSessions()
+		return nil, false
+	}
+	sess.LastSeen = now
 	return sess, true
 }
 
@@ -409,8 +451,14 @@ func (a *App) SaveMobileConnectConfig(cfg MobileConnectConfig) error {
 	if a == nil || a.clawBridge == nil || a.clawBridge.mobile == nil {
 		return fmt.Errorf("mobile connect is not ready")
 	}
+	prev := a.clawBridge.mobile.getConfig()
 	if err := a.clawBridge.mobile.setConfig(cfg); err != nil {
 		return err
+	}
+	if cfg.AllowLAN != prev.AllowLAN {
+		if err := a.clawBridge.restartListener(); err != nil {
+			return fmt.Errorf("restart claw bridge: %w", err)
+		}
 	}
 	a.clawBridge.stopRelayClient()
 	a.clawBridge.startRelayClient()
@@ -465,6 +513,7 @@ func (b *clawBridge) handleMobilePairPage(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
+	b.touchTunnelActivity()
 	token := strings.Trim(strings.TrimPrefix(r.URL.Path, "/mobile/p/"), "/")
 	if token == "" {
 		http.NotFound(w, r)
@@ -485,6 +534,7 @@ func (b *clawBridge) handleMobilePair(w http.ResponseWriter, r *http.Request) {
 		writeMobileJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "mobile connect unavailable"})
 		return
 	}
+	b.touchTunnelActivity()
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -509,6 +559,7 @@ func (b *clawBridge) handleMobileMessages(w http.ResponseWriter, r *http.Request
 		writeMobileJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "mobile connect unavailable"})
 		return
 	}
+	b.touchTunnelActivity()
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -530,6 +581,7 @@ func (b *clawBridge) handleMobileSend(w http.ResponseWriter, r *http.Request) {
 		writeMobileJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "mobile connect unavailable"})
 		return
 	}
+	b.touchTunnelActivity()
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -544,7 +596,11 @@ func (b *clawBridge) handleMobileSend(w http.ResponseWriter, r *http.Request) {
 	}
 	pendingID, err := b.processMobileUserMessage(req.SessionID, req.Text)
 	if err != nil {
-		writeMobileJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		status := http.StatusBadRequest
+		if errors.Is(err, errMobileSessionUnauthorized) {
+			status = http.StatusUnauthorized
+		}
+		writeMobileJSON(w, status, map[string]any{"error": err.Error()})
 		return
 	}
 	writeMobileJSON(w, http.StatusOK, map[string]any{"ok": true, "messageId": pendingID})
@@ -562,7 +618,9 @@ func (b *clawBridge) processMobileUserMessage(sessionID, text string) (string, e
 	if sessionID == "" {
 		return "", fmt.Errorf("session is required")
 	}
-	b.mobile.ensureSession(sessionID)
+	if err := b.mobile.requirePairedSession(sessionID); err != nil {
+		return "", err
+	}
 	incoming, err := b.mobile.appendMessage(sessionID, text, false, "")
 	if err != nil {
 		return "", err
@@ -607,6 +665,14 @@ func writeMobileJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// lanBindIP returns the LAN IP shown in pairing UI only when LAN exposure is enabled.
+func lanBindIP(allowLAN bool) string {
+	if !allowLAN {
+		return ""
+	}
+	return primaryLANIP()
 }
 
 func primaryLANIP() string {

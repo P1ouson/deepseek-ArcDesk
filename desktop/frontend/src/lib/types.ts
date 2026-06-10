@@ -97,6 +97,7 @@ export interface WireEvent {
   text?: string;
   reasoning?: string;
   level?: "info" | "warn";
+  code?: string;
   tool?: WireTool;
   usage?: WireUsage;
   approval?: WireApproval;
@@ -562,12 +563,15 @@ export interface ClawCallbackInfo {
 
 export interface MobileConnectConfig {
   enabled: boolean;
+  allowLAN?: boolean;
   model: string;
   persona: string;
   workspaceRoot: string;
   relayBaseURL?: string;
   deviceId?: string;
   deviceSecret?: string;
+  tunnelDisableIdleShutdown?: boolean;
+  tunnelIdleTimeoutMinutes?: number;
 }
 
 export interface MobileAskOption {
@@ -615,6 +619,11 @@ export interface MobileTunnelStatus {
   running: boolean;
   url: string;
   err?: string;
+  pairedCount?: number;
+  allowLAN?: boolean;
+  localTarget?: string;
+  tunnelIdleAutoShutdown?: boolean;
+  tunnelIdleTimeoutMin?: number;
 }
 
 export interface ClawMessage {

@@ -9,9 +9,59 @@ import (
 
 	"arcdesk/internal/boot"
 	"arcdesk/internal/config"
+	"arcdesk/internal/control"
 	"arcdesk/internal/event"
 	"arcdesk/internal/provider"
 )
+
+// clawDecisionTabID is the sentinel tab id for mobile/claw approval routing.
+// RespondMobileDecision dispatches to clawRunCtrl instead of a workspace tab.
+const clawDecisionTabID = "__claw__"
+
+// clawDecisionSink forwards approval/ask events from ephemeral claw controllers to
+// the existing mobile decision channel.
+type clawDecisionSink struct {
+	app *App
+}
+
+func (s *clawDecisionSink) Emit(e event.Event) {
+	if s == nil || s.app == nil {
+		return
+	}
+	switch e.Kind {
+	case event.ApprovalRequest, event.AskRequest, event.TurnDone:
+		s.app.noteAgentDecision(clawDecisionTabID, e)
+	}
+}
+
+func (a *App) setClawRunCtrl(ctrl *control.Controller) {
+	if a == nil {
+		return
+	}
+	a.clawRunMu.Lock()
+	a.clawRunCtrl = ctrl
+	a.clawRunMu.Unlock()
+}
+
+func (a *App) clearClawRunCtrl(ctrl *control.Controller) {
+	if a == nil {
+		return
+	}
+	a.clawRunMu.Lock()
+	if a.clawRunCtrl == ctrl {
+		a.clawRunCtrl = nil
+	}
+	a.clawRunMu.Unlock()
+}
+
+func (a *App) clawRunController() *control.Controller {
+	if a == nil {
+		return nil
+	}
+	a.clawRunMu.Lock()
+	defer a.clawRunMu.Unlock()
+	return a.clawRunCtrl
+}
 
 func clawLastAssistantText(msgs []provider.Message) string {
 	for i := len(msgs) - 1; i >= 0; i-- {
@@ -69,9 +119,10 @@ func (a *App) runClawAgentReply(ch ClawChannel, userText string) (string, error)
 		model = "deepseek-chat"
 	}
 
+	sink := &clawDecisionSink{app: a}
 	ctrl, err := boot.Build(ctx, boot.Options{
 		Model:         model,
-		Sink:          event.Discard,
+		Sink:          sink,
 		WorkspaceRoot: root,
 		RequireKey:    false,
 	})
@@ -79,6 +130,10 @@ func (a *App) runClawAgentReply(ch ClawChannel, userText string) (string, error)
 		return "", err
 	}
 	defer ctrl.Close()
+
+	enableDesktopInteractive(ctrl)
+	a.setClawRunCtrl(ctrl)
+	defer a.clearClawRunCtrl(ctrl)
 
 	input := text
 	if persona := strings.TrimSpace(ch.Persona); persona != "" {

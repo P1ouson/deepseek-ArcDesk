@@ -58,17 +58,30 @@ type callContextKey struct{}
 // callContext is the per-call context a tool can read. parentID is the call being
 // executed and sink is the agent's event sink (the `task` tool uses both to nest
 // a sub-agent's events under this call); asker lets the `ask` tool reach the user.
+// subagentGate, when set, is the parent executor gate sub-agents should inherit.
 type callContext struct {
-	parentID string
-	sink     event.Sink
-	asker    Asker
+	parentID     string
+	sink         event.Sink
+	asker        Asker
+	subagentGate Gate
 }
 
-// withCallContext stamps ctx with the executing call's ID, the agent's sink, and
-// the asker. executeOne sets this before every Execute; `task` reads it (via
-// CallContext) to nest sub-agent events, and `ask` reads the asker to prompt.
-func withCallContext(ctx context.Context, parentID string, sink event.Sink, asker Asker) context.Context {
-	return context.WithValue(ctx, callContextKey{}, callContext{parentID: parentID, sink: sink, asker: asker})
+// interactiveApproverGate is implemented by permission gates wired for desktop
+// interactive approval. Duck-typed so the agent package stays independent of
+// permission.
+type interactiveApproverGate interface {
+	Gate
+	HasApprover() bool
+}
+
+// withCallContext stamps ctx with the executing call's ID, the agent's sink, the
+// asker, and an optional subagent gate. executeOne sets this before every
+// Execute; `task` reads it (via CallContext / EffectiveSubagentGate) to nest
+// sub-agent events and inherit approval policy.
+func withCallContext(ctx context.Context, parentID string, sink event.Sink, asker Asker, subagentGate Gate) context.Context {
+	return context.WithValue(ctx, callContextKey{}, callContext{
+		parentID: parentID, sink: sink, asker: asker, subagentGate: subagentGate,
+	})
 }
 
 // CallContext returns the executing call's ID, the agent's sink, and the asker,
@@ -80,6 +93,17 @@ func CallContext(ctx context.Context) (parentID string, sink event.Sink, asker A
 		return "", nil, nil, false
 	}
 	return cc.parentID, cc.sink, cc.asker, true
+}
+
+// EffectiveSubagentGate returns the parent gate stamped on ctx when desktop
+// subagent inheritance is active, otherwise fallback (the boot-time headless
+// gate wired into TaskTool / skill runners).
+func EffectiveSubagentGate(ctx context.Context, fallback Gate) Gate {
+	cc, ok := ctx.Value(callContextKey{}).(callContext)
+	if !ok || cc.subagentGate == nil {
+		return fallback
+	}
+	return cc.subagentGate
 }
 
 // Gate decides, per tool call, whether it may run. The agent consults it at
@@ -161,6 +185,11 @@ type Agent struct {
 	// gate, when non-nil, is the per-call permission gate consulted after the
 	// plan-mode check. nil disables gating entirely.
 	gate Gate
+
+	// inheritSubagentGate, when true, stamps the interactive parent gate onto the
+	// call context so `task` / skill sub-agents inherit desktop approval policy.
+	// Only desktop runtime enables this; CLI/TUI/headless runs leave it false.
+	inheritSubagentGate atomic.Bool
 
 	// hooks, when non-nil, fires PreToolUse / PostToolUse shell hooks around each
 	// tool call. nil disables hook firing.
@@ -246,6 +275,24 @@ func (a *Agent) SetGate(g Gate) {
 		g = nil
 	}
 	a.gate = g
+}
+
+// SetInheritSubagentGate enables desktop-only subagent gate inheritance. When
+// true and the installed gate has an interactive approver, sub-agents spawned by
+// `task` / subagent skills reuse that gate instead of the headless boot default.
+func (a *Agent) SetInheritSubagentGate(v bool) { a.inheritSubagentGate.Store(v) }
+
+// InheritsSubagentGate reports whether desktop subagent gate inheritance is on.
+func (a *Agent) InheritsSubagentGate() bool { return a.inheritSubagentGate.Load() }
+
+func (a *Agent) subagentGateForContext() Gate {
+	if !a.inheritSubagentGate.Load() || a.gate == nil {
+		return nil
+	}
+	if ig, ok := a.gate.(interactiveApproverGate); ok && ig.HasApprover() {
+		return a.gate
+	}
+	return nil
 }
 
 // SetAsker installs the asker the `ask` tool uses to question the user.
@@ -918,7 +965,7 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 			}
 		}
 	}
-	cctx := withCallContext(ctx, call.ID, a.sink, a.asker)
+	cctx := withCallContext(ctx, call.ID, a.sink, a.asker, a.subagentGateForContext())
 	if a.evidence != nil {
 		cctx = evidence.WithLedger(cctx, a.evidence)
 	}

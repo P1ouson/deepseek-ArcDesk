@@ -2,6 +2,7 @@ import { Compass, GitBranch, SearchCode } from "lucide-react";
 import logoMark from "../assets/logo.svg";
 import logoWordmark from "../assets/logo-wordmark.svg";
 import { useT } from "../lib/i18n";
+import { ConnectionRecoveryBanner } from "./ConnectionRecoveryBanner";
 
 type WelcomeVariant = "centered" | "code";
 
@@ -16,10 +17,14 @@ export function Welcome({
   onPrompt,
   variant = "centered",
   disabled = false,
+  showConnectionRecovery = false,
+  onOpenConnectionSetup,
 }: {
   onPrompt: (text: string) => void | Promise<void>;
   variant?: WelcomeVariant;
   disabled?: boolean;
+  showConnectionRecovery?: boolean;
+  onOpenConnectionSetup?: () => void;
 }) {
   const t = useT();
 
@@ -52,6 +57,9 @@ export function Welcome({
 
     return (
       <div className="welcome welcome--code">
+        {showConnectionRecovery && onOpenConnectionSetup ? (
+          <ConnectionRecoveryBanner onOpenSetup={onOpenConnectionSetup} />
+        ) : null}
         <div className="welcome__hero">
           <img src={logoMark} className="welcome__mark" alt="" aria-hidden="true" />
           <p className="welcome__eyebrow">{t("welcome.code.eyebrow")}</p>
@@ -77,6 +85,7 @@ export function Welcome({
               </button>
             ))}
           </div>
+          <p className="welcome__cards-hint">{t("welcome.code.clickHint")}</p>
         </div>
       </div>
     );

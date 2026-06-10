@@ -22,6 +22,15 @@ type SubagentRunner func(ctx context.Context, sk Skill, task string) (string, er
 // refresh UI (e.g. a skills sidebar) without a reload. nil is fine.
 type InstalledHook func(name, path string, scope Scope)
 
+// InstallRequest describes a pending install_skill write.
+type InstallRequest struct {
+	Name, Description, Body string
+	Scope                   Scope
+}
+
+// InstallGuard approves or denies persistent install_skill writes.
+type InstallGuard func(ctx context.Context, req InstallRequest) (bool, error)
+
 // --- run_skill ---
 
 type runSkillTool struct {
@@ -176,11 +185,12 @@ func BuiltinSubagentTools(store *Store, runner SubagentRunner) []tool.Tool {
 type installSkillTool struct {
 	store       *Store
 	onInstalled InstalledHook
+	guard       InstallGuard
 }
 
-// NewInstallSkillTool builds the skill-authoring tool. onInstalled may be nil.
-func NewInstallSkillTool(store *Store, onInstalled InstalledHook) tool.Tool {
-	return &installSkillTool{store: store, onInstalled: onInstalled}
+// NewInstallSkillTool builds the skill-authoring tool. onInstalled and guard may be nil.
+func NewInstallSkillTool(store *Store, onInstalled InstalledHook, guard InstallGuard) tool.Tool {
+	return &installSkillTool{store: store, onInstalled: onInstalled, guard: guard}
 }
 
 func (*installSkillTool) Name() string   { return "install_skill" }
@@ -210,7 +220,7 @@ func (*installSkillTool) Schema() json.RawMessage {
 }`)
 }
 
-func (t *installSkillTool) Execute(_ context.Context, args json.RawMessage) (string, error) {
+func (t *installSkillTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	var p struct {
 		Name         string   `json:"name"`
 		Description  string   `json:"description"`
@@ -248,6 +258,18 @@ func (t *installSkillTool) Execute(_ context.Context, args json.RawMessage) (str
 	}
 	if scope == ScopeProject && !t.store.HasProjectScope() {
 		return "", fmt.Errorf("install_skill: scope='project' requires a workspace — use scope='global'")
+	}
+
+	if t.guard != nil {
+		allow, err := t.guard(ctx, InstallRequest{
+			Name: name, Description: desc, Body: strings.TrimSpace(p.Body), Scope: scope,
+		})
+		if err != nil {
+			return "", err
+		}
+		if !allow {
+			return "", fmt.Errorf("install_skill: declined by user")
+		}
 	}
 
 	runAs := RunInline

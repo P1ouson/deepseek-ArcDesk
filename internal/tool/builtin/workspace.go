@@ -38,16 +38,16 @@ func (w Workspace) Tools(enabled ...string) []tool.Tool {
 	roots := realRoots(writeRoots)
 
 	all := []tool.Tool{
-		readFile{workDir: w.Dir},
+		readFile{workDir: w.Dir, roots: roots},
 		writeFile{workDir: w.Dir, roots: roots},
 		editFile{workDir: w.Dir, roots: roots},
 		multiEdit{workDir: w.Dir, roots: roots},
 		deleteRange{workDir: w.Dir, roots: roots},
 		deleteSymbol{workDir: w.Dir, roots: roots},
 		bash{workDir: w.Dir, sb: w.Bash, bgJobs: boolPtr(false)},
-		listDir{workDir: w.Dir},
-		globTool{workDir: w.Dir},
-		grepTool{workDir: w.Dir, rg: w.Search.RgPath},
+		listDir{workDir: w.Dir, roots: roots},
+		globTool{workDir: w.Dir, roots: roots},
+		grepTool{workDir: w.Dir, rg: w.Search.RgPath, roots: roots},
 		webFetch{},
 	}
 	if len(enabled) == 0 {
@@ -69,6 +69,10 @@ func (w Workspace) Tools(enabled ...string) []tool.Tool {
 func boolPtr(v bool) *bool {
 	return &v
 }
+
+// ResolveIn maps a path argument into a workspace directory. It is exported for
+// @file reference resolution in the control layer.
+func ResolveIn(workDir, p string) string { return resolveIn(workDir, p) }
 
 // resolveIn maps a tool's path/pattern argument into a working directory. With
 // an empty workDir it returns p unchanged — the process-cwd behavior the

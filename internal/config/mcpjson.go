@@ -6,10 +6,19 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"arcdesk/internal/fileutil"
 	"arcdesk/internal/mcpdiag"
 )
+
+// MCPJSONPathForRoot returns the .mcp.json path for a workspace root.
+func MCPJSONPathForRoot(root string) string {
+	if strings.TrimSpace(root) == "" || root == "." {
+		return mcpJSONFile
+	}
+	return filepath.Join(root, mcpJSONFile)
+}
 
 // mcpJSONFile is the project-root file Claude Code calls .mcp.json. ARCDESK reads
 // it so an MCP server already configured for Claude works here unchanged — the
@@ -47,13 +56,13 @@ func loadMCPJSON(path string) ([]PluginEntry, error) {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return nil, fmt.Errorf("mcp config %s: %w", path, err)
 	}
-	return specsToEntries(doc.MCPServers, nil), nil
+	return specsToEntries(doc.MCPServers, nil, "mcpjson"), nil
 }
 
 // specsToEntries converts an mcpServers map to PluginEntry values, sorted by name
 // for a stable connection order. Names in skip are dropped (used for v0.x's
 // mcpDisabled list).
-func specsToEntries(specs map[string]mcpServerSpec, skip map[string]bool) []PluginEntry {
+func specsToEntries(specs map[string]mcpServerSpec, skip map[string]bool, source string) []PluginEntry {
 	names := make([]string, 0, len(specs))
 	for name := range specs {
 		if !skip[name] {
@@ -63,7 +72,7 @@ func specsToEntries(specs map[string]mcpServerSpec, skip map[string]bool) []Plug
 	sort.Strings(names)
 	entries := make([]PluginEntry, 0, len(names))
 	for _, name := range names {
-		entries = append(entries, pluginEntryFromMCPSpec(name, specs[name]))
+		entries = append(entries, pluginEntryFromMCPSpec(name, specs[name], source))
 	}
 	return entries
 }
@@ -102,10 +111,10 @@ func loadLegacyMCP(path string) []PluginEntry {
 	for _, n := range doc.MCPDisabled {
 		disabled[n] = true
 	}
-	return specsToEntries(doc.MCPServers, disabled)
+	return specsToEntries(doc.MCPServers, disabled, "legacy")
 }
 
-func pluginEntryFromMCPSpec(name string, s mcpServerSpec) PluginEntry {
+func pluginEntryFromMCPSpec(name string, s mcpServerSpec, source string) PluginEntry {
 	return PluginEntry{
 		Name:      name,
 		Type:      s.Type,
@@ -115,6 +124,7 @@ func pluginEntryFromMCPSpec(name string, s mcpServerSpec) PluginEntry {
 		URL:       s.URL,
 		Headers:   s.Headers,
 		AutoStart: s.AutoStart,
+		Source:    source,
 	}
 }
 
@@ -162,7 +172,7 @@ func clearMCPJSONAuthentication(path, name string) (PluginEntry, bool, error) {
 	}
 	cleanHeaders, cleanEnv, cleanURL, changed := mcpdiag.ClearAuthConfig(spec.Headers, spec.Env, spec.URL)
 	if !changed {
-		return pluginEntryFromMCPSpec(name, spec), false, nil
+		return pluginEntryFromMCPSpec(name, spec, "mcpjson"), false, nil
 	}
 	spec.Headers = cleanHeaders
 	spec.Env = cleanEnv
@@ -188,7 +198,7 @@ func clearMCPJSONAuthentication(path, name string) (PluginEntry, bool, error) {
 	if err := writeMCPJSON(path, root); err != nil {
 		return PluginEntry{}, false, err
 	}
-	return pluginEntryFromMCPSpec(name, spec), true, nil
+	return pluginEntryFromMCPSpec(name, spec, "mcpjson"), true, nil
 }
 
 func setMCPJSONStringMap(server map[string]json.RawMessage, key string, values map[string]string) {

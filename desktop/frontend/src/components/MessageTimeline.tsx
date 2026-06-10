@@ -18,9 +18,20 @@ function questionAnchorId(id: string): string {
   return `question-anchor-${id}`;
 }
 
+function PendingUserMessage({ text }: { text: string }) {
+  const displayText = text.replace(/@\.ARCDESK\/attachments\/[^\s]+/g, "[image]");
+  return (
+    <div className="msg msg--user msg--pending" aria-live="polite">
+      <span className="msg__caret">›</span>
+      <div className="msg__text">{displayText}</div>
+    </div>
+  );
+}
+
 export interface MessageTimelineProps {
   tabId?: string;
   items: Item[];
+  pendingUser?: string;
   live?: LiveStream;
   usage?: WireUsage;
   sessionCost?: number;
@@ -34,6 +45,8 @@ export interface MessageTimelineProps {
   onRewind?: (turn: number, scope: string) => void;
   workspaceRoot?: string;
   onOpenActionFile?: (req: ActionFileOpenRequest) => void;
+  showConnectionRecovery?: boolean;
+  onOpenConnectionSetup?: () => void;
 }
 
 function CompactionBlock({ item }: { item: Extract<Item, { kind: "compaction" }> }) {
@@ -130,6 +143,7 @@ function TimelineRow({
 export function MessageTimeline({
   tabId: _tabId,
   items,
+  pendingUser,
   live,
   usage: _usage,
   sessionCost: _sessionCost,
@@ -143,6 +157,8 @@ export function MessageTimeline({
   onRewind,
   workspaceRoot = "",
   onOpenActionFile,
+  showConnectionRecovery = false,
+  onOpenConnectionSetup,
 }: MessageTimelineProps) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -181,9 +197,11 @@ export function MessageTimeline({
     () => buildTimelineRows(items, subcallsByParent, live),
     [items, subcallsByParent, live],
   );
-  const empty = items.length === 0;
+  const empty = items.length === 0 && !pendingUser;
 
   const rowKey = (row: BuiltTimelineRow) => (row.kind === "action-segment" ? row.segment.id : row.item.id);
+  const pendingRowCount = pendingUser ? 1 : 0;
+  const totalRows = rows.length + pendingRowCount;
 
   useEffect(() => {
     if (openTurn == null) return;
@@ -209,12 +227,12 @@ export function MessageTimeline({
       cancelAnimationFrame(frame);
       ro.disconnect();
     };
-  }, [empty]);
+  }, [empty, pendingUser]);
 
   useEffect(() => {
-    if (!stick.current || empty) return;
-    listRef.current?.scrollToIndex(rows.length - 1, { align: "end" });
-  }, [rows.length, live?.text?.length, live?.reasoning?.length, empty]);
+    if (!stick.current || (empty && !pendingUser)) return;
+    listRef.current?.scrollToIndex(totalRows - 1, { align: "end" });
+  }, [totalRows, rows.length, live?.text?.length, live?.reasoning?.length, empty, pendingUser]);
 
   const onScroll = (offset: number) => {
     const el = containerRef.current;
@@ -227,14 +245,28 @@ export function MessageTimeline({
 
   const scrollToBottom = () => {
     stick.current = true;
-    listRef.current?.scrollToIndex(rows.length - 1, { align: "end", smooth: true });
+    listRef.current?.scrollToIndex(totalRows - 1, { align: "end", smooth: true });
     setShowFab(false);
   };
 
   if (empty) {
     return (
       <div className="timeline timeline--empty">
-        <Welcome onPrompt={onPrompt} variant="code" disabled={actionPending || rewindDisabled} />
+        <Welcome
+          onPrompt={onPrompt}
+          variant="code"
+          disabled={actionPending || rewindDisabled}
+          showConnectionRecovery={showConnectionRecovery}
+          onOpenConnectionSetup={onOpenConnectionSetup}
+        />
+      </div>
+    );
+  }
+
+  if (items.length === 0 && pendingUser) {
+    return (
+      <div className="timeline timeline--pending-only" ref={containerRef} style={{ flex: 1, minHeight: 0, padding: "16px 20px", paddingBottom: footerHeight + 8 }}>
+        <PendingUserMessage text={pendingUser} />
       </div>
     );
   }
@@ -269,6 +301,11 @@ export function MessageTimeline({
             )}
           </div>
         ))}
+        {pendingUser ? (
+          <div key="pending-user" className="timeline__turn">
+            <PendingUserMessage text={pendingUser} />
+          </div>
+        ) : null}
       </VList>
       {showFab && (
         <button type="button" className="timeline__fab" onClick={scrollToBottom} aria-label={t("timeline.scrollToBottom")}>

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"arcdesk/internal/tool/builtin"
 )
 
 // maxFileRefBytes caps how much of an @-referenced file is injected into a
@@ -175,7 +177,12 @@ func (c *Controller) ResolveRefs(ctx context.Context, line string) (block string
 			}
 			appendRefBlock(&b, "resource", `ref="@`+r.raw+`"`, text)
 		case refFile:
-			text, isDir, err := readFileRef(r.path)
+			path := builtin.ResolveIn(c.cpRoot, r.path)
+			if err := builtin.ConfineRead(c.readRoots, path); err != nil {
+				errs = append(errs, "@"+r.raw+" — "+err.Error())
+				continue
+			}
+			text, isDir, err := readFileRef(path)
 			if err != nil {
 				errs = append(errs, "@"+r.raw+" — "+err.Error())
 				continue

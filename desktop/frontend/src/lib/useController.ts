@@ -146,7 +146,28 @@ function shouldBlockConcurrentSend(state: State): boolean {
   return state.running || state.turnActive;
 }
 
-function isAgentBusyNotice(text: string): boolean {
+const TURN_WATCHDOG_MS = 180_000;
+const TURN_WATCHDOG_POLL_MS = 30_000;
+
+function shouldArmTurnWatchdog(state: Pick<State, "running" | "turnActive" | "retry">): boolean {
+  return state.running && state.turnActive && state.retry === undefined;
+}
+
+function shouldEmitTurnWatchdogNotice(
+  state: Pick<State, "running" | "turnActive" | "retry" | "turnStartAt">,
+  now: number,
+  alreadyFiredForTurnStartAt: number | undefined,
+): boolean {
+  if (!shouldArmTurnWatchdog(state)) return false;
+  if (alreadyFiredForTurnStartAt === state.turnStartAt) return false;
+  return now - state.turnStartAt >= TURN_WATCHDOG_MS;
+}
+
+function isAgentBusyNotice(e: WireEvent): boolean {
+  if (e.kind !== "notice") return false;
+  if (e.code === "agent_busy") return true;
+  const text = e.text ?? "";
+  // Compatibility window: legacy wire without code (remove after one release cycle).
   return text.includes("still working") || text.includes("仍在处理");
 }
 
@@ -175,7 +196,7 @@ function applyEvent(s: State, e: WireEvent): State {
     return s;
   }
   if (s.pendingUser !== undefined && e.kind !== "turn_started" && e.kind !== "turn_done") {
-    if (e.kind !== "notice" || !isAgentBusyNotice(e.text ?? "")) {
+    if (e.kind !== "notice" || !isAgentBusyNotice(e)) {
       s = flushPendingUser(s);
     }
   }
@@ -278,7 +299,7 @@ function applyEvent(s: State, e: WireEvent): State {
     }
     case "notice": {
       const text = e.text ?? "";
-      const rejected = isAgentBusyNotice(text);
+      const rejected = isAgentBusyNotice(e);
       const base = rejected ? revertRejectedSend(s) : s;
       return { ...base, running: base.turnActive ? base.running : false, seq: base.seq + 1, items: [...base.items, { kind: "notice", id: `n${base.seq}`, level: e.level ?? "info", text }] };
     }
@@ -392,6 +413,7 @@ function messageActionBusyText(scope: MessageActionScope): string {
 
 export function useController() {
   const statesRef = useRef<TabStates>(new Map());
+  const turnWatchdogFiredRef = useRef<Map<string, number>>(new Map());
   const [activeTabId, setActiveTabId] = useState<string | undefined>();
   // A render-triggering counter so that mutations to a non-active tab's state still
   // cause a re-render when that tab becomes active.
@@ -483,6 +505,7 @@ export function useController() {
         recordCompactionActivity(e.compaction.trigger);
       }
       if (e.kind === "turn_done") {
+        turnWatchdogFiredRef.current.delete(targetTabId);
         app
           .ContextUsageForTab(targetTabId)
           .then((context) => dispatchTo(targetTabId, { type: "context", context }))
@@ -520,6 +543,23 @@ export function useController() {
 
     return () => { off(); offReady(); };
   }, [loadSessionData, activeTabId, dispatchTo]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const now = Date.now();
+      for (const [tabId, s] of statesRef.current.entries()) {
+        const fired = turnWatchdogFiredRef.current.get(tabId);
+        if (!shouldEmitTurnWatchdogNotice(s, now, fired)) continue;
+        turnWatchdogFiredRef.current.set(tabId, s.turnStartAt);
+        dispatchTo(tabId, {
+          type: "local_notice",
+          level: "warn",
+          text: t("turnWatchdog.stillWaiting"),
+        });
+      }
+    }, TURN_WATCHDOG_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [dispatchTo]);
 
   const notice = useCallback((text: string, level: "info" | "warn" = "info") => {
     if (!activeTabId) return;
@@ -826,5 +866,13 @@ export function useController() {
   };
 }
 
-export { applyEvent as controllerApplyWireEvent, initialState as controllerInitialState, reducer as controllerReducer, shouldBlockConcurrentSend };
+export {
+  applyEvent as controllerApplyWireEvent,
+  initialState as controllerInitialState,
+  reducer as controllerReducer,
+  shouldBlockConcurrentSend,
+  shouldArmTurnWatchdog,
+  shouldEmitTurnWatchdogNotice,
+  TURN_WATCHDOG_MS,
+};
 export type { State as ControllerState, Action as ControllerAction };

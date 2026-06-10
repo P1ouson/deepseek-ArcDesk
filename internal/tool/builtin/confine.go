@@ -52,6 +52,16 @@ func realRoots(roots []string) []string {
 // templates before a run configures the workspace. The error text is written
 // for the model: it names the boundary and how the user can widen it.
 func confine(roots []string, target string) error {
+	return confineOp(roots, target, "writes")
+}
+
+// ConfineRead is the exported read-path check used by built-in readers and
+// @file reference resolution. It mirrors confine but names reads in the error.
+func ConfineRead(roots []string, target string) error {
+	return confineOp(roots, target, "reads")
+}
+
+func confineOp(roots []string, target, op string) error {
 	if len(roots) == 0 {
 		return nil
 	}
@@ -64,9 +74,21 @@ func confine(roots []string, target string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("path %q is outside the workspace (writes are confined to %s); "+
-		"write inside it, or widen [sandbox] workspace_root / allow_write in ARCDESK.toml",
-		target, strings.Join(roots, ", "))
+	return fmt.Errorf("path %q is outside the workspace (%s are confined to %s); "+
+		"stay inside the workspace, or widen [sandbox] workspace_root / allow_write in ARCDESK.toml",
+		target, op, strings.Join(roots, ", "))
+}
+
+// ConfineReaders returns the read-only built-ins (read_file, ls, glob, grep)
+// bound to roots. An empty roots slice yields unconfined readers.
+func ConfineReaders(roots []string) []tool.Tool {
+	rs := realRoots(roots)
+	return []tool.Tool{
+		readFile{roots: rs},
+		listDir{roots: rs},
+		globTool{roots: rs},
+		grepTool{roots: rs},
+	}
 }
 
 // realPath resolves path to an absolute, symlink-free form. Because a write

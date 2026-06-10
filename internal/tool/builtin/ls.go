@@ -15,7 +15,10 @@ func init() { tool.RegisterBuiltin(listDir{}) }
 
 // listDir lists a directory. workDir, when non-empty, is the directory a
 // relative path resolves against (see resolveIn).
-type listDir struct{ workDir string }
+type listDir struct {
+	workDir string
+	roots   []string
+}
 
 func (listDir) Name() string { return "ls" }
 
@@ -43,6 +46,9 @@ func (l listDir) Execute(ctx context.Context, args json.RawMessage) (string, err
 		p.Path = "."
 	}
 	p.Path = resolveIn(l.workDir, p.Path)
+	if err := ConfineRead(l.roots, p.Path); err != nil {
+		return "", err
+	}
 
 	// Recursive mode: walk the whole tree depth-first.
 	if p.Recursive {

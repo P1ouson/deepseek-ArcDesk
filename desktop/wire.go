@@ -16,6 +16,7 @@ type wireEvent struct {
 	Text         string          `json:"text,omitempty"`
 	Reasoning    string          `json:"reasoning,omitempty"`
 	Level        string          `json:"level,omitempty"`
+	Code         string          `json:"code,omitempty"`
 	Tool         *wireTool       `json:"tool,omitempty"`
 	Usage        *wireUsage      `json:"usage,omitempty"`
 	Approval     *wireApproval   `json:"approval,omitempty"`
@@ -153,6 +154,7 @@ func toWire(e event.Event) wireEvent {
 		} else {
 			w.Level = "info"
 		}
+		w.Code = e.Code
 	case event.ToolDispatch, event.ToolResult, event.ToolProgress:
 		wt := &wireTool{
 			ID: e.Tool.ID, Name: e.Tool.Name, Args: e.Tool.Args,

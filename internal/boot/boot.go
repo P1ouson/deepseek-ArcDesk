@@ -71,6 +71,9 @@ type Options struct {
 	// so each tab loads its own config/skills/hooks without changing the process
 	// cwd — enabling concurrent multi-project sessions.
 	WorkspaceRoot string
+	// SkillInstallGuard, when set, must approve install_skill persistent writes
+	// (desktop uses native confirmation). Nil preserves autonomous headless behavior.
+	SkillInstallGuard skill.InstallGuard
 }
 
 // Build loads config, resolves the model(s), and returns a Controller wrapping a
@@ -186,10 +189,11 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// only; bodies load on demand via run_skill or "/<name>". Bodies never enter
 	// the prefix, so the index costs a fixed, small amount per turn.
 	skillStore := skill.New(skill.Options{
-		ProjectRoot:   root,
-		CustomPaths:   cfg.SkillCustomPaths(),
-		DisabledNames: cfg.DisabledSkillNames(),
-		Stderr:        opts.Stderr,
+		ProjectRoot:     root,
+		CustomPaths:     cfg.SkillCustomPaths(),
+		DisabledNames:   cfg.DisabledSkillNames(),
+		ProjectTrusted:  hook.IsTrusted(root, ""),
+		Stderr:          opts.Stderr,
 	})
 	skills := skillStore.List()
 	allSkills := skill.New(skill.Options{ProjectRoot: root, CustomPaths: cfg.SkillCustomPaths(), Stderr: io.Discard}).List()
@@ -209,10 +213,16 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// host pointer is stable for the session and `/mcp add` can hot-add into it.
 	pluginHost := plugin.NewHost()
 
+	plugins, blockedMCP := filterTrustedMCPPlugins(root, cfg.Plugins, "")
+	mcpFile := config.MCPJSONPathForRoot(root)
+	for _, e := range blockedMCP {
+		sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: mcpTrustNotice(e, mcpFile)})
+	}
+
 	// Partition configured plugins by tier so eager/lazy/background can each
 	// take the path that fits them. User entries default to lazy — they don't
 	// slow the next launch unless the user explicitly opts in to eager.
-	eagerEntries, lazyEntries, bgEntries := partitionByTier(cfg.AutoStartPlugins())
+	eagerEntries, lazyEntries, bgEntries := partitionByTier(autoStartPlugins(plugins))
 
 	// Auto-demote: any eager plugin that has been chronically slow (recent
 	// samples repeatedly hit the blocking startup budget) drops to lazy
@@ -452,13 +462,13 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 			MaxSteps:      steps,
 			Temperature:   cfg.Agent.Temperature,
 			Pricing:       price,
-			Gate:          headlessGate,
+			Gate:          agent.EffectiveSubagentGate(sctx, headlessGate),
 			ContextWindow: ctxWin,
 			ArchiveDir:    config.ArchiveDir(),
 		}, agent.NestedSink(sctx, event.Discard))
 	}
 	reg.Add(skill.NewRunSkillTool(skillStore, skillRunner))
-	reg.Add(skill.NewInstallSkillTool(skillStore, nil))
+	reg.Add(skill.NewInstallSkillTool(skillStore, nil, opts.SkillInstallGuard))
 	for _, t := range skill.BuiltinSubagentTools(skillStore, skillRunner) {
 		reg.Add(t)
 	}
@@ -565,6 +575,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		Registry:      reg,
 		PluginCtx:     ctx,
 		WorkspaceRoot: root,
+		ReadRoots:     cfg.WriteRootsForRoot(root),
 		AutoPlan:      cfg.Agent.AutoPlan,
 		OnRemember: func(rule string) {
 			rememberPermissionRule(opts.WorkspaceRoot, rule)
@@ -705,7 +716,9 @@ func addBuiltins(reg *tool.Registry, enabled, writeRoots []string, bashSpec sand
 	// Replace the unconfined defaults with confined instances (registry order is
 	// preserved on replace): file-writers bound to the workspace, bash to the OS
 	// sandbox. Only replace tools actually enabled/present.
-	confined := append(builtin.ConfineWriters(writeRoots), builtin.ConfineBash(bashSpec), builtin.ConfineSearch(searchSpec))
+	confined := builtin.ConfineWriters(writeRoots)
+	confined = append(confined, builtin.ConfineReaders(writeRoots)...)
+	confined = append(confined, builtin.ConfineBash(bashSpec), builtin.ConfineSearch(searchSpec, writeRoots))
 	for _, t := range confined {
 		if _, ok := reg.Get(t.Name()); ok {
 			reg.Add(t)

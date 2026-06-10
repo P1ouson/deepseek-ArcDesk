@@ -684,6 +684,8 @@ type PluginEntry struct {
 	//                  swap happens once the spawn finishes.
 	// Empty defaults to "lazy" so adding a plugin never slows the next launch.
 	Tier string `toml:"tier"`
+	// Source records discovery origin: "" (explicit config), "mcpjson", "legacy".
+	Source string `toml:"-" json:"-"`
 }
 
 func (e PluginEntry) ShouldAutoStart() bool {

@@ -1125,6 +1125,10 @@ type blockingRunner struct {
 	release chan struct{}
 }
 
+type instantSubmitRunner struct{}
+
+func (instantSubmitRunner) Run(context.Context, string) error { return nil }
+
 func (r *blockingRunner) Run(ctx context.Context, _ string) error {
 	close(r.started)
 	select {
@@ -1198,4 +1202,36 @@ func TestCompleteWriteInlineUsesProviderConfig(t *testing.T) {
 	if !strings.Contains(msg, "API key") && !strings.Contains(msg, "unknown model") && !strings.Contains(msg, "no model") {
 		t.Fatalf("CompleteWriteInline should route through provider config, got: %v", err)
 	}
+}
+
+func TestSubmitToTabNilCtrlReturnsError(t *testing.T) {
+	app := NewApp()
+	if err := app.SubmitToTab("missing", "hello"); !errors.Is(err, errControllerNotReady) {
+		t.Fatalf("SubmitToTab(missing ctrl) = %v, want %v", err, errControllerNotReady)
+	}
+	if err := app.SubmitDisplayToTab("missing", "hi", "hello"); !errors.Is(err, errControllerNotReady) {
+		t.Fatalf("SubmitDisplayToTab(missing ctrl) = %v, want %v", err, errControllerNotReady)
+	}
+}
+
+func TestSubmitToTabWithCtrlSucceeds(t *testing.T) {
+	sess := agent.NewSession("sys")
+	exec := agent.New(nil, nil, sess, agent.Options{}, event.Discard)
+	ctrl := control.New(control.Options{
+		Runner:   instantSubmitRunner{},
+		Executor: exec,
+		Sink:     event.Discard,
+	})
+	app := NewApp()
+	app.setTestCtrl(ctrl, "deepseek-chat")
+	defer ctrl.Close()
+
+	if err := app.SubmitToTab("test", "hello"); err != nil {
+		t.Fatalf("SubmitToTab with ctrl: %v", err)
+	}
+	waitNotRunning(t, ctrl)
+	if err := app.SubmitDisplayToTab("test", "hi", "hello"); err != nil {
+		t.Fatalf("SubmitDisplayToTab with ctrl: %v", err)
+	}
+	waitNotRunning(t, ctrl)
 }

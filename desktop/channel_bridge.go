@@ -16,7 +16,11 @@ import (
 	"arcdesk/internal/channels/wecom"
 )
 
-const defaultClawBridgePort = 8787
+const (
+	defaultClawBridgePort   = 8787
+	clawBridgeBindLocalhost = "127.0.0.1"
+	clawBridgeBindLAN       = "0.0.0.0"
+)
 
 type clawBridge struct {
 	app    *App
@@ -54,7 +58,29 @@ func (a *App) stopClawBridge() {
 	a.clawBridge = nil
 }
 
-func (b *clawBridge) start() error {
+func clawBridgeBindHost(allowLAN bool) string {
+	if allowLAN {
+		return clawBridgeBindLAN
+	}
+	return clawBridgeBindLocalhost
+}
+
+func (b *clawBridge) bindHost() string {
+	if b != nil && b.mobile != nil && b.mobile.getConfig().AllowLAN {
+		return clawBridgeBindLAN
+	}
+	return clawBridgeBindLocalhost
+}
+
+func clawBridgeListenAddr(host string, port int) string {
+	return fmt.Sprintf("%s:%d", host, port)
+}
+
+func cloudflaredTunnelTarget(port int) string {
+	return fmt.Sprintf("http://%s:%d", clawBridgeBindLocalhost, port)
+}
+
+func (b *clawBridge) newHTTPServer() *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/claw/wecom/", b.handleWeCom)
 	mux.HandleFunc("/mobile/p/", b.handleMobilePairPage)
@@ -62,21 +88,52 @@ func (b *clawBridge) start() error {
 	mux.HandleFunc("/mobile/api/messages", b.handleMobileMessages)
 	mux.HandleFunc("/mobile/api/send", b.handleMobileSend)
 	mux.HandleFunc("/mobile/api/decision", b.handleMobileDecision)
-	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", b.port))
-	if err != nil {
-		return err
-	}
-	b.srv = &http.Server{
+	return &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 	}
+}
+
+func (b *clawBridge) startListener() error {
+	if b == nil {
+		return fmt.Errorf("claw bridge unavailable")
+	}
+	addr := clawBridgeListenAddr(b.bindHost(), b.port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	b.srv = b.newHTTPServer()
+	slog.Info("claw bridge listening", "addr", addr)
 	go func() {
 		if err := b.srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			slog.Warn("claw bridge stopped", "err", err)
 		}
 	}()
+	return nil
+}
+
+func (b *clawBridge) restartListener() error {
+	if b == nil {
+		return fmt.Errorf("claw bridge unavailable")
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.srv != nil {
+		ctx, cancel := contextWithTimeout(5 * time.Second)
+		_ = b.srv.Shutdown(ctx)
+		cancel()
+		b.srv = nil
+	}
+	return b.startListener()
+}
+
+func (b *clawBridge) start() error {
+	if err := b.startListener(); err != nil {
+		return err
+	}
 	b.startRelayClient()
 	return nil
 }

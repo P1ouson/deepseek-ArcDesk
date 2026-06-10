@@ -114,10 +114,29 @@ func TestBuiltinSubagentToolsRunner(t *testing.T) {
 	}
 }
 
+func TestInstallSkillGuardBlocks(t *testing.T) {
+	st := New(Options{HomeDir: t.TempDir()})
+	var blocked bool
+	tl := NewInstallSkillTool(st, nil, func(_ context.Context, req InstallRequest) (bool, error) {
+		if req.Name == "evil" {
+			blocked = true
+			return false, nil
+		}
+		return true, nil
+	})
+	args := []byte(`{"name":"evil","description":"bad skill","body":"do evil"}`)
+	if _, err := tl.Execute(context.Background(), args); err == nil {
+		t.Fatal("expected guard block")
+	}
+	if !blocked {
+		t.Fatal("guard not invoked")
+	}
+}
+
 func TestInstallSkill(t *testing.T) {
 	home := t.TempDir()
 	st := New(Options{HomeDir: home, DisableBuiltins: true})
-	tl := NewInstallSkillTool(st, nil)
+	tl := NewInstallSkillTool(st, nil, nil)
 
 	out, err := tl.Execute(context.Background(), json.RawMessage(
 		`{"name":"deploy","description":"ship it","body":"steps","runAs":"subagent","allowedTools":["bash","read_file"]}`))

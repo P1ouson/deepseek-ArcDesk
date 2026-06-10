@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -492,8 +493,12 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 	}
 
 	// A key resolved from this project's .env is project-scoped; lift it into the
-	// global credentials store so it follows the user to every other workspace.
-	promoteProviderKeysToCredentials(cfg)
+	// global credentials store only after explicit user confirmation.
+	if keys := listPromotableProviderKeys(cfg); len(keys) > 0 {
+		if a.confirmPromoteProjectSecrets(keys, root) {
+			promoteProviderKeys(cfg, keys)
+		}
+	}
 
 	model := strings.TrimSpace(tab.model)
 	if model == "" {
@@ -519,11 +524,12 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 	}
 
 	ctrl, err := boot.Build(buildCtx, boot.Options{
-		Model:          model,
-		RequireKey:     false,
-		Sink:           tab.sink,
-		WorkspaceRoot:  root,
-		EffortOverride: cloneStringPtr(tab.effort),
+		Model:             model,
+		RequireKey:        false,
+		Sink:              tab.sink,
+		WorkspaceRoot:     root,
+		EffortOverride:    cloneStringPtr(tab.effort),
+		SkillInstallGuard: a.desktopSkillInstallGuard(),
 	})
 	if err != nil {
 		a.mu.Lock()
@@ -534,7 +540,7 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 		return
 	}
 
-	ctrl.EnableInteractiveApproval()
+	enableDesktopInteractive(ctrl)
 	applyTabModeToController(ctrl, tab.mode)
 
 	if dir := ctrl.SessionDir(); dir != "" {
@@ -737,10 +743,10 @@ func (a *App) tabSnapshotLoop(tab *WorkspaceTab) {
 		ctrl := tab.Ctrl
 		a.mu.RUnlock()
 		if ctrl != nil {
-			if err := ctrl.Snapshot(); err == nil {
-				if !a.maybeAutoTitleTopic(tab) {
-					a.emitProjectTreeChanged()
-				}
+			if err := ctrl.Snapshot(); err != nil {
+				slog.Warn("tab snapshot failed", "tabID", tab.ID, "err", err)
+			} else if !a.maybeAutoTitleTopic(tab) {
+				a.emitProjectTreeChanged()
 			}
 		}
 		tab.saveMu.Lock()

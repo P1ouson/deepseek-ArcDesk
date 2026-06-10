@@ -143,6 +143,7 @@ export function Composer({
   disabled,
   decisionPending = false,
   ready,
+  retry,
   workspaceRefreshSignal,
   hideModeBar = false,
   showWorkspaceSwitcher = false,
@@ -1342,6 +1343,11 @@ export function Composer({
               </Tooltip>
             )}
           </div>
+        ) : null}
+        {retry ? (
+          <p className="composer-retry-status" role="status">
+            {t("status.retrying", { attempt: retry.attempt, max: retry.max })}
+          </p>
         ) : null}
         <div className={composerMetaClass}>
           {hideModeBar && (

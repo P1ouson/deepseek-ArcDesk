@@ -30,6 +30,7 @@ func init() { tool.RegisterBuiltin(grepTool{}) }
 type grepTool struct {
 	workDir string
 	rg      string
+	roots   []string
 }
 
 func (grepTool) Name() string { return "grep" }
@@ -62,6 +63,9 @@ func (g grepTool) Execute(ctx context.Context, args json.RawMessage) (string, er
 		p.Path = "."
 	}
 	p.Path = resolveIn(g.workDir, p.Path)
+	if err := ConfineRead(g.roots, p.Path); err != nil {
+		return "", err
+	}
 	if g.rg != "" {
 		return g.runRipgrep(ctx, p.Pattern, p.Path)
 	}
@@ -282,8 +286,8 @@ func ResolveSearch(engine, rgPath string, warn io.Writer) SearchSpec {
 	}
 }
 
-// ConfineSearch returns the grep built-in bound to a resolved search engine,
-// overriding the native instance registered at init.
-func ConfineSearch(spec SearchSpec) tool.Tool {
-	return grepTool{rg: spec.RgPath}
+// ConfineSearch returns the grep built-in bound to a resolved search engine and
+// read roots, overriding the native instance registered at init.
+func ConfineSearch(spec SearchSpec, roots []string) tool.Tool {
+	return grepTool{rg: spec.RgPath, roots: realRoots(roots)}
 }

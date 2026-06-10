@@ -75,6 +75,8 @@ type Options struct {
 	CustomPaths     []string
 	DisabledNames   []string
 	DisableBuiltins bool // suppress shipped built-ins (test-only knob)
+	// ProjectTrusted gates repo-local skills (same trust store as project hooks).
+	ProjectTrusted bool
 	// Stderr is the writer for diagnostic warnings. When nil, defaults to
 	// os.Stderr. Set to io.Discard to suppress output (e.g. during model
 	// switch inside a bubbletea session).
@@ -88,6 +90,7 @@ type Store struct {
 	customPaths     []string
 	disabled        map[string]bool
 	disableBuiltins bool
+	projectTrusted  bool
 	stderr          io.Writer
 }
 
@@ -123,12 +126,20 @@ func New(opts Options) *Store {
 		customPaths:     custom,
 		disabled:        disabledNameSet(opts.DisabledNames),
 		disableBuiltins: opts.DisableBuiltins,
+		projectTrusted:  opts.ProjectTrusted,
 		stderr:          stderr,
 	}
 }
 
 // HasProjectScope reports whether the store was configured with a project root.
 func (s *Store) HasProjectScope() bool { return s.projectRoot != "" }
+
+func (s *Store) skillScopeAllowed(scope Scope) bool {
+	if scope != ScopeProject {
+		return true
+	}
+	return s.projectTrusted
+}
 
 // PathStatus describes a root directory's readability, surfaced by `/skill paths`.
 type PathStatus string
@@ -223,6 +234,9 @@ func (s *Store) List() []Skill {
 		if r.Status != StatusOK {
 			continue
 		}
+		if !s.skillScopeAllowed(r.Scope) {
+			continue
+		}
 		entries, err := os.ReadDir(r.Dir)
 		if err != nil {
 			continue
@@ -268,6 +282,9 @@ func (s *Store) Read(name string) (Skill, bool) {
 		return Skill{}, false
 	}
 	for _, r := range s.roots() {
+		if !s.skillScopeAllowed(r.Scope) {
+			continue
+		}
 		dirCand := filepath.Join(r.Dir, name, SkillFile)
 		if info, err := os.Stat(dirCand); err == nil && info.Mode().IsRegular() {
 			return s.parse(dirCand, name, r.Scope)

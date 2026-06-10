@@ -16,7 +16,10 @@ func init() { tool.RegisterBuiltin(globTool{}) }
 
 // globTool matches files by pattern. workDir, when non-empty, is the directory
 // a relative pattern resolves against (see resolveIn).
-type globTool struct{ workDir string }
+type globTool struct {
+	workDir string
+	roots   []string
+}
 
 func (globTool) Name() string { return "glob" }
 
@@ -47,6 +50,9 @@ func (g globTool) Execute(ctx context.Context, args json.RawMessage) (string, er
 	// — not the already-joined absolute path that always contains separators.
 	rawPattern := p.Pattern
 	p.Pattern = resolveIn(g.workDir, p.Pattern)
+	if err := ConfineRead(g.roots, p.Pattern); err != nil {
+		return "", err
+	}
 	p.Pattern = filepath.FromSlash(p.Pattern) // models emit "/" (see Description); WalkDir/Match compare OS-native paths
 
 	// If the pattern contains **, use recursive matching via filepath.WalkDir.

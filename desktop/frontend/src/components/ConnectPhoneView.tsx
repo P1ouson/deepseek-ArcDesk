@@ -61,6 +61,7 @@ export function ConnectPhoneView({
   const [currentModel, setCurrentModel] = useState("");
   const [config, setConfig] = useState<MobileConnectConfig>(() => ({
     enabled: true,
+    allowLAN: false,
     model: "",
     persona: "",
     workspaceRoot,
@@ -147,14 +148,7 @@ export function ConnectPhoneView({
     return () => window.clearInterval(id);
   }, []);
 
-  const toggleEnabled = async (enabled: boolean) => {
-    const prev = config.enabled;
-    const nextConfig = {
-      ...config,
-      enabled,
-      workspaceRoot,
-      relayBaseURL: config.relayBaseURL?.trim() ?? "",
-    };
+  const saveConnectConfig = async (nextConfig: MobileConnectConfig, rollback?: () => void) => {
     setConfig(nextConfig);
     setBusy(true);
     setErr(null);
@@ -163,11 +157,50 @@ export function ConnectPhoneView({
       setNotice(t("phone.saved"));
       await reload();
     } catch (e) {
-      setConfig((v) => ({ ...v, enabled: prev }));
+      rollback?.();
       setErr(String((e as Error)?.message ?? e));
     } finally {
       setBusy(false);
     }
+  };
+
+  const toggleEnabled = async (enabled: boolean) => {
+    const prev = config.enabled;
+    await saveConnectConfig(
+      {
+        ...config,
+        enabled,
+        workspaceRoot,
+        relayBaseURL: config.relayBaseURL?.trim() ?? "",
+      },
+      () => setConfig((v) => ({ ...v, enabled: prev })),
+    );
+  };
+
+  const toggleAllowLAN = async (allowLAN: boolean) => {
+    const prev = Boolean(config.allowLAN);
+    await saveConnectConfig(
+      {
+        ...config,
+        allowLAN,
+        workspaceRoot,
+        relayBaseURL: config.relayBaseURL?.trim() ?? "",
+      },
+      () => setConfig((v) => ({ ...v, allowLAN: prev })),
+    );
+  };
+
+  const toggleTunnelIdleShutdown = async (enabled: boolean) => {
+    const prev = Boolean(config.tunnelDisableIdleShutdown);
+    await saveConnectConfig(
+      {
+        ...config,
+        tunnelDisableIdleShutdown: !enabled,
+        workspaceRoot,
+        relayBaseURL: config.relayBaseURL?.trim() ?? "",
+      },
+      () => setConfig((v) => ({ ...v, tunnelDisableIdleShutdown: prev })),
+    );
   };
 
   const refreshQR = async () => {
@@ -289,6 +322,7 @@ export function ConnectPhoneView({
             )}
           </div>
           {pairing?.pairUrl ? <code className="connect-compact__url">{pairing.pairUrl}</code> : null}
+          <p className="connect-compact__tunnel-warning">{t("phone.tunnelSecurityWarning")}</p>
           <div className="connect-compact__tunnel">
             {tunnel.running ? (
               <button type="button" className="connect-compact__btn connect-compact__btn--danger" disabled={busy} onClick={() => void stopTunnel()}>
@@ -324,6 +358,33 @@ export function ConnectPhoneView({
                 onChange={(e) => void toggleEnabled(e.target.checked)}
               />
             </label>
+
+            <label className="connect-compact__switch-row">
+              <span className="connect-compact__switch-copy">
+                <strong>{t("phone.allowLan")}</strong>
+                <small>{t("phone.allowLanHint")}</small>
+              </span>
+              <input
+                type="checkbox"
+                className="connect-compact__switch"
+                checked={Boolean(config.allowLAN)}
+                disabled={busy}
+                onChange={(e) => void toggleAllowLAN(e.target.checked)}
+              />
+            </label>
+            <label className="connect-compact__switch-row">
+              <span className="connect-compact__switch-copy">
+                <strong>{t("phone.tunnelIdleShutdown")}</strong>
+                <small>{t("phone.tunnelIdleShutdownHint", { min: tunnel.tunnelIdleTimeoutMin ?? 30 })}</small>
+              </span>
+              <input
+                type="checkbox"
+                className="connect-compact__switch"
+                checked={tunnel.tunnelIdleAutoShutdown ?? !config.tunnelDisableIdleShutdown}
+                disabled={busy}
+                onChange={(e) => void toggleTunnelIdleShutdown(e.target.checked)}
+              />
+            </label>
           </div>
 
           <div className="connect-compact__status-main">
@@ -338,6 +399,20 @@ export function ConnectPhoneView({
                 <div className="connect-compact__kv">
                   <span className="connect-compact__kv-label">{t("phone.lanAddress")}</span>
                   <span className="connect-compact__kv-value">{lanAddress}</span>
+                </div>
+                <div className="connect-compact__kv">
+                  <span className="connect-compact__kv-label">{t("phone.tunnelPairedCount")}</span>
+                  <span className="connect-compact__kv-value">{tunnel.pairedCount ?? pairing?.pairedCount ?? sessions.length}</span>
+                </div>
+                <div className="connect-compact__kv">
+                  <span className="connect-compact__kv-label">{t("phone.tunnelLanExposure")}</span>
+                  <span className="connect-compact__kv-value">
+                    {tunnel.allowLAN ?? config.allowLAN ? t("phone.lanEnabled") : t("phone.lanDisabled")}
+                  </span>
+                </div>
+                <div className="connect-compact__kv connect-compact__kv--full">
+                  <span className="connect-compact__kv-label">{t("phone.tunnelLocalTarget")}</span>
+                  <span className="connect-compact__kv-value">{tunnel.localTarget ?? "http://127.0.0.1:8787"}</span>
                 </div>
                 {pairing?.pairUrl ? (
                   <div className="connect-compact__kv connect-compact__kv--full">

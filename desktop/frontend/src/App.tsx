@@ -1,19 +1,19 @@
 import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { CSSProperties } from "react";
 import { ShellExpandProvider, useShellExpand } from "./lib/shellExpand";
 import { clearLegacyLangPref, normalizeLangPref, readLegacyLangPref, t, useI18n, useT } from "./lib/i18n";
 import { useController } from "./lib/useController";
 import { app, onProjectTreeChanged, onScheduleTask } from "./lib/bridge";
 import { logBridgeError } from "./lib/logBridgeError";
+import { isComposerSendDisabled } from "./lib/composerSendGate";
+import { useRuntimeReady } from "./lib/runtime";
 import { MessageTimeline } from "./components/MessageTimeline";
-import type { ActionFileOpenRequest } from "./components/ActionStream";
 import { FloatingComposer } from "./components/FloatingComposer";
-import { BottomTerminalPanel, clampTerminalPanelHeight, TERMINAL_PANEL_DEFAULT_HEIGHT, type TerminalTab } from "./components/TerminalPanel";
-import { closeAllTerminals, closeTerminal, startTerminal } from "./lib/terminalBridge";
+import { BottomTerminalPanel } from "./components/TerminalPanel";
 import type { CodeReviewState } from "./components/CodeReviewSection";
 import type { ReviewMode, ReviewScope } from "./lib/codeReview";
 import { Sidebar } from "./components/Sidebar";
-import { Topbar, type RightDockTab } from "./components/Topbar";
+import { Topbar } from "./components/Topbar";
 import { StudioToolRail } from "./components/StudioToolRail";
 import { RightDock } from "./components/RightDock";
 import { FilePreviewPanel } from "./components/FilePreviewPanel";
@@ -22,6 +22,7 @@ import { clearAgentDecisionNotifications, notifyAgentDecision } from "./lib/agen
 const HistoryPanel = lazy(() => import("./components/HistoryPanel").then((m) => ({ default: m.HistoryPanel })));
 const LazyMemoryPanel = lazy(() => import("./components/MemoryPanel").then((m) => ({ default: m.MemoryPanel })));
 import { UpdateBanner } from "./components/UpdateBanner";
+import { ConnectionRecoveryBanner } from "./components/ConnectionRecoveryBanner";
 import { OnboardingOverlay } from "./components/OnboardingOverlay";
 import { SandboxSetupOverlay } from "./components/SandboxSetupOverlay";
 import { SideConversation, type SideMessage } from "./components/SideConversation";
@@ -31,7 +32,7 @@ import { DevMockBanner } from "./components/DevMockBanner";
 import { buildWriteConversation } from "./lib/writeConversation";
 import type { AppMode } from "./lib/appMode";
 import { getDefaultAppMode } from "./lib/startupPrefs";
-import { parseTodos, type ToolFileDiff } from "./lib/tools";
+import { parseTodos } from "./lib/tools";
 import { shouldShowTodoPanel } from "./lib/todoVisibility";
 import type { ComposerInsertRequest, ComposerWriteContext, MemoryView, Mode, QuestionAnswer, SessionMeta, TabMeta } from "./lib/types";
 import { recordRecentWorkspace } from "./lib/workspaceRecents";
@@ -51,28 +52,12 @@ import {
   NO_WORKSPACE_VALUE,
   setStoredWriteWorkspaceRoot,
 } from "./lib/writeWorkspace";
-import { applyWriteModeSkill } from "./lib/writeSkill";
-import {
-  dockHubForTab,
-  isPreviewHubActive,
-  loadHubLastTab,
-  loadPreviewPanelState,
-  resolveHubTab,
-  saveDockTabSelection,
-  savePreviewPanelState,
-  type DockHub,
-  type PreviewMode,
-} from "./lib/dockHubs";
-import { loadLayoutSize, loadOptionalLayoutSize, saveLayoutSize } from "./lib/layoutPreferences";
 import {
   applyTheme,
   clearLegacyThemePreference,
-  getTheme,
-  getThemeStyle,
   normalizeThemePreference,
   normalizeThemeStyleForTheme,
   readLegacyThemePreference,
-  type Theme,
 } from "./lib/theme";
 import { syncDesktopGitSettings } from "./lib/desktopGitPrefs";
 import {
@@ -87,82 +72,17 @@ import {
 } from "./lib/codeReviewPrefs";
 import { GITHUB_CLI_SETTINGS_EVENT } from "./lib/gitHubCliSettingsNav";
 import { useWindowStatePersistence } from "./lib/windowState";
+import { useDesktopSendRouter } from "./lib/useDesktopSendRouter";
 import { useTabMetas } from "./lib/useTabMetas";
 import { useProjectDrawer } from "./lib/useProjectDrawer";
-
-const STUDIO_RAIL_WIDTH = 76;
-const STUDIO_DRAWER_WIDTH = 280;
-const CHAT_MIN_WIDTH = 760;
-/** Panel slide duration — keep in sync with --duration-normal in design-system.css */
-const MOTION_PANEL_MS = 220;
-
-/** Minimum chat width reserved when sizing the right dock — lower than CHAT_MIN_WIDTH so the dock can open with the project drawer visible. */
-const DOCK_CHAT_MIN_WIDTH = 420;
-const WORKSPACE_RESIZER_WIDTH = 8;
-
-function isThemeMode(value: string): value is Theme {
-  return value === "auto" || value === "light" || value === "dark";
-}
-const RIGHT_DOCK_DEFAULT_WIDTH = 300;
-const RIGHT_DOCK_DEFAULT_RATIO = 0.2;
-const RIGHT_DOCK_MIN_WIDTH = 280;
-const RIGHT_DOCK_MAX_WIDTH = 720;
-const RIGHT_DOCK_MIN_RENDER_WIDTH = 200;
-const FILE_PREVIEW_MIN_WIDTH = RIGHT_DOCK_MIN_WIDTH;
-const FILE_PREVIEW_MAX_WIDTH = RIGHT_DOCK_MAX_WIDTH;
-const FILE_PREVIEW_DEFAULT_WIDTH = RIGHT_DOCK_DEFAULT_WIDTH;
+import { useWorkbenchDock } from "./lib/useWorkbenchDock";
+import { useTerminalPanel } from "./lib/useTerminalPanel";
 
 type HistoryScopeFilter = { scope: "global" | "project"; workspaceRoot: string };
 type HistoryViewState =
   | { kind: "history"; source: "scope"; filter: HistoryScopeFilter; sessions: SessionMeta[] }
   | { kind: "history"; source: "all"; sessions: SessionMeta[] }
   | { kind: "trash"; sessions: SessionMeta[] };
-
-function clampRightDockWidth(width: number): number {
-  return Math.min(RIGHT_DOCK_MAX_WIDTH, Math.max(RIGHT_DOCK_MIN_WIDTH, Math.round(width)));
-}
-
-function clampFilePreviewWidth(width: number): number {
-  return Math.min(FILE_PREVIEW_MAX_WIDTH, Math.max(FILE_PREVIEW_MIN_WIDTH, Math.round(width)));
-}
-
-function loadFilePreviewWidth(): number {
-  return loadLayoutSize("filePreviewPanelWidth", FILE_PREVIEW_DEFAULT_WIDTH, clampFilePreviewWidth);
-}
-
-function saveFilePreviewWidth(width: number): void {
-  saveLayoutSize("filePreviewPanelWidth", width, clampFilePreviewWidth);
-}
-
-function viewportWidthFallback(): number {
-  if (typeof window === "undefined") return 0;
-  const width = Math.round(window.innerWidth || 0);
-  return Number.isFinite(width) && width > 0 ? width : 0;
-}
-
-function defaultRightDockWidth(): number {
-  const width = viewportWidthFallback();
-  if (width <= 0) return RIGHT_DOCK_DEFAULT_WIDTH;
-  return clampRightDockWidth(width * RIGHT_DOCK_DEFAULT_RATIO);
-}
-
-function loadRightDockWidth(): number {
-  const unified = loadOptionalLayoutSize("rightDockWidth", clampRightDockWidth);
-  if (unified !== null) return unified;
-  const preview = loadOptionalLayoutSize("rightDockPreviewWidth", clampRightDockWidth);
-  const tree = loadOptionalLayoutSize("rightDockTreeWidth", clampRightDockWidth);
-  if (preview !== null && tree !== null) return clampRightDockWidth(Math.max(preview, tree));
-  if (preview !== null) return preview;
-  if (tree !== null) return tree;
-  return defaultRightDockWidth();
-}
-
-function resolveRightDockWidth(mainWidth: number, desiredDockWidth: number): number {
-  const budget = Math.max(0, Math.round(mainWidth) - DOCK_CHAT_MIN_WIDTH - WORKSPACE_RESIZER_WIDTH);
-  if (budget < RIGHT_DOCK_MIN_RENDER_WIDTH) return 0;
-  const desired = Math.min(RIGHT_DOCK_MAX_WIDTH, Math.max(RIGHT_DOCK_MIN_RENDER_WIDTH, Math.round(desiredDockWidth)));
-  return Math.min(budget, desired);
-}
 
 function tabWorkspaceTitle(tab?: TabMeta): string {
   if (!tab) return "Global";
@@ -247,6 +167,7 @@ export default function App() {
     syncActiveTab,
     rewind,
   } = useController();
+  const runtimeReady = useRuntimeReady();
   const { locale, setPref: setLocalePref } = useI18n();
   const t = useT();
   const [modesByTab, setModesByTab] = useState<Record<string, Mode>>({});
@@ -261,26 +182,6 @@ export default function App() {
   const pendingYoloRef = useRef(false);
   const [memView, setMemView] = useState<MemoryView | null>(null);
   const [histView, setHistView] = useState<HistoryViewState | null>(null);
-  const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false);
-  const [dockAnimWidth, setDockAnimWidth] = useState(0);
-  const [dockMotionKey, setDockMotionKey] = useState(0);
-  const [dockClosing, setDockClosing] = useState(false);
-  const dockCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const targetDockWidthRef = useRef(0);
-  const [terminalPanelShown, setTerminalPanelShown] = useState(false);
-  const [terminalAnimHeight, setTerminalAnimHeight] = useState(0);
-  const [terminalMotionKey, setTerminalMotionKey] = useState(0);
-  const terminalCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [rightDockWidth, setRightDockWidth] = useState(loadRightDockWidth);
-  const [dockResizing, setDockResizing] = useState(false);
-  const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
-  const [filePreviewDiff, setFilePreviewDiff] = useState<ToolFileDiff | null>(null);
-  const [filePreviewWidth, setFilePreviewWidth] = useState(loadFilePreviewWidth);
-  const [filePreviewExpanded, setFilePreviewExpanded] = useState(false);
-  const [filePreviewComposerOpen, setFilePreviewComposerOpen] = useState(false);
-  const [filePreviewResizing, setFilePreviewResizing] = useState(false);
-  const [browserPreviewExpanded, setBrowserPreviewExpanded] = useState(false);
-  const [rightDockMode, setRightDockMode] = useState<RightDockTab>(() => loadHubLastTab("context"));
   const [projectRevision, setProjectRevision] = useState(0);
   const [composerInsertRequest, setComposerInsertRequest] = useState<ComposerInsertRequest | null>(null);
   const [appMode, setAppMode] = useState<AppMode>(() => getDefaultAppMode());
@@ -299,6 +200,63 @@ export default function App() {
   const topicRenameCommitHandledRef = useRef(false);
   const codeWorkspaceRestoredRef = useRef(false);
   const prevAppModeRef = useRef<AppMode>(appMode);
+  const {
+    terminalOpen,
+    terminalTabs,
+    terminalPanelShown,
+    terminalAnimHeight,
+    terminalMotionKey,
+    setActiveTerminalId,
+    resolvedActiveTerminalId,
+    activeTerminalTab,
+    openNewTerminal,
+    closeTerminalPanel,
+    closeTerminalTab,
+    setSavedTerminalHeight,
+  } = useTerminalPanel({ notice });
+  const {
+    layoutRef,
+    layoutStyle,
+    workspacePanelOpen,
+    dockAnimWidth,
+    dockMotionKey,
+    dockClosing,
+    dockResizing,
+    filePreviewPath,
+    filePreviewDiff,
+    filePreviewExpanded,
+    filePreviewComposerOpen,
+    filePreviewResizing,
+    rightDockMode,
+    browserPreviewExpanded,
+    filePreviewOpen,
+    showRightDock,
+    closeWorkspacePanel,
+    openDockTab,
+    openFilePreview,
+    openActionFilePreview,
+    closeFilePreview,
+    exitExpandedPreviewComposer,
+    toggleFilePreviewExpanded,
+    toggleBrowserPreviewExpanded,
+    togglePreviewTerminal,
+    togglePreviewMode,
+    openDockHub,
+    startDockResize,
+    startFilePreviewResize,
+    resizeFilePreviewWithKeyboard,
+    resetFilePreviewWidthFromDock,
+    clearFilePreviewComposerOpen,
+    addWorkspaceTextToComposer,
+  } = useWorkbenchDock({
+    appMode,
+    projectDrawerOpen,
+    terminalOpen,
+    cwd: state.meta?.cwd,
+    openNewTerminal,
+    closeTerminalPanel,
+    setComposerInsertRequest,
+  });
 
   // Persist window geometry across launches.
   useWindowStatePersistence();
@@ -373,22 +331,10 @@ export default function App() {
     return () => window.removeEventListener(GITHUB_CLI_SETTINGS_EVENT, openGitHubCliSettings);
   }, []);
   const [pendingPlanRevision, setPendingPlanRevision] = useState<string | null>(null);
-  const [terminalOpen, setTerminalOpen] = useState(false);
-  const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
-  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
-  const [terminalHeight, setTerminalHeight] = useState(() =>
-    loadLayoutSize("terminalPanelHeight", TERMINAL_PANEL_DEFAULT_HEIGHT, clampTerminalPanelHeight),
-  );
   const [footerHeight, setFooterHeight] = useState(0);
-  const layoutRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLDivElement>(null);
-  const terminalTabKeyRef = useRef(0);
-  const [layoutWidth, setLayoutWidth] = useState(0);
-  const preferredWorkspacePanelWidth = rightDockWidth;
-  const filePreviewOpen = filePreviewPath !== null;
   const chatMode = appMode === "code";
   const showWorkbenchFooter = chatMode || appMode === "write";
-  const showRightDock = chatMode || appMode === "write";
 
   useEffect(() => {
     if (chatMode) return;
@@ -404,104 +350,6 @@ export default function App() {
   useEffect(() => {
     setComposerInsertRequest(null);
   }, [appMode]);
-
-  const sidebarRenderWidth = projectDrawerOpen
-    ? STUDIO_RAIL_WIDTH + STUDIO_DRAWER_WIDTH
-    : STUDIO_RAIL_WIDTH;
-  const measuredMainWidth = layoutWidth > 0
-    ? Math.max(0, layoutWidth - sidebarRenderWidth)
-    : CHAT_MIN_WIDTH + WORKSPACE_RESIZER_WIDTH + preferredWorkspacePanelWidth;
-  const studioToolRailWidth = chatMode ? 52 : 0;
-  const filePreviewRenderWidth = filePreviewOpen
-    ? clampFilePreviewWidth(
-        filePreviewExpanded
-          ? Math.min(
-              FILE_PREVIEW_MAX_WIDTH,
-              Math.max(
-                filePreviewWidth > 0 ? filePreviewWidth : preferredWorkspacePanelWidth,
-                Math.round((measuredMainWidth - studioToolRailWidth) * 0.4),
-              ),
-            )
-          : filePreviewWidth > 0
-            ? filePreviewWidth
-            : preferredWorkspacePanelWidth,
-      )
-    : 0;
-  const previewChromeWidth = filePreviewOpen ? filePreviewRenderWidth + WORKSPACE_RESIZER_WIDTH : 0;
-  const chatDockBudget = Math.max(0, measuredMainWidth - studioToolRailWidth - previewChromeWidth);
-  const resolvedWorkspacePanelWidth = workspacePanelOpen
-    ? resolveRightDockWidth(chatDockBudget, preferredWorkspacePanelWidth)
-    : preferredWorkspacePanelWidth;
-  const baseWorkspacePanelWidth = workspacePanelOpen
-    ? Math.max(resolvedWorkspacePanelWidth, RIGHT_DOCK_MIN_RENDER_WIDTH)
-    : 0;
-  const workspacePanelRenderWidth =
-    workspacePanelOpen && browserPreviewExpanded
-      ? clampRightDockWidth(Math.min(RIGHT_DOCK_MAX_WIDTH, Math.max(baseWorkspacePanelWidth, 480)))
-      : baseWorkspacePanelWidth;
-  targetDockWidthRef.current = workspacePanelRenderWidth;
-  const dockGridWidth = 0;
-
-  useEffect(() => {
-    if (!workspacePanelOpen) {
-      return;
-    }
-    if (dockCloseTimerRef.current) {
-      clearTimeout(dockCloseTimerRef.current);
-      dockCloseTimerRef.current = null;
-    }
-    setDockClosing(false);
-    setDockMotionKey((key) => key + 1);
-    setDockAnimWidth(0);
-    const id = window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        setDockAnimWidth(targetDockWidthRef.current);
-      });
-    });
-    return () => window.cancelAnimationFrame(id);
-  }, [workspacePanelOpen]);
-
-  useEffect(() => {
-    if (!workspacePanelOpen || dockAnimWidth <= 0) return;
-    setDockAnimWidth(workspacePanelRenderWidth);
-  }, [workspacePanelRenderWidth, workspacePanelOpen, dockAnimWidth]);
-
-  useEffect(() => {
-    if (!terminalOpen) {
-      if (!terminalPanelShown) return;
-      setTerminalAnimHeight(0);
-      if (terminalCloseTimerRef.current) clearTimeout(terminalCloseTimerRef.current);
-      terminalCloseTimerRef.current = setTimeout(() => {
-        setTerminalPanelShown(false);
-        terminalCloseTimerRef.current = null;
-      }, MOTION_PANEL_MS);
-      return () => {
-        if (terminalCloseTimerRef.current) {
-          clearTimeout(terminalCloseTimerRef.current);
-          terminalCloseTimerRef.current = null;
-        }
-      };
-    }
-    if (terminalTabs.length === 0) return;
-    if (terminalCloseTimerRef.current) {
-      clearTimeout(terminalCloseTimerRef.current);
-      terminalCloseTimerRef.current = null;
-    }
-    setTerminalMotionKey((key) => key + 1);
-    setTerminalPanelShown(true);
-    setTerminalAnimHeight(0);
-    const id = window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        setTerminalAnimHeight(terminalHeight);
-      });
-    });
-    return () => window.cancelAnimationFrame(id);
-  }, [terminalOpen, terminalTabs.length]);
-
-  useEffect(() => {
-    if (!terminalOpen || !terminalPanelShown || terminalAnimHeight <= 0) return;
-    setTerminalAnimHeight(terminalHeight);
-  }, [terminalHeight, terminalOpen, terminalPanelShown, terminalAnimHeight]);
 
   const activeTab = useMemo(
     () => tabMetas.find((tab) => tab.id === activeTabId) ?? tabMetas.find((tab) => tab.active),
@@ -685,245 +533,6 @@ export default function App() {
 
   const closeMemory = useCallback(() => setMemView(null), []);
 
-  const closeWorkspacePanel = useCallback(() => {
-    if (!workspacePanelOpen) {
-      return;
-    }
-    setDockClosing(true);
-    setDockAnimWidth(0);
-    setBrowserPreviewExpanded(false);
-    if (dockCloseTimerRef.current) clearTimeout(dockCloseTimerRef.current);
-    dockCloseTimerRef.current = setTimeout(() => {
-      setWorkspacePanelOpen(false);
-      setDockClosing(false);
-      setFilePreviewPath(null);
-      dockCloseTimerRef.current = null;
-    }, MOTION_PANEL_MS);
-  }, [workspacePanelOpen]);
-
-  const browserPreviewOpen = workspacePanelOpen && rightDockMode === "browser";
-
-  useEffect(() => {
-    savePreviewPanelState({ terminal: terminalOpen, browser: browserPreviewOpen });
-  }, [browserPreviewOpen, terminalOpen]);
-
-  const closeTerminalPanel = useCallback(() => {
-    closeAllTerminals();
-    setTerminalTabs([]);
-    setActiveTerminalId(null);
-    setTerminalOpen(false);
-  }, []);
-
-  const openNewTerminal = useCallback(async () => {
-    const result = await startTerminal();
-    if (result.err) {
-      notice(result.err);
-      return;
-    }
-    const shellName = result.shell.split(/[/\\]/).pop() || result.shell;
-    terminalTabKeyRef.current += 1;
-    const clientKey = `terminal-tab-${terminalTabKeyRef.current}`;
-    setTerminalTabs((current) => {
-      const title =
-        current.some((tab) => tab.title === shellName) ? `${shellName} ${current.length + 1}` : shellName;
-      return [...current, { id: result.id, clientKey, title, shell: result.shell }];
-    });
-    setActiveTerminalId(result.id);
-    setTerminalOpen(true);
-  }, [notice]);
-
-  const resolvedActiveTerminalId = useMemo(() => {
-    if (terminalTabs.length === 0) return null;
-    if (activeTerminalId && terminalTabs.some((tab) => tab.id === activeTerminalId)) {
-      return activeTerminalId;
-    }
-    return terminalTabs[terminalTabs.length - 1]?.id ?? null;
-  }, [activeTerminalId, terminalTabs]);
-
-  useEffect(() => {
-    if (!resolvedActiveTerminalId || resolvedActiveTerminalId === activeTerminalId) return;
-    setActiveTerminalId(resolvedActiveTerminalId);
-  }, [activeTerminalId, resolvedActiveTerminalId]);
-
-  const closeTerminalTab = useCallback((id: string, index?: number) => {
-    setTerminalTabs((current) => {
-      const removeAt =
-        typeof index === "number" && index >= 0 && index < current.length && current[index]?.id === id
-          ? index
-          : current.findIndex((tab) => tab.id === id);
-      if (removeAt === -1) return current;
-      const next = [...current.slice(0, removeAt), ...current.slice(removeAt + 1)];
-      if (!next.some((tab) => tab.id === id)) {
-        closeTerminal(id);
-      }
-      if (next.length === 0) {
-        setTerminalOpen(false);
-        setActiveTerminalId(null);
-      } else {
-        setActiveTerminalId((active) => {
-          if (active !== id) return active;
-          const fallbackIndex = Math.min(removeAt, next.length - 1);
-          return next[fallbackIndex]!.id;
-        });
-      }
-      return next;
-    });
-  }, []);
-
-  const closeBrowserPreview = useCallback(() => {
-    setBrowserPreviewExpanded(false);
-    if (browserPreviewOpen) {
-      closeWorkspacePanel();
-    }
-  }, [browserPreviewOpen, closeWorkspacePanel]);
-
-  const toggleBrowserPreviewExpanded = useCallback(() => {
-    setBrowserPreviewExpanded((value) => !value);
-  }, []);
-
-  const openDockTab = useCallback(
-    (tab: RightDockTab, options?: { toggle?: boolean }) => {
-      saveDockTabSelection(tab);
-      const shouldToggle = options?.toggle !== false;
-      if (shouldToggle && workspacePanelOpen && rightDockMode === tab) {
-        closeWorkspacePanel();
-        return;
-      }
-      if (tab !== "browser") {
-        setBrowserPreviewExpanded(false);
-      }
-      setRightDockMode(tab);
-      setWorkspacePanelOpen(true);
-    },
-    [closeWorkspacePanel, rightDockMode, workspacePanelOpen],
-  );
-
-  const openFilePreview = useCallback(
-    (path: string, dockTab: RightDockTab = "files") => {
-      const width = clampFilePreviewWidth(rightDockWidth);
-      setFilePreviewWidth(width);
-      saveFilePreviewWidth(width);
-      setFilePreviewExpanded(false);
-      setFilePreviewComposerOpen(false);
-      setFilePreviewPath(path);
-      setFilePreviewDiff(null);
-      openDockTab(dockTab, { toggle: false });
-    },
-    [openDockTab, rightDockWidth],
-  );
-
-  const openActionFilePreview = useCallback(
-    (req: ActionFileOpenRequest) => {
-      const width = clampFilePreviewWidth(rightDockWidth);
-      setFilePreviewWidth(width);
-      saveFilePreviewWidth(width);
-      setFilePreviewExpanded(false);
-      setFilePreviewComposerOpen(false);
-      setFilePreviewPath(req.path);
-      setFilePreviewDiff(req.diff ?? null);
-    },
-    [rightDockWidth],
-  );
-
-  const closeFilePreview = useCallback(() => {
-    setFilePreviewPath(null);
-    setFilePreviewDiff(null);
-    setFilePreviewExpanded(false);
-    setFilePreviewComposerOpen(false);
-  }, []);
-
-  const exitExpandedPreviewComposer = useCallback(() => {
-    setFilePreviewComposerOpen(false);
-    setFilePreviewExpanded(false);
-  }, []);
-
-  const toggleFilePreviewExpanded = useCallback(() => {
-    setFilePreviewExpanded((value) => {
-      if (value) setFilePreviewComposerOpen(false);
-      return !value;
-    });
-  }, []);
-
-  const togglePreviewTerminal = useCallback(() => {
-    if (terminalOpen) {
-      closeTerminalPanel();
-      return;
-    }
-    void openNewTerminal();
-  }, [closeTerminalPanel, openNewTerminal, terminalOpen]);
-
-  const openPreviewBrowser = useCallback(() => {
-    openDockTab("browser", { toggle: false });
-    savePreviewPanelState({ terminal: terminalOpen, browser: true });
-  }, [openDockTab, terminalOpen]);
-
-  const togglePreviewBrowser = useCallback(() => {
-    if (browserPreviewOpen) {
-      closeBrowserPreview();
-      return;
-    }
-    openPreviewBrowser();
-  }, [browserPreviewOpen, closeBrowserPreview, openPreviewBrowser]);
-
-  const deactivatePreview = useCallback(() => {
-    if (terminalOpen) {
-      closeTerminalPanel();
-    }
-    if (browserPreviewOpen) {
-      closeBrowserPreview();
-    }
-  }, [browserPreviewOpen, closeBrowserPreview, closeTerminalPanel, terminalOpen]);
-
-  const togglePreviewMode = useCallback(
-    (mode: PreviewMode) => {
-      if (mode === "terminal") {
-        togglePreviewTerminal();
-        return;
-      }
-      togglePreviewBrowser();
-    },
-    [togglePreviewBrowser, togglePreviewTerminal],
-  );
-
-  const openDockHub = useCallback(
-    (hub: DockHub) => {
-      if (hub === "preview") {
-        if (browserPreviewOpen) {
-          deactivatePreview();
-          return;
-        }
-        if (isPreviewHubActive(terminalOpen, workspacePanelOpen, rightDockMode)) {
-          deactivatePreview();
-          return;
-        }
-        openPreviewBrowser();
-        const saved = loadPreviewPanelState();
-        if (saved.terminal) {
-          void openNewTerminal();
-        }
-        return;
-      }
-
-      if (workspacePanelOpen && dockHubForTab(rightDockMode) === hub) {
-        closeWorkspacePanel();
-        return;
-      }
-      const tab = resolveHubTab(hub);
-      openDockTab(tab, { toggle: false });
-    },
-    [
-      browserPreviewOpen,
-      closeWorkspacePanel,
-      deactivatePreview,
-      openDockTab,
-      openNewTerminal,
-      openPreviewBrowser,
-      rightDockMode,
-      terminalOpen,
-      workspacePanelOpen,
-    ],
-  );
-
   const clearCodeReview = useCallback(() => {
     setCodeReview((current) => ({ status: "idle", mode: current.mode, scope: current.scope }));
   }, []);
@@ -987,93 +596,25 @@ export default function App() {
   // custom commands, bare /model and the other read-only management verbs
   // (/skill, /hooks, /mcp) — goes straight to Submit, which the controller
   // resolves (a turn, or a listing Notice).
-  const handleSend = useCallback(
-    async (displayText: string, submitText = displayText) => {
-      const trimmed = displayText.trim();
-      // "!<cmd>" runs a shell command directly, bypassing the model.
-      if (trimmed.startsWith("!")) {
-        const cmd = trimmed.slice(1).trim();
-        if (!cmd) {
-          notice("usage: !<command>  (e.g. !ls -la)");
-          return;
-        }
-        runShell(cmd);
-        return;
-      }
-      const model = /^\/model\s+(\S+)$/.exec(trimmed);
-      if (model) {
-        void switchModel(model[1]);
-        return;
-      }
-      if (trimmed === "/memory") {
-        void openMemory();
-        return;
-      }
-      const goal = /^\/goal\s+(.+)$/.exec(trimmed);
-      if (goal) {
-        setGoalLabel(goal[1].trim());
-        notice(t("goal.set", { label: goal[1].trim() }));
-        return;
-      }
-      const btw = /^\/btw\s+(.+)$/.exec(trimmed);
-      if (btw) {
-        const text = btw[1].trim();
-        if (text) void dispatchSideChatRef.current(text);
-        notice(t("sideChat.opened"));
-        return;
-      }
-      if (trimmed === "/review" || trimmed === "/review run") {
-        setAppMode("code");
-        openDockTab("changes", { toggle: false });
-        if (trimmed === "/review run") {
-          void app.WorkspaceChanges()
-            .then((view) => {
-              const paths = view.files.map((file) => file.path);
-              void runCodeReview("standard", "all", paths);
-            })
-            .catch((err) => {
-              notice(t("common.operationFailed", { msg: String((err as Error)?.message ?? err) }), "warn");
-            });
-        } else {
-          notice(t("slash.reviewOpened"));
-        }
-        return;
-      }
-      if (trimmed === "/sdd") {
-        setSddOpen(true);
-        notice(t("slash.sddOpened"));
-        return;
-      }
-      const theme = /^\/theme(?:\s+(\S+))?$/.exec(trimmed);
-      if (theme) {
-        const arg = theme[1]?.toLowerCase();
-        if (!arg) {
-          notice(t("settings.themeCurrentSimple", { theme: getTheme() }));
-          return;
-        }
-        if (isThemeMode(arg)) {
-          const next = arg;
-          const nextStyle = normalizeThemeStyleForTheme(getThemeStyle(), next);
-          await app.SetDesktopAppearance(next, nextStyle);
-          applyTheme(next, nextStyle, { syncSurfaces: true });
-          notice(t("settings.themeChangedSimple", { theme: next }));
-          return;
-        }
-        notice(t("settings.themeUnknown", { name: arg }), "warn");
-        return;
-      }
-      await syncModeToController(mode);
-      const outbound =
-        appMode === "write"
-          ? applyWriteModeSkill(trimmed, submitText.trim())
-          : { displayText: trimmed, submitText: submitText.trim() };
-      send(outbound.displayText, outbound.submitText);
-      if (filePreviewComposerOpen) {
-        exitExpandedPreviewComposer();
-      }
-    },
-    [switchModel, openMemory, syncModeToController, mode, send, runShell, notice, t, setGoalLabel, setSideConversationCount, openDockTab, setSddOpen, setAppMode, filePreviewComposerOpen, exitExpandedPreviewComposer, appMode, runCodeReview],
-  );
+  const handleSend = useDesktopSendRouter({
+    appMode,
+    mode,
+    filePreviewComposerOpen,
+    t,
+    notice,
+    runShell,
+    switchModel,
+    openMemory,
+    setGoalLabel,
+    dispatchSideChat: (text) => dispatchSideChatRef.current(text),
+    setAppMode,
+    openDockTab,
+    runCodeReview,
+    setSddOpen,
+    syncModeToController,
+    send,
+    exitExpandedPreviewComposer,
+  });
 
   useEffect(() => {
     return onProjectTreeChanged(() => {
@@ -1113,10 +654,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    setFilePreviewPath(null);
-  }, [state.meta?.cwd]);
-
-  useEffect(() => {
     const el = footerRef.current;
     if (!el || typeof ResizeObserver === "undefined") {
       setFooterHeight(0);
@@ -1129,19 +666,6 @@ export default function App() {
     return () => observer.disconnect();
   }, [filePreviewComposerOpen, filePreviewExpanded, chatMode, appMode, terminalOpen, state.approval, state.ask, showWorkbenchFooter]);
 
-  useEffect(() => {
-    const el = layoutRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const update = () => {
-      const width = el.getBoundingClientRect().width;
-      if (width && Number.isFinite(width)) setLayoutWidth(Math.round(width));
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
   const startNewSession = useCallback(async () => {
     await newSession();
   }, [newSession]);
@@ -1149,12 +673,6 @@ export default function App() {
   const toggleTerminal = useCallback(() => {
     togglePreviewTerminal();
   }, [togglePreviewTerminal]);
-
-  const setSavedTerminalHeight = useCallback((height: number) => {
-    const next = clampTerminalPanelHeight(height);
-    setTerminalHeight(next);
-    saveLayoutSize("terminalPanelHeight", next, clampTerminalPanelHeight);
-  }, []);
 
   useEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent) => {
@@ -1176,120 +694,6 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleProjectDrawer, toggleTerminal, openNewTerminal]);
 
-  const setSavedFilePreviewWidth = useCallback((width: number) => {
-    const next = clampFilePreviewWidth(width);
-    setFilePreviewWidth(next);
-    saveFilePreviewWidth(next);
-  }, []);
-
-  const setSavedDockWidth = useCallback((width: number) => {
-    const next = clampRightDockWidth(width);
-    setRightDockWidth(next);
-    saveLayoutSize("rightDockWidth", next, clampRightDockWidth);
-  }, []);
-
-  const startDockResize = useCallback(
-    (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (!workspacePanelOpen) return;
-      event.preventDefault();
-      setBrowserPreviewExpanded(false);
-      setDockResizing(true);
-      const startX = event.clientX;
-      const startWidth = rightDockWidth;
-      let nextWidth = startWidth;
-      const onMove = (moveEvent: PointerEvent) => {
-        const delta = moveEvent.clientX - startX;
-        nextWidth = clampRightDockWidth(startWidth + delta);
-        setRightDockWidth(nextWidth);
-      };
-      const onDone = () => {
-        setSavedDockWidth(nextWidth);
-        setDockResizing(false);
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onDone);
-        window.removeEventListener("pointercancel", onDone);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onDone);
-      window.addEventListener("pointercancel", onDone);
-    },
-    [rightDockWidth, setSavedDockWidth, workspacePanelOpen],
-  );
-
-  const startFilePreviewResize = useCallback(
-    (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (!filePreviewOpen) return;
-      event.preventDefault();
-      setFilePreviewExpanded(false);
-      setFilePreviewResizing(true);
-      const startX = event.clientX;
-      const startWidth = filePreviewWidth;
-      let nextWidth = startWidth;
-      const onMove = (moveEvent: PointerEvent) => {
-        const delta = moveEvent.clientX - startX;
-        nextWidth = clampFilePreviewWidth(startWidth + delta);
-        setFilePreviewWidth(nextWidth);
-      };
-      const onDone = () => {
-        setSavedFilePreviewWidth(nextWidth);
-        setFilePreviewResizing(false);
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onDone);
-        window.removeEventListener("pointercancel", onDone);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onDone);
-      window.addEventListener("pointercancel", onDone);
-    },
-    [filePreviewOpen, filePreviewWidth, setSavedFilePreviewWidth],
-  );
-
-  const resizeFilePreviewWithKeyboard = useCallback(
-    (event: KeyboardEvent<HTMLButtonElement>) => {
-      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-        event.preventDefault();
-        setFilePreviewExpanded(false);
-        setSavedFilePreviewWidth(filePreviewWidth + (event.key === "ArrowRight" ? 16 : -16));
-      } else if (event.key === "Home") {
-        event.preventDefault();
-        setFilePreviewExpanded(false);
-        setSavedFilePreviewWidth(FILE_PREVIEW_MIN_WIDTH);
-      } else if (event.key === "End") {
-        event.preventDefault();
-        setFilePreviewExpanded(false);
-        setSavedFilePreviewWidth(FILE_PREVIEW_MAX_WIDTH);
-      }
-    },
-    [filePreviewWidth, setSavedFilePreviewWidth],
-  );
-
-  const layoutStyle = useMemo(
-    () =>
-      ({
-        "--sidebar-render-width": `${sidebarRenderWidth}px`,
-        "--file-preview-render-width": `${filePreviewRenderWidth}px`,
-        "--dock-render-width": `${dockGridWidth}px`,
-      }) as CSSProperties,
-    [dockGridWidth, filePreviewRenderWidth, sidebarRenderWidth, projectDrawerOpen],
-  );
-
-  const addWorkspaceTextToComposer = useCallback((text: string, replace = false) => {
-    setComposerInsertRequest({ id: Date.now(), text, replace: replace || undefined });
-    if (filePreviewExpanded) {
-      setFilePreviewComposerOpen(true);
-      return;
-    }
-    setFilePreviewComposerOpen(false);
-  }, [filePreviewExpanded]);
-
   const addWriteContextToComposer = useCallback((context: ComposerWriteContext) => {
     if (appMode !== "write") return;
     setComposerInsertRequest({
@@ -1297,8 +701,8 @@ export default function App() {
       writeContext: context,
       replace: true,
     });
-    setFilePreviewComposerOpen(false);
-  }, [appMode]);
+    clearFilePreviewComposerOpen();
+  }, [appMode, clearFilePreviewComposerOpen]);
 
   const pickWriteWorkspace = useCallback(async () => {
     const picked = await pickWorkspace();
@@ -1567,10 +971,6 @@ export default function App() {
       ? activeTab?.workspaceRoot || getStoredCodeWorkspaceRoot() || undefined
       : undefined;
   const showTopbarWorkspace = isUsableCodeWorkspaceRoot(topbarWorkspacePath);
-  const activeTerminalTab = useMemo(() => {
-    if (!resolvedActiveTerminalId) return null;
-    return terminalTabs.find((tab) => tab.id === resolvedActiveTerminalId) ?? null;
-  }, [resolvedActiveTerminalId, terminalTabs]);
 
   const handleSideSend = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -1716,10 +1116,27 @@ export default function App() {
     [saveDoc, fetchMemory],
   );
 
+  const openOnboardingManual = useCallback(() => {
+    setOnboardingSession((session) => session + 1);
+    setOnboardingManual(true);
+  }, []);
+
+  const showConnectionRecovery = Boolean(
+    state.meta?.startupErr && !onboardingManual && onboardingGate !== true,
+  );
+
+  const onboardingProbePending = onboardingGate === null && !onboardingManual;
+
   return (
     <ShellExpandProvider>
       <div className="app">
       <ShellHotkeys />
+      {onboardingProbePending ? (
+        <div className="loading-screen loading-screen--gate">
+          <div className="loading-screen__spinner" />
+          <span className="loading-screen__text">{t("onboarding.checking")}</span>
+        </div>
+      ) : (
       <div
         ref={layoutRef}
         className={[
@@ -1817,6 +1234,7 @@ export default function App() {
                   <MessageTimeline
                     tabId={activeTabId}
                     items={deferredItems}
+                    pendingUser={state.pendingUser}
                     live={state.live}
                     usage={state.usage}
                     sessionCost={state.sessionCost}
@@ -1830,6 +1248,8 @@ export default function App() {
                     onOpenActionFile={openActionFilePreview}
                     onPrompt={handleSend}
                     onRewind={(turn, scope) => void rewind(turn, scope)}
+                    showConnectionRecovery={showConnectionRecovery}
+                    onOpenConnectionSetup={openOnboardingManual}
                   />
                 ) : (
                   <ModeWorkspaceCenter
@@ -1890,6 +1310,9 @@ export default function App() {
                 <div className="workbench__footer" ref={footerRef}>
                   <div className={`workbench__footer-stack${terminalOpen ? " workbench__footer-stack--terminal-open" : ""}`}>
                     <div className="workbench__composer-zone">
+                      {showConnectionRecovery ? (
+                        <ConnectionRecoveryBanner onOpenSetup={openOnboardingManual} />
+                      ) : null}
                       <FloatingComposer
                         key={appMode === "write" ? "write" : "code"}
                         composerSurface={appMode === "write" ? "write" : "code"}
@@ -1908,7 +1331,7 @@ export default function App() {
                         onPickFolder={composerPickFolder}
                         onRemoveWorkspace={removeWorkspace}
                         insertRequest={composerInsertRequest}
-                        disabled={state.meta?.ready === false || state.approval != null || state.ask != null}
+                        disabled={isComposerSendDisabled(state.meta, state.approval, state.ask, runtimeReady)}
                         decisionPending={state.approval != null || state.ask != null}
                         ready={state.meta?.ready === true}
                         turnStartAt={state.turnStartAt}
@@ -1957,7 +1380,7 @@ export default function App() {
                   aria-label={t("filePreview.resize")}
                   onPointerDown={startFilePreviewResize}
                   onKeyDown={resizeFilePreviewWithKeyboard}
-                  onDoubleClick={() => setSavedFilePreviewWidth(clampFilePreviewWidth(rightDockWidth))}
+                  onDoubleClick={resetFilePreviewWidthFromDock}
                 />
                 <FilePreviewPanel
                   path={filePreviewPath}
@@ -2029,6 +1452,7 @@ export default function App() {
           </div>
         </div>
       </div>
+      )}
 
       {memView !== null && (
         <Suspense fallback={null}>

@@ -35,6 +35,9 @@ func TestConfineUnconfinedWhenNoRoots(t *testing.T) {
 	if err := confine(nil, "/anywhere/at/all"); err != nil {
 		t.Errorf("empty roots should be unconfined, got %v", err)
 	}
+	if err := ConfineRead(nil, "/anywhere/at/all"); err != nil {
+		t.Errorf("empty read roots should be unconfined, got %v", err)
+	}
 }
 
 func TestConfineInsideAndOutside(t *testing.T) {

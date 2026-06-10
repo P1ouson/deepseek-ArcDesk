@@ -140,6 +140,16 @@ func (s *stubApprover) Approve(ctx context.Context, tool, subject string, args j
 	return s.allow, s.remember, s.err
 }
 
+func TestGateHasApprover(t *testing.T) {
+	if permissionGate := NewGate(New("ask", nil, nil, nil), nil); permissionGate.HasApprover() {
+		t.Fatal("nil approver gate should report false")
+	}
+	ap := &stubApprover{}
+	if g := NewGate(New("ask", nil, nil, nil), ap); !g.HasApprover() {
+		t.Fatal("interactive gate should report true")
+	}
+}
+
 func TestGateHeadlessAllowsAsk(t *testing.T) {
 	// No approver → Ask resolves to allow (autonomy preserved), deny still blocks.
 	g := NewGate(New("ask", nil, nil, []string{"bash(rm*)"}), nil)

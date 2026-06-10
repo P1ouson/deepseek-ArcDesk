@@ -162,8 +162,9 @@ func (t *TaskTool) Execute(ctx context.Context, args json.RawMessage) (string, e
 		if label == "" {
 			label = "task"
 		}
+		subGate := EffectiveSubagentGate(ctx, t.gate)
 		job := jm.Start("task", label, func(jobCtx context.Context, _ io.Writer) (string, error) {
-			return t.runSub(jobCtx, p.Prompt, subReg, nested, maxSteps)
+			return t.runSubWithGate(jobCtx, p.Prompt, subReg, nested, maxSteps, subGate)
 		})
 		return fmt.Sprintf("Started background task %q (%s). It runs across turns; collect its final answer with wait (or wait will return it once done), and you'll be notified when it finishes.", job.ID, label), nil
 	}
@@ -208,11 +209,15 @@ func FilterRegistry(parent *tool.Registry, names []string, exclude ...string) *t
 // sink, and returns its final assistant answer. Shared by the foreground and
 // background paths.
 func (t *TaskTool) runSub(ctx context.Context, prompt string, subReg *tool.Registry, sink event.Sink, maxSteps int) (string, error) {
+	return t.runSubWithGate(ctx, prompt, subReg, sink, maxSteps, EffectiveSubagentGate(ctx, t.gate))
+}
+
+func (t *TaskTool) runSubWithGate(ctx context.Context, prompt string, subReg *tool.Registry, sink event.Sink, maxSteps int, gate Gate) (string, error) {
 	return RunSubAgent(ctx, t.prov, subReg, t.sysPrompt, prompt, Options{
 		MaxSteps:          maxSteps,
 		Temperature:       t.temperature,
 		Pricing:           t.pricing,
-		Gate:              t.gate,
+		Gate:              gate,
 		ContextWindow:     t.contextWindow,
 		SoftCompactRatio:  t.softCompactRatio,
 		CompactRatio:      t.compactRatio,

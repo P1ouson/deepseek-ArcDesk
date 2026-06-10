@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -30,6 +31,7 @@ import (
 	"arcdesk/internal/event"
 	"arcdesk/internal/fileref"
 	fileenc "arcdesk/internal/fileutil/encoding"
+	"arcdesk/internal/hook"
 	"arcdesk/internal/i18n"
 	"arcdesk/internal/mcpdiag"
 	"arcdesk/internal/memory"
@@ -72,7 +74,10 @@ type App struct {
 	sched     *taskScheduler
 	clawBridge *clawBridge
 	mobileDecision *mobileDecisionStore
-	term      *terminalManager
+	decisionRoutes *decisionRouteStore
+	clawRunMu      sync.Mutex
+	clawRunCtrl    *control.Controller
+	term           *terminalManager
 }
 
 // NewApp constructs the bound object. Tabs are restored in startup from the
@@ -82,6 +87,7 @@ func NewApp() *App {
 		tabs:           map[string]*WorkspaceTab{},
 		term:           newTerminalManager(),
 		mobileDecision: newMobileDecisionStore(),
+		decisionRoutes: newDecisionRouteStore(),
 	}
 }
 
@@ -312,30 +318,38 @@ func (a *App) domReady(_ context.Context) {
 	runtime.WindowShow(a.ctx)
 }
 
-// --- bound command surface (frontend �?controller) ---
-// Each method guards on a nil controller so a pre-startup or failed-build call is
-// a no-op, never a panic.
+// --- bound command surface (frontend → controller) ---
+// Each method guards on a nil controller so a pre-startup or failed-build call
+// returns an error instead of panicking.
+
+var errControllerNotReady = errors.New("controller not ready")
 
 // Submit runs raw user input as a turn; slash commands and @-references are
 // resolved by the controller. Output arrives asynchronously on eventChannel.
 func (a *App) Submit(input string) {
-	a.SubmitToTab("", input)
+	_ = a.SubmitToTab("", input)
 }
 
-func (a *App) SubmitToTab(tabID, input string) {
+func (a *App) SubmitToTab(tabID, input string) error {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "/effort" || strings.HasPrefix(trimmed, "/effort ") {
 		a.runEffortCommandForTab(tabID, trimmed)
-		return
+		return nil
 	}
-	if ctrl := a.ctrlByTabID(tabID); ctrl != nil {
-		ctrl.Submit(input)
+	ctrl := a.ctrlByTabID(tabID)
+	if ctrl == nil {
+		return errControllerNotReady
 	}
+	ctrl.Submit(input)
+	return nil
 }
 
 // RunShell executes a shell command directly (bypassing the model) and streams
 // output as events on eventChannel.
 func (a *App) RunShell(command string) {
+	if !a.confirmRunShell(command) {
+		return
+	}
 	if ctrl := a.activeCtrl(); ctrl != nil {
 		ctrl.RunShell(command)
 	}
@@ -349,6 +363,9 @@ type ShellRunResult struct {
 
 // RunShellQuiet executes a shell command without emitting chat tool events.
 func (a *App) RunShellQuiet(command string) ShellRunResult {
+	if !a.confirmRunShellQuiet(command) {
+		return ShellRunResult{Err: "cancelled"}
+	}
 	if ctrl := a.activeCtrl(); ctrl != nil {
 		r := ctrl.RunShellQuiet(command)
 		return ShellRunResult{Output: r.Output, Err: r.Err}
@@ -388,16 +405,17 @@ func (a *App) CloseTerminal(sessionID string) {
 // SubmitDisplay runs input as a turn while recording a shorter UI-only display
 // string for the saved desktop transcript. The model still receives input.
 func (a *App) SubmitDisplay(display, input string) {
-	a.SubmitDisplayToTab("", display, input)
+	_ = a.SubmitDisplayToTab("", display, input)
 }
 
-func (a *App) SubmitDisplayToTab(tabID, display, input string) {
+func (a *App) SubmitDisplayToTab(tabID, display, input string) error {
 	ctrl := a.ctrlByTabID(tabID)
 	if ctrl == nil {
-		return
+		return errControllerNotReady
 	}
 	_ = recordSessionDisplay(config.SessionDir(), ctrl.SessionPath(), input, display)
 	ctrl.Submit(input)
+	return nil
 }
 
 // Cancel aborts the in-flight turn.
@@ -418,10 +436,39 @@ func (a *App) Approve(id string, allow, session, persist bool) {
 }
 
 func (a *App) ApproveTab(tabID, id string, allow, session, persist bool) {
-	ctrl := a.ctrlByTabID(tabID)
+	resolved, ok := a.resolveDecisionTab(tabID, id)
+	if !ok {
+		return
+	}
+	if resolved == clawDecisionTabID {
+		if ctrl := a.clawRunController(); ctrl != nil {
+			ctrl.Approve(id, allow, session, persist)
+		}
+		a.decisionRoutes.clear(id)
+		return
+	}
+	ctrl := a.ctrlByTabID(resolved)
 	if ctrl != nil {
 		ctrl.Approve(id, allow, session, persist)
 	}
+	a.decisionRoutes.clear(id)
+}
+
+func (a *App) resolveDecisionTab(tabID, decisionID string) (string, bool) {
+	if a == nil {
+		return "", false
+	}
+	active := ""
+	a.mu.RLock()
+	active = a.activeTabID
+	a.mu.RUnlock()
+	if a.decisionRoutes == nil {
+		if tabID != "" {
+			return tabID, true
+		}
+		return active, active != ""
+	}
+	return a.decisionRoutes.resolve(tabID, decisionID, active)
 }
 
 // SetPlanMode toggles read-only plan mode.
@@ -443,6 +490,9 @@ func (a *App) SetMode(mode string) {
 func (a *App) SetModeForTab(tabID, mode string) {
 	normalized := normalizeTabMode(mode)
 	if normalized == "yolo" {
+		if !a.confirmYOLO(true) {
+			return
+		}
 		root := a.activeWorkspaceRoot()
 		if !a.projectSandboxConfigured(root) {
 			return
@@ -493,8 +543,32 @@ func (a *App) AnswerQuestion(id string, answers []QuestionAnswer) {
 }
 
 func (a *App) AnswerQuestionForTab(tabID, id string, answers []QuestionAnswer) {
-	ctrl := a.ctrlByTabID(tabID)
+	resolved, ok := a.resolveDecisionTab(tabID, id)
+	if !ok {
+		return
+	}
+	if resolved == clawDecisionTabID {
+		if ctrl := a.clawRunController(); ctrl != nil {
+			if answers == nil {
+				ctrl.AnswerQuestion(id, nil)
+			} else {
+				out := make([]event.AskAnswer, len(answers))
+				for i, an := range answers {
+					out[i] = event.AskAnswer{QuestionID: an.QuestionID, Selected: an.Selected}
+				}
+				ctrl.AnswerQuestion(id, out)
+			}
+		}
+		a.decisionRoutes.clear(id)
+		return
+	}
+	ctrl := a.ctrlByTabID(resolved)
 	if ctrl == nil {
+		return
+	}
+	if answers == nil {
+		ctrl.AnswerQuestion(id, nil)
+		a.decisionRoutes.clear(id)
 		return
 	}
 	out := make([]event.AskAnswer, len(answers))
@@ -502,6 +576,7 @@ func (a *App) AnswerQuestionForTab(tabID, id string, answers []QuestionAnswer) {
 		out[i] = event.AskAnswer{QuestionID: an.QuestionID, Selected: an.Selected}
 	}
 	ctrl.AnswerQuestion(id, out)
+	a.decisionRoutes.clear(id)
 }
 
 // Compact runs one compaction pass on demand.
@@ -1539,7 +1614,8 @@ func skillRootsView() []SkillRootView {
 	if cfg != nil {
 		custom = cfg.SkillCustomPaths()
 	}
-	st := skill.New(skill.Options{ProjectRoot: cwd, CustomPaths: custom, DisableBuiltins: true, Stderr: io.Discard})
+	projectTrusted := hook.IsTrusted(cwd, "")
+	st := skill.New(skill.Options{ProjectRoot: cwd, CustomPaths: custom, DisableBuiltins: true, ProjectTrusted: true, Stderr: io.Discard})
 	counts := map[string]int{}
 	skillItems := map[string][]SkillRootSkillView{}
 	for _, sk := range st.List() {
@@ -1574,6 +1650,9 @@ func skillRootsView() []SkillRootView {
 			Configured: r.Scope == skill.ScopeCustom && userConfigured[dir],
 			Skills:     counts[dir],
 			SkillItems: skillItems[dir],
+		}
+		if r.Scope == skill.ScopeProject && !projectTrusted && counts[dir] > 0 {
+			view.Warning = "project skills quarantined — trust the project to enable repo-local skills and hooks"
 		}
 		out = append(out, view)
 	}
@@ -1750,6 +1829,9 @@ type MCPServerInput struct {
 
 // AddMCPServer connects a server live and persists it to config (Customize �?MCP �?// Add). Returns the number of tools it exposed.
 func (a *App) AddMCPServer(in MCPServerInput) (int, error) {
+	if !a.confirmAddMCPServer(in.Name) {
+		return 0, fmt.Errorf("MCP server add cancelled")
+	}
 	ctrl := a.activeCtrl()
 	if ctrl == nil {
 		return 0, fmt.Errorf("no active session")
@@ -2425,7 +2507,7 @@ func (a *App) SetModelForTab(tabID, name string) error {
 	tab.Label = newCtrl.Label()
 	a.saveTabsLocked()
 	a.mu.Unlock()
-	newCtrl.EnableInteractiveApproval()
+	enableDesktopInteractive(newCtrl)
 	applyTabModeToController(newCtrl, tab.mode)
 
 	path := agent.ContinueSessionPath(prevPath, newCtrl.SessionDir(), newCtrl.Label())
@@ -2515,7 +2597,7 @@ func (a *App) SetEffortForTab(tabID, level string) error {
 	tab.Ready = true
 	a.saveTabsLocked()
 	a.mu.Unlock()
-	newCtrl.EnableInteractiveApproval()
+	enableDesktopInteractive(newCtrl)
 	applyTabModeToController(newCtrl, tab.mode)
 	path := agent.ContinueSessionPath(prevPath, newCtrl.SessionDir(), newCtrl.Label())
 	if len(carried) > 0 {
@@ -3230,6 +3312,9 @@ func (a *App) NeedsOnboarding() bool {
 // ConnectKey validates apiKey against the balance endpoint, persists it to the
 // global credentials file, and rebuilds the controller so the new key takes effect.
 func (a *App) ConnectKey(apiKey string, baseUrl string) error {
+	if !a.confirmConnectKey() {
+		return fmt.Errorf("cancelled")
+	}
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
 		return fmt.Errorf("key is required")
@@ -3400,6 +3485,9 @@ func (a *App) WriteWriteFile(path string, content string) error {
 
 // DeleteWriteFile removes a document from disk for the write workspace UI.
 func (a *App) DeleteWriteFile(path string) error {
+	if !a.confirmDeleteWriteFile(path) {
+		return fmt.Errorf("cancelled")
+	}
 	if strings.TrimSpace(path) == "" {
 		return fmt.Errorf("path is required")
 	}
@@ -3728,6 +3816,14 @@ func ensureParentDir(path string) error {
 }
 
 func saveJSON(path string, value any) error {
+	return writeJSONFile(path, value, 0o644)
+}
+
+func saveSensitiveJSON(path string, value any) error {
+	return writeJSONFile(path, value, 0o600)
+}
+
+func writeJSONFile(path string, value any, mode os.FileMode) error {
 	if err := ensureParentDir(path); err != nil {
 		return err
 	}
@@ -3735,7 +3831,13 @@ func saveJSON(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	if err := os.WriteFile(path, data, mode); err != nil {
+		return err
+	}
+	if goruntime.GOOS != "windows" {
+		_ = os.Chmod(path, mode)
+	}
+	return nil
 }
 
 func loadStringList(path string) ([]string, error) {

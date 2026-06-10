@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 
 	"arcdesk/internal/config"
@@ -75,6 +76,11 @@ func upsertEnvFile(path, key, value string) error {
 		os.Remove(tmpPath)
 		return err
 	}
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpPath)
 		return err
@@ -82,6 +88,9 @@ func upsertEnvFile(path, key, value string) error {
 	if err := fileutil.ReplaceFile(tmpPath, path); err != nil {
 		os.Remove(tmpPath)
 		return err
+	}
+	if goruntime.GOOS != "windows" {
+		_ = os.Chmod(path, 0o600)
 	}
 	return os.Setenv(key, value)
 }
@@ -106,6 +115,28 @@ func envFileKeys(path string) map[string]bool {
 	return keys
 }
 
+// listPromotableProviderKeys returns provider api_key_env names that resolve in
+// the process environment but are not yet stored in the global credentials file.
+func listPromotableProviderKeys(cfg *config.Config) []string {
+	if cfg == nil {
+		return nil
+	}
+	credPath := credentialsPath()
+	have := envFileKeys(credPath)
+	var keys []string
+	for _, p := range cfg.Providers {
+		env := strings.TrimSpace(p.APIKeyEnv)
+		if env == "" || have[env] {
+			continue
+		}
+		if os.Getenv(env) == "" {
+			continue
+		}
+		keys = append(keys, env)
+	}
+	return keys
+}
+
 // promoteProviderKeysToCredentials copies any configured provider api_key_env that
 // currently resolves (from a project .env, ~/.env, or the OS env) into the global
 // credentials file when it isn't there yet, so a key set for one workspace follows
@@ -113,11 +144,22 @@ func envFileKeys(path string) map[string]bool {
 // credentials file is the single source of truth; a project's own .env is
 // user-owned and left untouched.
 func promoteProviderKeysToCredentials(cfg *config.Config) {
+	promoteProviderKeys(cfg, listPromotableProviderKeys(cfg))
+}
+
+func promoteProviderKeys(cfg *config.Config, envKeys []string) {
+	if cfg == nil || len(envKeys) == 0 {
+		return
+	}
+	want := map[string]bool{}
+	for _, k := range envKeys {
+		want[k] = true
+	}
 	credPath := credentialsPath()
 	have := envFileKeys(credPath)
 	for _, p := range cfg.Providers {
 		env := strings.TrimSpace(p.APIKeyEnv)
-		if env == "" || have[env] {
+		if env == "" || !want[env] || have[env] {
 			continue
 		}
 		val := os.Getenv(env)

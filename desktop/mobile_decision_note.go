@@ -29,6 +29,9 @@ func (a *App) noteAgentDecision(tabID string, e event.Event) {
 			Summary: summary,
 			Tool:    e.Approval.Tool,
 		})
+		if a.decisionRoutes != nil {
+			a.decisionRoutes.register(e.Approval.ID, tabID)
+		}
 	case event.AskRequest:
 		q := ""
 		if len(e.Ask.Questions) > 0 {
@@ -59,7 +62,13 @@ func (a *App) noteAgentDecision(tabID string, e event.Event) {
 			Summary:   q,
 			Questions: questions,
 		})
+		if a.decisionRoutes != nil {
+			a.decisionRoutes.register(e.Ask.ID, tabID)
+		}
 	case event.TurnDone:
 		a.broadcastMobileDecision(nil)
+		if a.decisionRoutes != nil {
+			a.decisionRoutes.clearAll()
+		}
 	}
 }

@@ -251,6 +251,18 @@ func TestApprovalCtxCancel(t *testing.T) {
 	}
 }
 
+func TestEnableDesktopSubagentGateWiresExecutor(t *testing.T) {
+	exec := agent.New(nil, tool.NewRegistry(), agent.NewSession(""), agent.Options{}, event.Discard)
+	c := New(Options{Executor: exec, Sink: event.Discard})
+	if exec.InheritsSubagentGate() {
+		t.Fatal("inherit should be off by default")
+	}
+	c.EnableDesktopSubagentGate()
+	if !exec.InheritsSubagentGate() {
+		t.Fatal("EnableDesktopSubagentGate should enable executor inheritance")
+	}
+}
+
 func TestParseRewind(t *testing.T) {
 	cps := []checkpoint.Meta{
 		{Turn: 0, Prompt: "first"},

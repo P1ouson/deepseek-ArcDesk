@@ -37,7 +37,7 @@ func TestResolveSearch(t *testing.T) {
 }
 
 func TestConfineSearch(t *testing.T) {
-	g, ok := ConfineSearch(SearchSpec{RgPath: "/path/to/rg"}).(grepTool)
+	g, ok := ConfineSearch(SearchSpec{RgPath: "/path/to/rg"}, []string{"/work"}).(grepTool)
 	if !ok || g.rg != "/path/to/rg" {
 		t.Fatalf("ConfineSearch must bind the rg path, got %+v ok=%v", g, ok)
 	}

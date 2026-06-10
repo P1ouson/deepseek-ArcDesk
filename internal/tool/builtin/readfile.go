@@ -27,8 +27,12 @@ func init() { tool.RegisterBuiltin(readFile{}) }
 
 // readFile reads a text file. workDir, when non-empty, is the directory a
 // relative path is resolved against (see resolveIn); the zero value registered
-// at init resolves against the process working directory.
-type readFile struct{ workDir string }
+// at init resolves against the process working directory. roots confines reads
+// when non-empty (see ConfineRead).
+type readFile struct {
+	workDir string
+	roots   []string
+}
 
 const (
 	readFileDefaultLimit = 2000 // lines returned when limit is unset
@@ -67,6 +71,9 @@ func (r readFile) Execute(ctx context.Context, args json.RawMessage) (string, er
 		return "", fmt.Errorf("path is required")
 	}
 	p.Path = resolveIn(r.workDir, p.Path)
+	if err := ConfineRead(r.roots, p.Path); err != nil {
+		return "", err
+	}
 	if p.Offset < 0 {
 		p.Offset = 0
 	}

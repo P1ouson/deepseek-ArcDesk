@@ -8,7 +8,6 @@ import (
 
 	"arcdesk/internal/agent"
 	"arcdesk/internal/event"
-	"arcdesk/internal/i18n"
 )
 
 type blockingRunner struct {
@@ -39,7 +38,7 @@ func TestSendWhileRunningEmitsBusyNotice(t *testing.T) {
 
 	var sawBusy bool
 	for _, e := range *events {
-		if e.Kind == event.Notice && e.Text == i18n.M.AgentBusy {
+		if e.Kind == event.Notice && e.Code == event.NoticeCodeAgentBusy {
 			sawBusy = true
 		}
 	}
@@ -85,7 +84,7 @@ func TestConcurrentSendGuardIsRaceSafe(t *testing.T) {
 	for _, e := range *events {
 		switch e.Kind {
 		case event.Notice:
-			if e.Text == i18n.M.AgentBusy {
+			if e.Code == event.NoticeCodeAgentBusy {
 				busy++
 			}
 		case event.TurnDone:
@@ -126,7 +125,7 @@ func TestSendAfterTurnCompletes(t *testing.T) {
 	for _, e := range *events {
 		switch e.Kind {
 		case event.Notice:
-			if e.Text == i18n.M.AgentBusy {
+			if e.Code == event.NoticeCodeAgentBusy {
 				busy++
 			}
 		case event.TurnDone:

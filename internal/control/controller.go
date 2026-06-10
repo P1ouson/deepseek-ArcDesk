@@ -97,9 +97,10 @@ type Controller struct {
 	// resume (so a reopened session can still rewind conversation / fork), but
 	// dropped after a summarize restructures the log so those operations report
 	// "unavailable" rather than mis-truncating; code rewind (file-based) is unaffected.
-	cp      *checkpoint.Store
-	cpRoot  string
-	cpTurn  int
+	cp        *checkpoint.Store
+	cpRoot    string
+	readRoots []string
+	cpTurn    int
 	cpBound map[int]int
 
 	// promptMu serialises approval prompts so at most one is outstanding at a
@@ -182,6 +183,10 @@ type Options struct {
 	// WorkspaceRoot is the project root checkpoint restores are confined to ("" =
 	// no confinement). Frontends pass the cwd they launched the session in.
 	WorkspaceRoot string
+	// ReadRoots confines @file reference reads to the same directories as tool
+	// read_file/grep/glob (workspace_root + allow_write). Empty leaves refs
+	// unconfined.
+	ReadRoots []string
 	AutoPlan      string
 	Classifier    autoPlanClassifier
 	// OnRemember, when set, is invoked with a new allow rule the user chose to
@@ -230,6 +235,7 @@ func New(opts Options) *Controller {
 		reg:           opts.Registry,
 		pluginCtx:     pluginCtx,
 		cpRoot:        opts.WorkspaceRoot,
+		readRoots:     opts.ReadRoots,
 		approvals:     map[string]chan approvalReply{},
 		asks:          map[string]chan []event.AskAnswer{},
 		granted:       map[string]bool{},
@@ -296,7 +302,7 @@ func (c *Controller) runGuarded(body func(ctx context.Context) error) {
 	c.mu.Lock()
 	if c.running {
 		c.mu.Unlock()
-		c.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: i18n.M.AgentBusy})
+		c.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Code: event.NoticeCodeAgentBusy, Text: i18n.M.AgentBusy})
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -762,6 +768,16 @@ func (c *Controller) EnableInteractiveApproval() {
 		gate.OnRemember = c.onRemember // wire "always allow" persistence callback
 		c.executor.SetGate(gate)
 		c.executor.SetAsker(c)
+	}
+}
+
+// EnableDesktopSubagentGate lets sub-agents spawned by `task` / subagent skills
+// inherit the desktop interactive gate. Desktop runtime calls this alongside
+// EnableInteractiveApproval; CLI/TUI/headless runs omit it so sub-agents keep
+// autonomous headless behaviour.
+func (c *Controller) EnableDesktopSubagentGate() {
+	if c.executor != nil {
+		c.executor.SetInheritSubagentGate(true)
 	}
 }
 

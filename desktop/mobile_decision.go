@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"arcdesk/internal/event"
 )
 
 // MobileAskOption is one choice in a mobile ask decision.
@@ -91,9 +93,29 @@ func (a *App) RespondMobileDecision(decisionID string, allow bool, answers []Que
 	}
 	switch pending.Kind {
 	case "approval":
-		a.ApproveTab(pending.TabID, pending.ID, allow, false, false)
+		if pending.TabID == clawDecisionTabID {
+			if ctrl := a.clawRunController(); ctrl != nil {
+				ctrl.Approve(pending.ID, allow, false, false)
+			}
+		} else {
+			a.ApproveTab(pending.TabID, pending.ID, allow, false, false)
+		}
 	case "ask":
-		if len(answers) > 0 {
+		if pending.TabID == clawDecisionTabID {
+			if ctrl := a.clawRunController(); ctrl != nil {
+				if len(answers) > 0 {
+					out := make([]event.AskAnswer, len(answers))
+					for i, an := range answers {
+						out[i] = event.AskAnswer{QuestionID: an.QuestionID, Selected: an.Selected}
+					}
+					ctrl.AnswerQuestion(pending.ID, out)
+				} else if !allow {
+					ctrl.AnswerQuestion(pending.ID, nil)
+				} else {
+					return fmt.Errorf("structured ask requires option selection")
+				}
+			}
+		} else if len(answers) > 0 {
 			a.AnswerQuestionForTab(pending.TabID, pending.ID, answers)
 		} else if !allow {
 			a.AnswerQuestionForTab(pending.TabID, pending.ID, nil)
@@ -104,6 +126,9 @@ func (a *App) RespondMobileDecision(decisionID string, allow bool, answers []Que
 		return fmt.Errorf("unknown decision kind")
 	}
 	a.mobileDecision.clear(decisionID)
+	if a.decisionRoutes != nil {
+		a.decisionRoutes.clear(decisionID)
+	}
 	a.broadcastMobileDecision(nil)
 	return nil
 }
@@ -155,8 +180,18 @@ func (b *clawBridge) handleMobileDecision(w http.ResponseWriter, r *http.Request
 		writeMobileJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
 		return
 	}
+	b.touchTunnelActivity()
 	switch r.Method {
 	case http.MethodGet:
+		sessionID := strings.TrimSpace(r.URL.Query().Get("session"))
+		if sessionID == "" {
+			writeMobileJSON(w, http.StatusBadRequest, map[string]any{"error": "session is required"})
+			return
+		}
+		if _, ok := b.mobile.session(sessionID); !ok {
+			writeMobileJSON(w, http.StatusUnauthorized, map[string]any{"error": "session not found"})
+			return
+		}
 		writeMobileJSON(w, http.StatusOK, map[string]any{"decision": b.app.GetMobilePendingDecision()})
 	case http.MethodPost:
 		var req struct {
@@ -169,11 +204,14 @@ func (b *clawBridge) handleMobileDecision(w http.ResponseWriter, r *http.Request
 			writeMobileJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json"})
 			return
 		}
-		if req.SessionID != "" {
-			if _, ok := b.mobile.session(req.SessionID); !ok {
-				writeMobileJSON(w, http.StatusUnauthorized, map[string]any{"error": "session not found"})
-				return
-			}
+		req.SessionID = strings.TrimSpace(req.SessionID)
+		if req.SessionID == "" {
+			writeMobileJSON(w, http.StatusBadRequest, map[string]any{"error": "session is required"})
+			return
+		}
+		if _, ok := b.mobile.session(req.SessionID); !ok {
+			writeMobileJSON(w, http.StatusUnauthorized, map[string]any{"error": "session not found"})
+			return
 		}
 		if err := b.app.RespondMobileDecision(req.DecisionID, req.Allow, req.Answers); err != nil {
 			writeMobileJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})

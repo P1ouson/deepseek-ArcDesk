@@ -19,6 +19,8 @@ const TrustFilename = "trust.json"
 type trustFile struct {
 	// Projects maps an absolute project root to its trust flag.
 	Projects map[string]bool `json:"projects"`
+	// MCPServers maps project root -> server name -> trusted (.mcp.json only).
+	MCPServers map[string]map[string]bool `json:"mcpServers,omitempty"`
 }
 
 // TrustPath is ~/.arcdesk/trust.json (homeDir overrides ~).

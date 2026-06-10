@@ -1,0 +1,239 @@
+{
+  "finished": "2026-06-09T12:33:15Z",
+  "samples": [
+    {
+      "turn": 1,
+      "elapsed_sec": 3.1122282,
+      "rss_mb": 1.3465118408203125,
+      "goroutines": 5,
+      "jsonl_kb": 9,
+      "turn_sec": 3.1122282
+    },
+    {
+      "turn": 2,
+      "elapsed_sec": 5.5195066,
+      "rss_mb": 2.0918731689453125,
+      "goroutines": 5,
+      "jsonl_kb": 9,
+      "turn_sec": 2.4072784
+    },
+    {
+      "turn": 3,
+      "elapsed_sec": 8.2347932,
+      "rss_mb": 2.5509490966796875,
+      "goroutines": 5,
+      "jsonl_kb": 10,
+      "turn_sec": 2.7152865999999998
+    },
+    {
+      "turn": 4,
+      "elapsed_sec": 9.6398367,
+      "rss_mb": 1.688201904296875,
+      "goroutines": 5,
+      "jsonl_kb": 10,
+      "turn_sec": 1.4050435000000001
+    },
+    {
+      "turn": 5,
+      "elapsed_sec": 12.3524254,
+      "rss_mb": 2.0138168334960938,
+      "goroutines": 5,
+      "jsonl_kb": 11,
+      "turn_sec": 2.7125887
+    },
+    {
+      "turn": 6,
+      "elapsed_sec": 15.3625636,
+      "rss_mb": 2.455169677734375,
+      "goroutines": 5,
+      "jsonl_kb": 11,
+      "turn_sec": 3.0101382
+    },
+    {
+      "turn": 7,
+      "elapsed_sec": 16.7679161,
+      "rss_mb": 1.8276824951171875,
+      "goroutines": 5,
+      "jsonl_kb": 11,
+      "turn_sec": 1.4048238
+    },
+    {
+      "turn": 8,
+      "elapsed_sec": 21.1874802,
+      "rss_mb": 1.716796875,
+      "goroutines": 5,
+      "jsonl_kb": 13,
+      "turn_sec": 4.4190556
+    },
+    {
+      "turn": 9,
+      "elapsed_sec": 23.4949718,
+      "rss_mb": 2.4909896850585938,
+      "goroutines": 5,
+      "jsonl_kb": 14,
+      "turn_sec": 2.3074916
+    },
+    {
+      "turn": 10,
+      "elapsed_sec": 24.4979237,
+      "rss_mb": 1.7012710571289062,
+      "goroutines": 5,
+      "jsonl_kb": 14,
+      "turn_sec": 1.0029519
+    },
+    {
+      "turn": 11,
+      "elapsed_sec": 28.0109429,
+      "rss_mb": 2.7263259887695312,
+      "goroutines": 5,
+      "jsonl_kb": 15,
+      "turn_sec": 3.5130192
+    },
+    {
+      "turn": 12,
+      "elapsed_sec": 29.2165818,
+      "rss_mb": 1.82452392578125,
+      "goroutines": 5,
+      "jsonl_kb": 15,
+      "turn_sec": 1.2050203
+    },
+    {
+      "turn": 13,
+      "elapsed_sec": 31.4243709,
+      "rss_mb": 2.654998779296875,
+      "goroutines": 5,
+      "jsonl_kb": 16,
+      "turn_sec": 2.2077891
+    },
+    {
+      "turn": 14,
+      "elapsed_sec": 32.6288744,
+      "rss_mb": 1.7651214599609375,
+      "goroutines": 5,
+      "jsonl_kb": 16,
+      "turn_sec": 1.2045035
+    },
+    {
+      "turn": 15,
+      "elapsed_sec": 35.0367599,
+      "rss_mb": 2.5822296142578125,
+      "goroutines": 5,
+      "jsonl_kb": 17,
+      "turn_sec": 2.4078855
+    },
+    {
+      "turn": 16,
+      "elapsed_sec": 36.0417654,
+      "rss_mb": 1.7295608520507812,
+      "goroutines": 5,
+      "jsonl_kb": 17,
+      "turn_sec": 1.0044596
+    },
+    {
+      "turn": 17,
+      "elapsed_sec": 38.751141,
+      "rss_mb": 2.2885589599609375,
+      "goroutines": 5,
+      "jsonl_kb": 17,
+      "turn_sec": 2.7093756
+    },
+    {
+      "turn": 18,
+      "elapsed_sec": 39.9553667,
+      "rss_mb": 1.4212493896484375,
+      "goroutines": 5,
+      "jsonl_kb": 18,
+      "turn_sec": 1.2042257
+    },
+    {
+      "turn": 19,
+      "elapsed_sec": 42.2649638,
+      "rss_mb": 2.089996337890625,
+      "goroutines": 5,
+      "jsonl_kb": 18,
+      "turn_sec": 2.3095971
+    },
+    {
+      "turn": 20,
+      "elapsed_sec": 43.1695946,
+      "rss_mb": 1.7006607055664062,
+      "goroutines": 5,
+      "jsonl_kb": 18,
+      "turn_sec": 0.9046308
+    },
+    {
+      "turn": 21,
+      "elapsed_sec": 46.4816608,
+      "rss_mb": 2.368682861328125,
+      "goroutines": 5,
+      "jsonl_kb": 18,
+      "turn_sec": 3.3120662
+    },
+    {
+      "turn": 22,
+      "elapsed_sec": 47.5866542,
+      "rss_mb": 1.6795578002929688,
+      "goroutines": 5,
+      "jsonl_kb": 19,
+      "turn_sec": 1.1049934
+    },
+    {
+      "turn": 23,
+      "elapsed_sec": 49.9973067,
+      "rss_mb": 1.6051712036132812,
+      "goroutines": 5,
+      "jsonl_kb": 20,
+      "turn_sec": 2.4106525
+    },
+    {
+      "turn": 24,
+      "elapsed_sec": 51.2012576,
+      "rss_mb": 2.6519927978515625,
+      "goroutines": 5,
+      "jsonl_kb": 20,
+      "turn_sec": 1.2039509
+    },
+    {
+      "turn": 25,
+      "elapsed_sec": 53.6105193,
+      "rss_mb": 1.3458175659179688,
+      "goroutines": 5,
+      "jsonl_kb": 20,
+      "turn_sec": 2.4092617
+    },
+    {
+      "turn": 26,
+      "elapsed_sec": 54.6138255,
+      "rss_mb": 1.40679931640625,
+      "goroutines": 5,
+      "jsonl_kb": 20,
+      "turn_sec": 1.0033062
+    },
+    {
+      "turn": 27,
+      "elapsed_sec": 56.6211102,
+      "rss_mb": 2.3450927734375,
+      "goroutines": 5,
+      "jsonl_kb": 21,
+      "turn_sec": 2.0072847
+    },
+    {
+      "turn": 28,
+      "elapsed_sec": 58.12796,
+      "rss_mb": 1.83538818359375,
+      "goroutines": 5,
+      "jsonl_kb": 21,
+      "turn_sec": 1.5062394000000001
+    },
+    {
+      "turn": 29,
+      "elapsed_sec": 59.3386939,
+      "rss_mb": 1.6514511108398438,
+      "goroutines": 5,
+      "jsonl_kb": 21,
+      "turn_sec": 1.2107339
+    }
+  ],
+  "session": "C:\\Users\\dell\\AppData\\Roaming\\arcdesk\\sessions\\20260609-095907.660157100-deepseek-v4-flash.jsonl",
+  "turns": 29
+}

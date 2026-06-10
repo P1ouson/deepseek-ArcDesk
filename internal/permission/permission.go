@@ -252,6 +252,11 @@ type Gate struct {
 // NewGate wires a Policy to an Approver (nil for non-interactive use).
 func NewGate(p Policy, a Approver) *Gate { return &Gate{Policy: p, Approver: a} }
 
+// HasApprover reports whether this gate routes Ask decisions to an interactive
+// approver. The agent package uses this (via duck typing) to inherit desktop
+// parent gates into sub-agents without importing permission.
+func (g *Gate) HasApprover() bool { return g != nil && g.Approver != nil }
+
 // Check decides whether a tool call may run. It is the method the agent's Gate
 // interface expects. A denied or refused call returns allow=false with a short
 // reason the agent feeds back to the model.

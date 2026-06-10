@@ -14,11 +14,27 @@ function bytesToBase64(data: string): string {
   return btoa(binary);
 }
 
-function base64ToBytes(data: string): Uint8Array {
-  const binary = atob(data);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
+let decodeWarned = false;
+
+/** Decode base64 terminal payload; returns null and drops malformed chunks. */
+export function decodeTerminalPayload(data: string): Uint8Array | null {
+  try {
+    const binary = atob(data);
+    const out = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+    return out;
+  } catch (err) {
+    if (!decodeWarned) {
+      console.warn("terminalBridge: dropping malformed terminal payload", err);
+      decodeWarned = true;
+    }
+    return null;
+  }
+}
+
+/** @internal test seam */
+export function resetTerminalDecodeWarnForTests(): void {
+  decodeWarned = false;
 }
 
 let mockTerminalSeq = 0;
@@ -66,7 +82,9 @@ export function onTerminalOutput(sessionId: string, cb: (data: Uint8Array) => vo
     return window.runtime.EventsOn(TERMINAL_OUTPUT_EVENT, (payload) => {
       const row = payload as { id?: string; data?: string };
       if (!row?.data || row.id !== sessionId) return;
-      cb(base64ToBytes(row.data));
+      const decoded = decodeTerminalPayload(row.data);
+      if (!decoded) return;
+      cb(decoded);
     });
   }
   return () => {};

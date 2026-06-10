@@ -484,7 +484,7 @@ func (a *App) rebuild() error {
 	a.saveTabsLocked()
 	a.mu.Unlock()
 	a.emitReady(a.ctx)
-	ctrl.EnableInteractiveApproval()
+	enableDesktopInteractive(ctrl)
 	applyTabModeToController(ctrl, tab.mode)
 	path := agent.ContinueSessionPath(prevPath, ctrl.SessionDir(), ctrl.Label())
 	if len(carried) > 0 {
@@ -627,6 +627,9 @@ func (a *App) SaveProvider(p ProviderView) error {
 
 // DeleteProvider removes a provider (refused for the current default_model).
 func (a *App) DeleteProvider(name string) error {
+	if !a.confirmSensitiveConfig("Delete provider?", name) {
+		return fmt.Errorf("cancelled")
+	}
 	return a.applyConfigChange(func(c *config.Config) error { return c.RemoveProvider(name) })
 }
 
@@ -634,6 +637,9 @@ func (a *App) DeleteProvider(name string) error {
 // env-var name (the one a provider's api_key_env points at) and rebuilds so it
 // resolves immediately.
 func (a *App) SetProviderKey(apiKeyEnv, value string) error {
+	if !a.confirmSetProviderKey(apiKeyEnv) {
+		return fmt.Errorf("cancelled")
+	}
 	if strings.TrimSpace(apiKeyEnv) == "" {
 		return fmt.Errorf("this provider has no api_key_env set")
 	}
@@ -645,6 +651,9 @@ func (a *App) SetProviderKey(apiKeyEnv, value string) error {
 
 // SetPermissionMode sets the writer-fallback mode (ask|allow|deny).
 func (a *App) SetPermissionMode(mode string) error {
+	if !a.confirmSensitiveConfig("Change permission mode?", "New mode: "+strings.TrimSpace(mode)) {
+		return fmt.Errorf("cancelled")
+	}
 	return a.applyConfigChange(func(c *config.Config) error { return c.SetPermissionMode(mode) })
 }
 
@@ -663,6 +672,13 @@ func (a *App) RemovePermissionRule(list, rule string) error {
 
 // SetSandbox updates the bash sandbox mode, network egress, and write roots.
 func (a *App) SetSandbox(bash string, network bool, workspaceRoot string, allowWrite []string) error {
+	detail := "bash=" + strings.TrimSpace(bash)
+	if network {
+		detail += "; network egress enabled"
+	}
+	if !a.confirmSensitiveConfig("Change sandbox settings?", detail) {
+		return fmt.Errorf("cancelled")
+	}
 	return a.applyConfigChange(func(c *config.Config) error {
 		c.Sandbox.Bash = bash
 		c.Sandbox.Network = network

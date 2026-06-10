@@ -44,6 +44,21 @@ func TestToWireNoticeWarn(t *testing.T) {
 	}
 }
 
+func TestToWireNoticeCode(t *testing.T) {
+	e := event.Event{Kind: event.Notice, Level: event.LevelWarn, Code: event.NoticeCodeAgentBusy, Text: "busy"}
+	w := toWire(e)
+	if w.Code != event.NoticeCodeAgentBusy {
+		t.Errorf("notice code = %q, want %q", w.Code, event.NoticeCodeAgentBusy)
+	}
+	b, err := json.Marshal(w)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if s := string(b); !strings.Contains(s, `"code":"agent_busy"`) {
+		t.Errorf("notice code JSON = %s", s)
+	}
+}
+
 func TestToWireRetrying(t *testing.T) {
 	e := event.Event{Kind: event.Retrying, RetryAttempt: 3, RetryMax: 10}
 	w := toWire(e)
