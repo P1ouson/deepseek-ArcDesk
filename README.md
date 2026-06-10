@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <a href="./LICENSE"><img src="https://img.shields.io/github/license/P1ouson/ArcDesk?style=flat-square&color=8b949e&labelColor=161b22" alt="MIT"/></a>
-  <a href="https://github.com/P1ouson/ArcDesk/releases"><img src="https://img.shields.io/github/v/release/P1ouson/ArcDesk?include_prereleases&style=flat-square&color=0153e5&labelColor=161b22" alt="release"/></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/P1ouson/deepseek-ArcDesk?style=flat-square&color=8b949e&labelColor=161b22" alt="MIT"/></a>
+  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases"><img src="https://img.shields.io/github/v/release/P1ouson/deepseek-ArcDesk?include_prereleases&style=flat-square&color=0153e5&labelColor=161b22" alt="release"/></a>
 </p>
 
 <p align="center">
@@ -12,7 +12,7 @@
   &nbsp;·&nbsp;
   <strong>简体中文</strong>
   &nbsp;·&nbsp;
-  <a href="https://github.com/P1ouson/ArcDesk/releases">发布页</a>
+  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases">发布页</a>
   &nbsp;·&nbsp;
   <a href="./docs/SPEC.md">规格</a>
   &nbsp;·&nbsp;
@@ -26,13 +26,13 @@
 > **命名**：**ArcDesk** = 产品与桌面应用 · **ARCDESK** = CLI / 配置前缀（`ARCDESK.toml`）
 
 <p align="center">
-  <a href="https://github.com/P1ouson/ArcDesk/releases">
+  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases">
     <img src="docs/screenshots/desktop-workbench.png" alt="ArcDesk 桌面工作台" width="900"/>
   </a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/P1ouson/ArcDesk/releases"><strong>下载安装包</strong></a>
+  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases"><strong>下载安装包</strong></a>
   &nbsp;&nbsp;·&nbsp;&nbsp;
   <a href="#cli">CLI / 源码</a>
   &nbsp;&nbsp;·&nbsp;&nbsp;
@@ -43,13 +43,13 @@
 
 ## 安装
 
-支持 **Windows · macOS · Linux**。从 [Releases](https://github.com/P1ouson/ArcDesk/releases) 下载**安装包**（不是源码 zip）。
+支持 **Windows · macOS · Linux**。从 [Releases](https://github.com/P1ouson/deepseek-ArcDesk/releases) 下载**安装包**（不是源码 zip）。
 
 | 平台 | 安装包 | 说明 |
 |------|------|------|
-| **Windows** | [`.exe`](https://github.com/P1ouson/ArcDesk/releases/latest/download/arcdesk-desktop-windows-amd64-installer.exe) | 安装向导，可选目录，无需管理员 |
-| **macOS** | [`.dmg`](https://github.com/P1ouson/ArcDesk/releases/latest/download/arcdesk-desktop-darwin-universal.dmg) | 拖入「应用程序」 |
-| **Linux** | [`.tar.gz`](https://github.com/P1ouson/ArcDesk/releases/latest/download/arcdesk-desktop-linux-amd64-installer.tar.gz) | 解压后 `./install.sh` |
+| **Windows** | [`.exe`](https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-windows-amd64-installer.exe) | 安装向导，可选目录，无需管理员 |
+| **macOS** | [`.dmg`](https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-darwin-universal.dmg) | 拖入「应用程序」 |
+| **Linux** | [`.tar.gz`](https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-linux-amd64-installer.tar.gz) | 解压后 `./install.sh` |
 
 1. 安装并打开 **ArcDesk**
 2. 粘贴 [DeepSeek API Key](https://platform.deepseek.com/)（本地保存）
@@ -154,5 +154,5 @@ Go agent 内核参考 [**Reasonix**](https://github.com/esengine/DeepSeek-Reason
 ---
 
 <p align="center">
-  <sub>MIT — <a href="./LICENSE">LICENSE</a> · <a href="https://github.com/P1ouson/ArcDesk">P1ouson/ArcDesk</a></sub>
+  <sub>MIT — <a href="./LICENSE">LICENSE</a> · <a href="https://github.com/P1ouson/deepseek-ArcDesk">P1ouson/deepseek-ArcDesk</a></sub>
 </p>

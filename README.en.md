@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <a href="./LICENSE"><img src="https://img.shields.io/github/license/P1ouson/ArcDesk?style=flat-square&color=8b949e&labelColor=161b22" alt="MIT"/></a>
-  <a href="https://github.com/P1ouson/ArcDesk/releases"><img src="https://img.shields.io/github/v/release/P1ouson/ArcDesk?include_prereleases&style=flat-square&color=0153e5&labelColor=161b22" alt="release"/></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/P1ouson/deepseek-ArcDesk?style=flat-square&color=8b949e&labelColor=161b22" alt="MIT"/></a>
+  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases"><img src="https://img.shields.io/github/v/release/P1ouson/deepseek-ArcDesk?include_prereleases&style=flat-square&color=0153e5&labelColor=161b22" alt="release"/></a>
 </p>
 
 <p align="center">
@@ -12,7 +12,7 @@
   &nbsp;·&nbsp;
   <a href="./README.md">简体中文</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/P1ouson/ArcDesk/releases">Releases</a>
+  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases">Releases</a>
   &nbsp;·&nbsp;
   <a href="./docs/SPEC.md">Spec</a>
   &nbsp;·&nbsp;
@@ -26,13 +26,13 @@
 > **Naming**: **ArcDesk** = product & desktop app · **ARCDESK** = CLI / config prefix (`ARCDESK.toml`)
 
 <p align="center">
-  <a href="https://github.com/P1ouson/ArcDesk/releases">
+  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases">
     <img src="docs/screenshots/desktop-workbench.png" alt="ArcDesk desktop workbench" width="900"/>
   </a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/P1ouson/ArcDesk/releases"><strong>Download installers</strong></a>
+  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases"><strong>Download installers</strong></a>
   &nbsp;&nbsp;·&nbsp;&nbsp;
   <a href="#cli">CLI / source</a>
   &nbsp;&nbsp;·&nbsp;&nbsp;
@@ -43,13 +43,13 @@
 
 ## Install
 
-**Windows · macOS · Linux** — grab **installers** from [Releases](https://github.com/P1ouson/ArcDesk/releases) (not the source zip).
+**Windows · macOS · Linux** — grab **installers** from [Releases](https://github.com/P1ouson/deepseek-ArcDesk/releases) (not the source zip).
 
 | Platform | Installer | Notes |
 |----------|-----------|-------|
-| **Windows** | [`.exe`](https://github.com/P1ouson/ArcDesk/releases/latest/download/arcdesk-desktop-windows-amd64-installer.exe) | Setup wizard, no admin |
-| **macOS** | [`.dmg`](https://github.com/P1ouson/ArcDesk/releases/latest/download/arcdesk-desktop-darwin-universal.dmg) | Drag to Applications |
-| **Linux** | [`.tar.gz`](https://github.com/P1ouson/ArcDesk/releases/latest/download/arcdesk-desktop-linux-amd64-installer.tar.gz) | Extract, run `./install.sh` |
+| **Windows** | [`.exe`](https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-windows-amd64-installer.exe) | Setup wizard, no admin |
+| **macOS** | [`.dmg`](https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-darwin-universal.dmg) | Drag to Applications |
+| **Linux** | [`.tar.gz`](https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-linux-amd64-installer.tar.gz) | Extract, run `./install.sh` |
 
 1. Install and open **ArcDesk**
 2. Paste your [DeepSeek API key](https://platform.deepseek.com/) (stored locally)
@@ -154,5 +154,5 @@ Go agent kernel references [**Reasonix**](https://github.com/esengine/DeepSeek-R
 ---
 
 <p align="center">
-  <sub>MIT — <a href="./LICENSE">LICENSE</a> · <a href="https://github.com/P1ouson/ArcDesk">P1ouson/ArcDesk</a></sub>
+  <sub>MIT — <a href="./LICENSE">LICENSE</a> · <a href="https://github.com/P1ouson/deepseek-ArcDesk">P1ouson/deepseek-ArcDesk</a></sub>
 </p>

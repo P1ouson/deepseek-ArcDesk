@@ -1,4 +1,4 @@
-# Publish ArcDesk to GitHub (P1ouson/ArcDesk).
+# Publish ArcDesk to GitHub (P1ouson/deepseek-ArcDesk).
 # Prereqs: git, gh CLI, logged in (`gh auth login`) or GH_TOKEN set.
 #
 # Usage:
@@ -8,8 +8,8 @@
 
 param(
     [string]$Owner = "P1ouson",
-    [string]$Repo = "ArcDesk",
-    [string]$OldRepo = "better_ds_ui",
+    [string]$Repo = "deepseek-ArcDesk",
+    [string]$OldRepo = "ArcDesk",
     [string]$Branch = "ui-redesign",
     [string]$TargetBranch = "main",
     [string]$Tag = "desktop-v0.1.1",
