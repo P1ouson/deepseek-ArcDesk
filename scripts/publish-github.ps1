@@ -12,7 +12,7 @@ param(
     [string]$OldRepo = "better_ds_ui",
     [string]$Branch = "ui-redesign",
     [string]$TargetBranch = "main",
-    [string]$Tag = "desktop-v0.1.0",
+    [string]$Tag = "desktop-v0.1.1",
     [switch]$SkipPush,
     [switch]$SkipRename
 )
@@ -39,6 +39,7 @@ if (-not (git remote get-url $remote 2>$null)) {
 
 if (-not $SkipPush) {
     Write-Host "==> Push $Branch -> $Owner/$Repo ($TargetBranch)" -ForegroundColor Cyan
+    # HTTP/1.1 avoids intermittent OpenSSL SSL_ERROR_SYSCALL on some Windows git builds.
     git -c http.version=HTTP/1.1 push -u $remote "${Branch}:${TargetBranch}" --force-with-lease
 }
 
@@ -58,14 +59,16 @@ gh repo edit "$Owner/$Repo" `
     --description "ArcDesk — DeepSeek-native coding agent desktop app (Wails + Go). Windows installer included." `
     --add-topic deepseek --add-topic coding-agent --add-topic wails --add-topic desktop-app --add-topic go
 
-$installer = Join-Path $Root "dist\arcdesk-desktop-amd64-installer.exe"
+$installer = Join-Path $Root "dist\arcdesk-desktop-windows-amd64-installer.exe"
 if (-not (Test-Path $installer)) {
     Write-Host "Building installer..." -ForegroundColor Yellow
     & (Join-Path $Root "desktop\scripts\build-windows-installer.ps1")
-    Copy-Item $installer (Join-Path $Root "dist\arcdesk-desktop-amd64-installer.exe") -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path (Join-Path $Root "dist") | Out-Null
+    $built = Join-Path $Root "desktop\build\bin\arcdesk-desktop-amd64-installer.exe"
+    Copy-Item $built $installer -Force
 }
 
-$notes = Join-Path $Root ".github\release-notes\desktop-v0.1.0.md"
+$notes = Join-Path $Root ".github\release-notes\$Tag.md"
 if (-not (Test-Path $notes)) { throw "Missing release notes: $notes" }
 
 Write-Host "==> Create release $Tag" -ForegroundColor Cyan
@@ -75,7 +78,7 @@ if ($LASTEXITCODE -eq 0) {
 } else {
     gh release create $Tag `
         --repo "$Owner/$Repo" `
-        --title "ArcDesk Desktop v0.1.0" `
+        --title "ArcDesk Desktop v0.1.1" `
         --notes-file $notes `
         $installer
 }

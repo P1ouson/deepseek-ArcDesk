@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
-# Build and package the Wails desktop app for one platform. Wails cannot
-# cross-compile a CGO+webview binary, so this runs on a native runner per target
-# (see .github/workflows/release-desktop.yml) and is invoked once per matrix entry.
+# Build and package the Wails desktop app for one platform (native runner only).
 #
-# Output lands in <repo>/dist/ with stable, platform-keyed names that
-# desktop/cmd/sign's `manifest` subcommand maps back to update.PlatformKey:
-#   macOS:   ARCDESK-darwin-<arch>.zip                  (ditto archive; updater channel)
-#            ARCDESK-darwin-universal.dmg               (drag-to-install; human download)
-#   Windows: ARCDESK-windows-<arch>-installer.exe       (NSIS per-user installer)
-#   Linux:   ARCDESK-linux-<arch>.tar.gz                (bare binary)
+# Outputs in <repo>/dist/ (installer-style names for GitHub Releases):
+#   arcdesk-desktop-windows-amd64-installer.exe
+#   arcdesk-desktop-darwin-universal.dmg
+#   arcdesk-desktop-darwin-{arm64,amd64}.zip   (updater channel)
+#   arcdesk-desktop-linux-amd64-installer.tar.gz  (binary + install.sh)
 #
 # Usage: scripts/desktop-build.sh <os/arch> <version>
-#   e.g. scripts/desktop-build.sh darwin/arm64 v1.1.0
 set -euo pipefail
 
 PLATFORM="${1:?usage: desktop-build.sh <os/arch> <version>}"
@@ -21,24 +17,17 @@ os="${PLATFORM%/*}"
 arch="${PLATFORM#*/}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APPNAME="ARCDESK"            # wails.json productName -> ARCDESK.app
-BINNAME="ARCDESK-desktop"    # wails.json outputfilename -> linux binary name
+APPNAME="ArcDesk"
+WAILS_OUT="arcdesk-desktop"
+RELEASE_PREFIX="arcdesk-desktop"
 
 cd "$ROOT/desktop"
 
-# Stamp the version resource (Windows file properties, macOS CFBundleVersion) from
-# the tag. Wails feeds info.productVersion into goversioninfo and NSIS's
-# VIFileVersion, both of which demand a strictly numeric X.X.X, so strip the
-# leading "v" AND any prerelease suffix (a `-rc1` tag would otherwise abort the
-# installer build). The full tag still rides in ldflags for the in-app version.
 numver="${VERSION#v}"; numver="${numver%%-*}"
 node -e 'const fs=require("fs"),f="wails.json",j=JSON.parse(fs.readFileSync(f,"utf8"));j.info.productVersion=process.argv[1];fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n")' "$numver"
 
-# NSIS installer is Windows-only (Wails requires a single windows target for -nsis).
 build_args=(-clean -platform "$PLATFORM" -ldflags "-X main.version=$VERSION")
 [ "$os" = windows ] && build_args+=(-nsis)
-# Link cgo against WebKitGTK 4.1: 4.0 (libwebkit2gtk-4.0.so.37) is gone on
-# Ubuntu 24.04+/Fedora 40+, while 4.1 ships from Ubuntu 22.04 onward.
 [ "$os" = linux ] && build_args+=(-tags webkit2_41)
 
 echo "==> wails build ${build_args[*]}"
@@ -48,51 +37,47 @@ mkdir -p "$ROOT/dist"
 
 case "$os" in
 darwin)
-	# Wails names the bundle after outputfilename (ARCDESK-desktop.app); repackage
-	# it as ARCDESK.app for a clean user-facing name. Ad-hoc sign the copy (still
-	# not notarized — the real fix is a Developer ID cert); this cuts down the
-	# Gatekeeper "is damaged / can't be opened" error on a downloaded build, though
-	# users may still need to clear the quarantine attribute (see desktop/README.md).
 	staging=$(mktemp -d)
 	app="$staging/${APPNAME}.app"
-	cp -R "build/bin/ARCDESK-desktop.app" "$app"
-	codesign --force --deep -s - "$app"
+	cp -R "build/bin/${WAILS_OUT}.app" "$app"
+	codesign --force --deep -s - "$app" 2>/dev/null || true
 	if [ "$arch" = universal ]; then
-		# One universal .app covers Intel + Apple Silicon; publish it under both
-		# manifest keys so the updater's darwin-arm64/darwin-amd64 lookup finds it
-		# (avoids a scarce macos-13 Intel runner).
-		ditto -c -k --keepParent "$app" "$ROOT/dist/${APPNAME}-darwin-arm64.zip"
-		ditto -c -k --keepParent "$app" "$ROOT/dist/${APPNAME}-darwin-amd64.zip"
+		ditto -c -k --keepParent "$app" "$ROOT/dist/${RELEASE_PREFIX}-darwin-arm64.zip"
+		ditto -c -k --keepParent "$app" "$ROOT/dist/${RELEASE_PREFIX}-darwin-amd64.zip"
 	else
-		ditto -c -k --keepParent "$app" "$ROOT/dist/${APPNAME}-darwin-${arch}.zip"
+		ditto -c -k --keepParent "$app" "$ROOT/dist/${RELEASE_PREFIX}-darwin-${arch}.zip"
 	fi
-	# A drag-to-Applications .dmg for first-time human download. Named -universal so
-	# cmd/sign's substring match (darwin-arm64/darwin-amd64) skips it: the .zip stays
-	# the updater channel, the .dmg is release-page only. create-dmg can exit nonzero
-	# while still writing the image, so gate on the file existing, not the exit code.
 	dmgsrc=$(mktemp -d)
 	cp -R "$app" "$dmgsrc/${APPNAME}.app"
-	dmg="$ROOT/dist/${APPNAME}-darwin-universal.dmg"
-	create-dmg \
-		--volname "$APPNAME" \
-		--window-size 540 380 \
-		--icon-size 110 \
-		--icon "${APPNAME}.app" 150 190 \
-		--app-drop-link 390 190 \
-		--no-internet-enable \
-		"$dmg" "$dmgsrc" || true
-	[ -f "$dmg" ] || { echo "create-dmg did not produce $dmg" >&2; exit 1; }
+	dmg="$ROOT/dist/${RELEASE_PREFIX}-darwin-universal.dmg"
+	if command -v create-dmg >/dev/null 2>&1; then
+		create-dmg \
+			--volname "$APPNAME" \
+			--window-size 540 380 \
+			--icon-size 110 \
+			--icon "${APPNAME}.app" 150 190 \
+			--app-drop-link 390 190 \
+			--no-internet-enable \
+			"$dmg" "$dmgsrc" || true
+	fi
+	if [ ! -f "$dmg" ]; then
+		hdiutil create -volname "$APPNAME" -srcfolder "$dmgsrc" -ov -format UDZO "$dmg"
+	fi
 	rm -rf "$staging" "$dmgsrc"
 	;;
 windows)
-	# `wails build -nsis` writes the installer under build/bin; its exact name
-	# varies, so glob for it and copy to a stable, platform-keyed name.
 	installer=$(ls build/bin/*installer*.exe 2>/dev/null | head -n1 || true)
-	[ -n "$installer" ] || { echo "no NSIS installer found in build/bin" >&2; exit 1; }
-	cp "$installer" "$ROOT/dist/${APPNAME}-windows-${arch}-installer.exe"
+	[ -n "$installer" ] || { echo "no NSIS installer in build/bin" >&2; exit 1; }
+	cp "$installer" "$ROOT/dist/${RELEASE_PREFIX}-windows-${arch}-installer.exe"
 	;;
 linux)
-	tar -czf "$ROOT/dist/${APPNAME}-linux-${arch}.tar.gz" -C build/bin "$BINNAME"
+	pack=$(mktemp -d)
+	cp "build/bin/$WAILS_OUT" "$pack/$WAILS_OUT"
+	cp "$ROOT/desktop/scripts/linux-install.sh" "$pack/install.sh"
+	[ -f "$ROOT/desktop/build/appicon.png" ] && cp "$ROOT/desktop/build/appicon.png" "$pack/appicon.png"
+	chmod +x "$pack/install.sh" "$pack/$WAILS_OUT"
+	tar -czf "$ROOT/dist/${RELEASE_PREFIX}-linux-${arch}-installer.tar.gz" -C "$pack" .
+	rm -rf "$pack"
 	;;
 *)
 	echo "unsupported os: $os" >&2
@@ -100,5 +85,5 @@ linux)
 	;;
 esac
 
-echo "==> packaged into dist/:"
+echo "==> packaged:"
 ls -la "$ROOT/dist"

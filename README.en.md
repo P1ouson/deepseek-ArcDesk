@@ -1,74 +1,157 @@
 <p align="center">
-  <img src="desktop/build/appicon.png" alt="ArcDesk icon" width="96" height="96"/>
+  <img src="docs/logo.svg" alt="ArcDesk" width="440"/>
 </p>
 
 <p align="center">
-  <strong>ArcDesk</strong> — DeepSeek-native AI coding assistant (Windows desktop)
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/P1ouson/ArcDesk?style=flat-square&color=8b949e&labelColor=161b22" alt="MIT"/></a>
+  <a href="https://github.com/P1ouson/ArcDesk/releases"><img src="https://img.shields.io/github/v/release/P1ouson/ArcDesk?include_prereleases&style=flat-square&color=0153e5&labelColor=161b22" alt="release"/></a>
 </p>
 
 <p align="center">
+  <strong>English</strong>
+  &nbsp;·&nbsp;
   <a href="./README.md">简体中文</a>
   &nbsp;·&nbsp;
   <a href="https://github.com/P1ouson/ArcDesk/releases">Releases</a>
   &nbsp;·&nbsp;
+  <a href="./docs/SPEC.md">Spec</a>
+  &nbsp;·&nbsp;
   <a href="./SECURITY.md">Security</a>
   &nbsp;·&nbsp;
-  <a href="./docs/SPEC.md">Spec</a>
+  <a href="./CONTRIBUTING.md">Contributing</a>
 </p>
 
 <br/>
 
-**ArcDesk** is a desktop coding agent built on a Go kernel: chat, file tools, inline diffs, MCP, and a project workbench. **Session design and cost control target [DeepSeek](https://platform.deepseek.com/) first** (prefix-cache-friendly long runs). Other OpenAI-compatible providers work via config, but tuning and economics may differ.
+# ArcDesk
+
+**MIT-licensed, DeepSeek-native coding agent — desktop app + CLI, one Go kernel.**
+
+Long sessions shouldn't pay full price for the entire context every turn. **ArcDesk** is the product name; **`ARCDESK`** is the CLI command and config prefix (`ARCDESK.toml`).
 
 | | |
 |---|---|
-| **Shipped today** | **Windows** installer (~10 MB setup wizard, pick install folder) |
-| **Kernel lineage** | [Reasonix](https://github.com/esengine/DeepSeek-Reasonix) Go agent loop |
-| **License** | MIT ([`LICENSE`](./LICENSE)) |
+| **Desktop-first** | **Installers** for Windows, macOS, and Linux on [Releases](https://github.com/P1ouson/ArcDesk/releases) |
+| **DeepSeek cost** | Prefix-cache-friendly append-only sessions; optional executor + planner split |
+| **Open & controllable** | MCP (stdio + HTTP), `.mcp.json`, TOML permission rules, MIT source |
 
 <p align="center">
-  <img src="docs/screenshots/desktop-hero.svg" alt="ArcDesk workbench preview" width="900"/>
+  <a href="https://github.com/P1ouson/ArcDesk/releases">
+    <img src="docs/screenshots/desktop-workbench.png" alt="ArcDesk desktop workbench" width="900"/>
+  </a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/P1ouson/ArcDesk/releases/latest/download/arcdesk-desktop-amd64-installer.exe"><strong>Download Windows installer</strong></a>
+  <a href="https://github.com/P1ouson/ArcDesk/releases"><strong>Download desktop</strong></a>
+  &nbsp;&nbsp;·&nbsp;&nbsp;
+  <a href="#cli"><strong>Build CLI</strong></a>
+  &nbsp;&nbsp;·&nbsp;&nbsp;
+  <a href="./docs/SPEC.md"><strong>Read spec</strong></a>
+  &nbsp;&nbsp;·&nbsp;&nbsp;
+  <a href="#faq"><strong>FAQ</strong></a>
 </p>
 
 <br/>
 
-## Install (Windows)
+## Quick install
 
-1. Download **[arcdesk-desktop-amd64-installer.exe](https://github.com/P1ouson/ArcDesk/releases/latest/download/arcdesk-desktop-amd64-installer.exe)** from [Releases](https://github.com/P1ouson/ArcDesk/releases).
-2. Run the setup wizard and choose an install folder (per-user default, **no admin**).
-3. Launch **ArcDesk**, paste your DeepSeek API key, and **open a project folder**.
+### Desktop
 
-> **macOS / Linux desktop builds** are not published in this repo yet. Build from source via [`desktop/README.md`](./desktop/README.md).
+| Platform | Installer | Notes |
+|----------|-----------|-------|
+| **Windows** | [`.exe` setup wizard](https://github.com/P1ouson/ArcDesk/releases/latest/download/arcdesk-desktop-windows-amd64-installer.exe) | ~10 MB, pick install folder, no admin |
+| **macOS** | [Universal `.dmg`](https://github.com/P1ouson/ArcDesk/releases/latest/download/arcdesk-desktop-darwin-universal.dmg) | Drag to Applications; see [Troubleshooting](#troubleshooting) if blocked |
+| **Linux** | [`.tar.gz` installer](https://github.com/P1ouson/ArcDesk/releases/latest/download/arcdesk-desktop-linux-amd64-installer.tar.gz) | Extract, run `./install.sh` (installs to `~/.local`) |
 
-> **SmartScreen** may block unsigned builds → *More info → Run anyway*. Requires [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) on Windows.
+1. Download the **installer** for your platform from the table or **[GitHub Releases](https://github.com/P1ouson/ArcDesk/releases)** (not the source zip).
+2. Open **ArcDesk**, paste your [DeepSeek API key](https://platform.deepseek.com/) on the onboarding screen (stored locally).
+3. **Open a project folder** and describe your task.
+
+Linux example:
+
+```sh
+tar -xzf arcdesk-desktop-linux-amd64-installer.tar.gz
+./install.sh
+arcdesk-desktop
+```
+
+> First launch: macOS Gatekeeper / Windows SmartScreen may block unsigned builds — see [Troubleshooting](#troubleshooting).
+
+### CLI / build from source {#cli}
+
+**No npm package is published from this repo.** The CLI shares the same Go kernel; build locally:
+
+```sh
+make build          # -> bin/ARCDESK(.exe) or bin/arcdesk(.exe)
+./bin/arcdesk chat  # interactive terminal
+```
+
+Config: [`ARCDESK.example.toml`](./ARCDESK.example.toml) (project) and `~/.config/arcdesk/config.toml` (user).
 
 <br/>
 
-## Quick start
+## 60-second start
 
-1. Install and open ArcDesk  
-2. Enter your [DeepSeek API key](https://platform.deepseek.com/) (stored locally)  
-3. Open a project directory and describe your task  
+**Desktop**: install → API key → open project → describe task.
+
+**CLI**
+
+```sh
+export DEEPSEEK_API_KEY=sk-...     # or: ARCDESK setup
+ARCDESK chat
+ARCDESK run "explain this repo"
+```
 
 <br/>
 
-## FAQ
+## Why ArcDesk?
 
-**Relation to ARCDESK / Reasonix?**  
-**ArcDesk** is the desktop product in this repo. The CLI still uses `ARCDESK` / `arcdesk` and `arcdesk.toml`. The Go kernel references [Reasonix](https://github.com/esengine/DeepSeek-Reasonix) — see **Lineage** below.
+| | **ArcDesk** | **Cursor** | **Cline / Roo** | **Claude Code** | **OpenCode** |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **Desktop app** | Native (Wails) | VS Code fork | Editor extension | CLI / plugin | Terminal-first |
+| **DeepSeek / cost** | Prefix-cache session design | Multi-model IDE | Model-agnostic | Claude ecosystem | Model-agnostic CLI |
+| **MCP** | stdio + HTTP; `.mcp.json` | Ecosystem | Supported | MCP supported | Varies |
+| **Local control** | TOML, permissions, sandbox | Account policy | Extension settings | Anthropic account | Config / env |
 
-**Is it free?**  
-MIT-licensed software; you pay your model provider for API usage.
+<br/>
 
-**Must I use DeepSeek?**  
-**Recommended** — prefix-cache sessions and presets are optimized for DeepSeek. Other OpenAI-compatible `[[providers]]` entries are supported.
+## Security & trust
 
-**MCP?**  
-Yes — `.mcp.json` or `[[plugins]]` in `arcdesk.toml`. New repo-local servers require **per-project trust** in the desktop UI.
+**Ask before execute** by default. See [`SECURITY.md`](./SECURITY.md) · [`desktop/README.md`](./desktop/README.md) · [`docs/SPEC.md`](./docs/SPEC.md) §9.
+
+<br/>
+
+## FAQ {#faq}
+
+**ArcDesk vs ARCDESK?** — ArcDesk is the product and desktop app; ARCDESK is the CLI command and config namespace. Same kernel underneath.
+
+**Is it free?** — MIT software; model API usage (e.g. DeepSeek) is billed by your provider.
+
+**Must I use the desktop?** — No; `ARCDESK chat` / `run` share the same engine.
+
+**Non-DeepSeek models?** — Any OpenAI-compatible endpoint via `[[providers]]` in `ARCDESK.toml`, but **session design and cost tuning target DeepSeek first**.
+
+**Migrating from 0.x?** — See [`docs/MIGRATING.md`](./docs/MIGRATING.md); legacy on [`v1`](https://github.com/P1ouson/ArcDesk/tree/v1).
+
+<br/>
+
+## Troubleshooting {#troubleshooting}
+
+| Symptom | Fix |
+|---------|-----|
+| macOS "app is damaged" | Unsigned build: `xattr -dr com.apple.quarantine /Applications/ArcDesk.app` |
+| Windows SmartScreen | *More info → Run anyway* |
+| Windows blank window | Install [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) |
+| Linux blank / flicker | Install WebKitGTK 4.1; try `WEBKIT_DISABLE_COMPOSITING_MODE=1` |
+| MCP not loading | Trust project/server in desktop UI; check `.mcp.json` |
+
+More: [GitHub Issues](https://github.com/P1ouson/ArcDesk/issues)
+
+<br/>
+
+---
+
+> **Naming**: **ArcDesk** = product · **ARCDESK** = CLI / config · repo [`P1ouson/ArcDesk`](https://github.com/P1ouson/ArcDesk)
 
 <br/>
 
@@ -82,6 +165,7 @@ cd desktop
 ```sh
 make build
 cd desktop && wails build
+bash scripts/desktop-build.sh linux/amd64 desktop-v0.1.1   # Linux installer tarball
 ```
 
 See [`desktop/README.md`](./desktop/README.md).
@@ -90,16 +174,24 @@ See [`desktop/README.md`](./desktop/README.md).
 
 ## Lineage — Reasonix
 
-ArcDesk’s **Go agent kernel** builds on [**Reasonix**](https://github.com/esengine/DeepSeek-Reasonix). Thank you to the Reasonix project and contributors.
+ArcDesk's **Go agent kernel** builds on [**Reasonix**](https://github.com/esengine/DeepSeek-Reasonix). Thank you to the Reasonix project and contributors.
 
-This repo adds desktop-first work: **Wails studio UI**, **Windows NSIS installer**, **security hardening**, and **ArcDesk branding** (`arcdesk.toml`, non-destructive import from `~/.reasonix/`).
+This repo adds desktop-first work: **Wails studio UI**, **three-platform installers**, **security hardening**, and **ArcDesk branding** (`arcdesk.toml`, non-destructive import from `~/.reasonix/`).
 
-Details: [`SECURITY.md`](./SECURITY.md).
+Details: [`SECURITY.md`](./SECURITY.md) · [`docs/MIGRATING.md`](./docs/MIGRATING.md).
+
+<br/>
+
+## Acknowledgments
+
+The Go agent kernel references [**Reasonix**](https://github.com/esengine/DeepSeek-Reasonix) and its contributors (see [Lineage](#lineage--reasonix) above).
 
 <br/>
 
 ---
 
 <p align="center">
-  <sub>MIT · <a href="https://github.com/P1ouson/ArcDesk">P1ouson/ArcDesk</a></sub>
+  <sub>MIT — see <a href="./LICENSE">LICENSE</a></sub>
+  <br/>
+  <sub><a href="https://github.com/P1ouson/ArcDesk">P1ouson/ArcDesk</a></sub>
 </p>
