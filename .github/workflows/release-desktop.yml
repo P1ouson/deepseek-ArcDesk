@@ -69,12 +69,6 @@ jobs:
           python -m pip install pillow
           python desktop/scripts/generate-appicon.py
 
-      - name: Frontend dist
-        working-directory: desktop/frontend
-        run: |
-          pnpm install --no-frozen-lockfile
-          pnpm build
-
       - name: Build desktop package
         shell: bash
         run: bash scripts/desktop-build.sh "${{ matrix.platform }}" "${{ github.ref_name }}"
