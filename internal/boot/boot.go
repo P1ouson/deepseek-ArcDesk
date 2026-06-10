@@ -196,7 +196,12 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		Stderr:          opts.Stderr,
 	})
 	skills := skillStore.List()
-	allSkills := skill.New(skill.Options{ProjectRoot: root, CustomPaths: cfg.SkillCustomPaths(), Stderr: io.Discard}).List()
+	allSkills := skill.New(skill.Options{
+		ProjectRoot:    root,
+		CustomPaths:    cfg.SkillCustomPaths(),
+		ProjectTrusted: hook.IsTrusted(root, ""),
+		Stderr:         io.Discard,
+	}).List()
 	sysPrompt = skill.ApplyIndex(sysPrompt, skills)
 
 	reg := tool.NewRegistry()

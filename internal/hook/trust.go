@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 )
 
 // Trust gates project hooks. A project's .arcdesk/settings.json can run
@@ -75,5 +76,23 @@ func writeTrust(homeDir string, tf trustFile) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		return err
+	}
+	if goruntime.GOOS != "windows" {
+		_ = os.Chmod(path, 0o600)
+	}
+	return nil
+}
+
+// EnsureTrustFilePrivate chmods an existing trust store to owner-only (0600).
+func EnsureTrustFilePrivate(homeDir string) {
+	path := TrustPath(homeDir)
+	if _, err := os.Stat(path); err != nil {
+		return
+	}
+	if goruntime.GOOS == "windows" {
+		return
+	}
+	_ = os.Chmod(path, 0o600)
 }

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -14,6 +16,7 @@ import (
 	"arcdesk/internal/control"
 	"arcdesk/internal/event"
 	"arcdesk/internal/i18n"
+	"arcdesk/internal/provider"
 	"arcdesk/internal/tool"
 )
 
@@ -59,7 +62,7 @@ func TestModelSwitchRefreshesCustomStatusline(t *testing.T) {
 	m.statuslineCmd = "cat"
 	m.statuslineOut = `{"model":"old-model"}`
 
-	_, cmd := m.Update(modelSwitchMsg{
+	next, cmd := m.Update(modelSwitchMsg{
 		ref:   "provider/new-model",
 		ctrl:  newCtrl,
 		label: "new-model",
@@ -67,27 +70,28 @@ func TestModelSwitchRefreshesCustomStatusline(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("model switch should schedule commands")
 	}
-	if !statuslineCommandHasModel(cmd, "new-model") {
-		t.Fatal("model switch did not refresh custom statusline with the new model")
+	m = next.(chatTUI)
+	if m.label != "new-model" {
+		t.Fatalf("label = %q, want new-model", m.label)
 	}
-}
-
-func statuslineCommandHasModel(cmd tea.Cmd, model string) bool {
-	msg := cmd()
-	switch msg := msg.(type) {
-	case statuslineMsg:
-		return strings.Contains(msg.out, `"model":"`+model+`"`)
-	case tea.BatchMsg:
-		for _, child := range msg {
-			if child == nil {
-				continue
-			}
-			if statuslineCommandHasModel(child, model) {
-				return true
-			}
-		}
+	sl := m.runStatusline()
+	if sl == nil {
+		t.Fatal("model switch should schedule a custom statusline refresh")
 	}
-	return false
+	used, window := m.ctrl.ContextSnapshot()
+	cwd, _ := os.Getwd()
+	payload, err := json.Marshal(map[string]any{
+		"model":         m.label,
+		"contextUsed":   used,
+		"contextWindow": window,
+		"cwd":           cwd,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), `"model":"new-model"`) {
+		t.Fatalf("statusline payload = %s, want new-model", payload)
+	}
 }
 
 func TestIdleStatuslineIsCompact(t *testing.T) {
@@ -195,7 +199,7 @@ func TestStatuslinePutsGitIdentityOnModeRow(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("status block lines = %d, want 2:\n%s", len(lines), strings.Join(lines, "\n"))
 	}
-	if !strings.Contains(lines[0], "effort auto · ARCDESK@codex/demo (+3 -1 ?2)") {
+	if !strings.Contains(lines[0], "effort auto · arcdesk@codex/demo (+3 -1 ?2)") {
 		t.Fatalf("mode row should include effort before git identity:\n%s", strings.Join(lines, "\n"))
 	}
 	if strings.Contains(lines[1], "arcdesk@codex/demo") {
@@ -273,7 +277,12 @@ func renderStatuslineViewWithGitAndEffort(t *testing.T) string {
 func renderStatuslineViewWithCache(t *testing.T) string {
 	t.Helper()
 
-	prov := testutil.NewMock("deepseek-v4-flash", testutil.UsageTurn(900, 100, 50))
+	prov := testutil.NewMock("deepseek-v4-flash",
+		testutil.Turn{Text: "ok", Usage: &provider.Usage{
+			CacheHitTokens: 900, CacheMissTokens: 100, CompletionTokens: 50,
+			PromptTokens: 1000, TotalTokens: 1050,
+		}},
+	)
 	exec := agent.New(prov, tool.NewRegistry(), agent.NewSession(""), agent.Options{MaxSteps: 1, ContextWindow: 200_000}, event.Discard)
 	if err := exec.Run(context.Background(), "hello"); err != nil {
 		t.Fatalf("seed agent usage: %v", err)

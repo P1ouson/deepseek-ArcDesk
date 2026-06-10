@@ -30,6 +30,7 @@ type clawBridge struct {
 	mobile *mobileConnectStore
 	relay  *mobileRelayClient
 	tunnel *cloudflaredTunnel
+	pairRL *pairRateLimiter
 }
 
 type ClawCallbackInfo struct {
@@ -43,7 +44,7 @@ func (a *App) startClawBridge() {
 	if a == nil {
 		return
 	}
-	a.clawBridge = &clawBridge{app: a, port: defaultClawBridgePort, mobile: newMobileConnectStore()}
+	a.clawBridge = &clawBridge{app: a, port: defaultClawBridgePort, mobile: newMobileConnectStore(), pairRL: newPairRateLimiter()}
 	if err := a.clawBridge.start(); err != nil {
 		slog.Warn("claw bridge failed to start", "err", err)
 		a.clawBridge = nil

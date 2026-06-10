@@ -18,6 +18,7 @@ import (
 
 	"arcdesk/internal/config"
 	"arcdesk/internal/event"
+	"arcdesk/internal/hook"
 	"arcdesk/internal/plugin"
 	"arcdesk/internal/provider"
 
@@ -122,10 +123,9 @@ func TestNewProviderAppliesConfiguredDefaultEffort(t *testing.T) {
 // into the cache-stable system prompt's "# Skills" index alongside a built-in.
 func TestBuildDiscoversSkills(t *testing.T) {
 	dir := t.TempDir()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	home := isolateHomeEnv(t)
 	t.Chdir(dir)
+	trustProject(t, home, dir)
 	writeFile(t, dir, "arcdesk.toml", `
 default_model = "test-model"
 
@@ -174,10 +174,9 @@ api_key_env = "arcdesk_TEST_KEY_UNSET"
 
 func TestBuildOmitsDisabledSkillsFromPromptAndRuntimeList(t *testing.T) {
 	dir := t.TempDir()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	home := isolateHomeEnv(t)
 	t.Chdir(dir)
+	trustProject(t, home, dir)
 	writeFile(t, dir, "arcdesk.toml", `
 default_model = "test-model"
 
@@ -466,7 +465,7 @@ func TestBuildMigratesLegacyConfigEndToEnd(t *testing.T) {
 	// codegraph off keeps Build offline; it merges over the migrated user config
 	// without dropping the migrated plugins.
 	writeFile(t, proj, "arcdesk.toml", "[codegraph]\nenabled = false\n")
-	writeFile(t, filepath.Join(home, ".arcdesk"), "config.json",
+	writeFile(t, filepath.Join(home, ".reasonix"), "config.json",
 		`{"apiKey":"sk-e2e","lang":"zh","mcpServers":{"fs":{"command":"npx","args":["-y","server-fs"]}}}`)
 	writeFile(t, filepath.Join(home, ".arcdesk", "sessions"), "chat-1.events.jsonl",
 		`{"type":"user.message","id":1,"ts":"t","turn":0,"text":"hello from v0.x"}`+"\n"+
@@ -538,10 +537,24 @@ func TestBuildMigratesLegacyConfigEndToEnd(t *testing.T) {
 // withTempCache helper in internal/plugin/stats_test.go.
 func isolateConfigHome(t *testing.T) string {
 	t.Helper()
+	return isolateHomeEnv(t)
+}
+
+func isolateHomeEnv(t *testing.T) string {
+	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
+	t.Setenv("AppData", filepath.Join(dir, "AppData"))
 	return dir
+}
+
+func trustProject(t *testing.T, home, proj string) {
+	t.Helper()
+	if err := hook.Trust(proj, home); err != nil {
+		t.Fatalf("Trust project: %v", err)
+	}
 }
 
 // TestPartitionByTier pins the bucket assignment contract that the rest of

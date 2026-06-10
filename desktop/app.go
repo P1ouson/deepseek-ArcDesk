@@ -113,6 +113,7 @@ func (a *App) startup(ctx context.Context) {
 	a.startTray()
 	a.startTaskScheduler()
 	a.startClawBridge()
+	migrateSensitiveDataFileModes()
 	if err := ensureBundledSkills(); err != nil {
 		slog.Warn("ensure bundled skills", "err", err)
 	}
@@ -3634,7 +3635,7 @@ func (a *App) SaveClawChannel(channel ClawChannel) error {
 	if !replaced {
 		items = append(items, channel)
 	}
-	return saveJSON(path, items)
+	return saveSensitiveJSON(path, items)
 }
 
 // DeleteClawChannel removes a Connect Phone channel config.
@@ -3651,7 +3652,7 @@ func (a *App) DeleteClawChannel(id string) error {
 			filtered = append(filtered, item)
 		}
 	}
-	return saveJSON(path, filtered)
+	return saveSensitiveJSON(path, filtered)
 }
 
 // ClawMessage is a persisted Connect Phone chat message.

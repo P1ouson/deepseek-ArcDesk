@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,6 +22,9 @@ import (
 const (
 	cloudflaredDownloadTimeout = 3 * time.Minute
 	defaultTunnelIdleTimeout   = 30 * time.Minute
+	// cloudflaredPinnedVersion is the only release auto-downloaded by the desktop app.
+	// Bump together with cloudflaredReleaseSHA256 when upgrading.
+	cloudflaredPinnedVersion = "2025.2.1"
 )
 
 var cloudflaredURLPattern = regexp.MustCompile(`https://[a-zA-Z0-9-]+\.trycloudflare\.com`)
@@ -311,7 +316,10 @@ func ensureCloudflaredBinary() (string, error) {
 	}
 	cached := cloudflaredCachedPath()
 	if info, err := os.Stat(cached); err == nil && info.Size() > 0 {
-		return cached, nil
+		if err := verifyCloudflaredFile(cached); err == nil {
+			return cached, nil
+		}
+		_ = os.Remove(cached)
 	}
 	if err := downloadCloudflaredBinary(cached); err != nil {
 		return "", err
@@ -327,31 +335,83 @@ func cloudflaredCachedPath() string {
 	return filepath.Join(ARCDESKDesktopDataPath("bin"), name)
 }
 
-func cloudflaredDownloadURL() (string, error) {
+type cloudflaredArtifact struct {
+	filename string
+	sha256   string
+}
+
+// SHA256 digests from https://github.com/cloudflare/cloudflared/releases/tag/2025.2.1
+var cloudflaredReleaseSHA256 = map[string]string{
+	"cloudflared-windows-amd64.exe": "c5479e3ad7a78ba21b1bc56ed2742df2da74bf28612c34c7a7a8a98edc6682f2",
+	"cloudflared-linux-amd64":       "afdfadd1ef552e66bffc35246fe30a9bd578356d2d386de95585ccfc432472b8",
+	"cloudflared-linux-arm64":       "6d5c61975668e963921db12faf9af7e34c9aa2ba4a3e5b95457c144e1494bf05",
+	"cloudflared-linux-arm":         "85bcdcdb484b213b4ac0b3fdf5a5266907539f61aabf4f9bec6cacc24e32e503",
+}
+
+func cloudflaredArtifactForPlatform() (cloudflaredArtifact, error) {
 	switch runtime.GOOS {
 	case "windows":
-		return "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe", nil
+		if runtime.GOARCH != "amd64" {
+			return cloudflaredArtifact{}, fmt.Errorf("cloudflared auto-download is not supported on windows/%s", runtime.GOARCH)
+		}
+		return cloudflaredArtifact{filename: "cloudflared-windows-amd64.exe", sha256: cloudflaredReleaseSHA256["cloudflared-windows-amd64.exe"]}, nil
 	case "darwin":
-		return "", fmt.Errorf("请先安装 cloudflared（例如：brew install cloudflared）")
+		return cloudflaredArtifact{}, fmt.Errorf("请先安装 cloudflared（例如：brew install cloudflared）")
 	case "linux":
 		switch runtime.GOARCH {
 		case "arm64":
-			return "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64", nil
+			return cloudflaredArtifact{filename: "cloudflared-linux-arm64", sha256: cloudflaredReleaseSHA256["cloudflared-linux-arm64"]}, nil
 		case "arm":
-			return "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm", nil
+			return cloudflaredArtifact{filename: "cloudflared-linux-arm", sha256: cloudflaredReleaseSHA256["cloudflared-linux-arm"]}, nil
+		case "amd64", "386":
+			return cloudflaredArtifact{filename: "cloudflared-linux-amd64", sha256: cloudflaredReleaseSHA256["cloudflared-linux-amd64"]}, nil
 		default:
-			return "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64", nil
+			return cloudflaredArtifact{}, fmt.Errorf("cloudflared auto-download is not supported on linux/%s", runtime.GOARCH)
 		}
 	default:
-		return "", fmt.Errorf("cloudflared auto-download is not supported on %s/%s", runtime.GOOS, runtime.GOARCH)
+		return cloudflaredArtifact{}, fmt.Errorf("cloudflared auto-download is not supported on %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 }
 
-func downloadCloudflaredBinary(dest string) error {
-	url, err := cloudflaredDownloadURL()
+func cloudflaredDownloadURL(artifact cloudflaredArtifact) string {
+	return fmt.Sprintf("https://github.com/cloudflare/cloudflared/releases/download/%s/%s", cloudflaredPinnedVersion, artifact.filename)
+}
+
+func verifyCloudflaredFile(path string) error {
+	artifact, err := cloudflaredArtifactForPlatform()
 	if err != nil {
 		return err
 	}
+	return verifyFileSHA256(path, artifact.sha256)
+}
+
+func verifyFileSHA256(path, want string) error {
+	want = strings.ToLower(strings.TrimSpace(want))
+	if want == "" {
+		return fmt.Errorf("cloudflared: missing sha256 for platform")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	got := hex.EncodeToString(h.Sum(nil))
+	if !strings.EqualFold(got, want) {
+		return fmt.Errorf("cloudflared: sha256 mismatch: got %s want %s", got, want)
+	}
+	return nil
+}
+
+func downloadCloudflaredBinary(dest string) error {
+	artifact, err := cloudflaredArtifactForPlatform()
+	if err != nil {
+		return err
+	}
+	url := cloudflaredDownloadURL(artifact)
 	if err := ensureParentDir(dest); err != nil {
 		return err
 	}
@@ -369,7 +429,8 @@ func downloadCloudflaredBinary(dest string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, resp.Body); err != nil {
+	h := sha256.New()
+	if _, err := io.Copy(out, io.TeeReader(resp.Body, h)); err != nil {
 		out.Close()
 		_ = os.Remove(tmp)
 		return err
@@ -377,6 +438,11 @@ func downloadCloudflaredBinary(dest string) error {
 	if err := out.Close(); err != nil {
 		_ = os.Remove(tmp)
 		return err
+	}
+	got := hex.EncodeToString(h.Sum(nil))
+	if !strings.EqualFold(got, artifact.sha256) {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("cloudflared: sha256 mismatch: got %s want %s", got, artifact.sha256)
 	}
 	if err := os.Rename(tmp, dest); err != nil {
 		_ = os.Remove(tmp)

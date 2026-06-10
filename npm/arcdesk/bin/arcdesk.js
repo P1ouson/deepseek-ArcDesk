@@ -11,7 +11,7 @@ try {
   console.error(
     `arcdesk: no prebuilt binary for ${process.platform}-${process.arch}.\n` +
       `Install the matching optional package (${pkg}), or build from source:\n` +
-      `  https://github.com/esengine/DeepSeek-ArcDesk`,
+      `  https://github.com/esengine/DeepSeek-ARCDESK`,
   );
   process.exit(1);
 }

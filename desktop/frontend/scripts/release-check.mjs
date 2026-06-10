@@ -16,6 +16,9 @@ function run(cmd, args, cwd) {
   if (res.status !== 0) process.exit(res.status ?? 1);
 }
 
+console.log("==> Go toolchain");
+run("node", [path.resolve(root, "..", "..", "scripts", "check-go-toolchain.mjs")], root);
+
 console.log("==> TypeScript");
 run("pnpm", ["typecheck"], root);
 

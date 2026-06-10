@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
@@ -353,7 +354,7 @@ func (s *mobileConnectStore) pair(token string) (*mobileSession, error) {
 	if !s.config.Enabled {
 		return nil, fmt.Errorf("mobile connect is disabled")
 	}
-	if s.pairToken.Token != key || time.Now().UnixMilli() > s.pairToken.ExpiresAt {
+	if !pairTokenEqual(s.pairToken.Token, key) || time.Now().UnixMilli() > s.pairToken.ExpiresAt {
 		return nil, fmt.Errorf("pairing token expired or invalid")
 	}
 	sess := &mobileSession{
@@ -452,6 +453,11 @@ func (a *App) SaveMobileConnectConfig(cfg MobileConnectConfig) error {
 		return fmt.Errorf("mobile connect is not ready")
 	}
 	prev := a.clawBridge.mobile.getConfig()
+	if cfg.AllowLAN && !prev.AllowLAN {
+		if !a.confirmAllowLAN() {
+			return fmt.Errorf("cancelled")
+		}
+	}
 	if err := a.clawBridge.mobile.setConfig(cfg); err != nil {
 		return err
 	}
@@ -537,6 +543,10 @@ func (b *clawBridge) handleMobilePair(w http.ResponseWriter, r *http.Request) {
 	b.touchTunnelActivity()
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if b.pairRL != nil && !b.pairRL.allow(clientIP(r)) {
+		writeMobileJSON(w, http.StatusTooManyRequests, map[string]any{"error": "too many pairing attempts"})
 		return
 	}
 	var req struct {
@@ -718,6 +728,16 @@ func randomToken(n int) string {
 		return fmt.Sprintf("t-%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(buf)
+}
+
+// pairTokenEqual compares pairing tokens in constant time when lengths match.
+func pairTokenEqual(stored, provided string) bool {
+	a := []byte(stored)
+	b := []byte(provided)
+	if len(a) != len(b) {
+		return false
+	}
+	return subtle.ConstantTimeCompare(a, b) == 1
 }
 
 func mobileQRDataURL(text string) string {

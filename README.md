@@ -1,53 +1,212 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="ARCDESK" width="640"/>
+  <img src="docs/logo.svg" alt="ArcDesk" width="440"/>
 </p>
 
 <p align="center">
-  <strong>English</strong>
-  &nbsp;·&nbsp;
-  <a href="./README.zh-CN.md">简体中文</a>
-  &nbsp;·&nbsp;
-  <a href="./docs/SPEC.md">Spec</a>
-  &nbsp;·&nbsp;
-  <a href="https://esengine.github.io/DeepSeek-ARCDESK/">Website</a>
-  &nbsp;·&nbsp;
-  <strong><a href="https://discord.gg/XF78rEME2D">Discord</a></strong>
-</p>
-
-> [!IMPORTANT]
-> **ARCDESK 1.0 is a ground-up rewrite in Go** — this branch (`main-v2`) is the new default and where development happens now.
-> The earlier `0.x` TypeScript releases are **legacy**, living on the [`v1`](https://github.com/esengine/DeepSeek-ARCDESK/tree/v1) branch (maintenance only).
-> See the **[migration guide](./docs/MIGRATING.md)**. `npm i -g ARCDESK` stays the install command — `1.0.0`+ delivers the Go binary, `0.x` is the legacy TS build.
-
-<p align="center">
-  <a href="https://www.npmjs.com/package/ARCDESK"><img src="https://img.shields.io/npm/v/ARCDESK.svg?style=flat-square&color=cb3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm version"/></a>
-  <a href="https://github.com/esengine/ARCDESK/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/esengine/ARCDESK/ci.yml?style=flat-square&label=ci&labelColor=161b22&logo=githubactions&logoColor=white" alt="CI"/></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/ARCDESK.svg?style=flat-square&color=8b949e&labelColor=161b22" alt="license"/></a>
-  <a href="https://www.npmjs.com/package/ARCDESK"><img src="https://img.shields.io/npm/dm/ARCDESK.svg?style=flat-square&color=3fb950&labelColor=161b22&label=downloads" alt="downloads"/></a>
-  <a href="https://github.com/esengine/ARCDESK/stargazers"><img src="https://img.shields.io/github/stars/esengine/ARCDESK.svg?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
-  <a href="https://atomgit.com/esengine/DeepSeek-ARCDESK"><img src="https://atomgit.com/esengine/DeepSeek-ARCDESK/star/badge.svg" alt="AtomGit stars"/></a>
-  <a href="https://github.com/esengine/ARCDESK/graphs/contributors"><img src="https://img.shields.io/github/contributors/esengine/ARCDESK.svg?style=flat-square&color=bc8cff&labelColor=161b22&logo=github&logoColor=white" alt="contributors"/></a>
-  <a href="https://github.com/esengine/ARCDESK/discussions"><img src="https://img.shields.io/github/discussions/esengine/ARCDESK.svg?style=flat-square&color=58a6ff&labelColor=161b22&logo=github&logoColor=white" alt="Discussions"/></a>
+  <a href="https://www.npmjs.com/package/ARCDESK"><img src="https://img.shields.io/npm/v/ARCDESK.svg?style=flat-square&color=cb3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm"/></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/ARCDESK.svg?style=flat-square&color=8b949e&labelColor=161b22" alt="MIT"/></a>
+  <a href="https://github.com/esengine/DeepSeek-ARCDESK/stargazers"><img src="https://img.shields.io/github/stars/esengine/DeepSeek-ARCDESK?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="stars"/></a>
+  <a href="https://github.com/esengine/DeepSeek-ARCDESK/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/esengine/DeepSeek-ARCDESK/ci.yml?branch=main-v2&style=flat-square&label=ci&labelColor=161b22&logo=githubactions&logoColor=white" alt="CI"/></a>
   <a href="https://discord.gg/XF78rEME2D"><img src="https://img.shields.io/badge/discord-join-5865F2.svg?style=flat-square&labelColor=161b22&logo=discord&logoColor=white" alt="Discord"/></a>
 </p>
 
 <p align="center">
-  <a href="https://oosmetrics.com/repo/esengine/ARCDESK"><img src="https://api.oosmetrics.com/api/v1/badge/achievement/9e931d80-2050-4b10-902e-44970cc133ad.svg" alt="oosmetrics — Top 2 in Agents by velocity"/></a>
-  <a href="https://oosmetrics.com/repo/esengine/ARCDESK"><img src="https://api.oosmetrics.com/api/v1/badge/achievement/556d94b3-61b7-486b-baf2-888b9327deab.svg" alt="oosmetrics — Top 3 in LLMs by velocity"/></a>
-  <a href="https://oosmetrics.com/repo/esengine/ARCDESK"><img src="https://api.oosmetrics.com/api/v1/badge/achievement/0f457d4c-efca-4d15-ad2b-139691ff342c.svg" alt="oosmetrics — Top 3 in CLI by velocity"/></a>
+  <a href="./README.zh-CN.md">简体中文</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/esengine/DeepSeek-ARCDESK/releases">Releases</a>
+  &nbsp;·&nbsp;
+  <a href="./docs/SPEC.md">Docs</a>
+  &nbsp;·&nbsp;
+  <a href="./SECURITY.md">Security</a>
+  &nbsp;·&nbsp;
+  <a href="./CONTRIBUTING.md">Contributing</a>
+  &nbsp;·&nbsp;
+  <a href="https://discord.gg/XF78rEME2D">Discord</a>
 </p>
 
 <br/>
 
-<h3 align="center">A DeepSeek-native AI coding agent for your terminal.</h3>
-<p align="center">A config- and plugin-driven harness — a single static Go binary, tuned around DeepSeek's prefix cache so token costs stay low across long sessions.</p>
+# ArcDesk
+
+**MIT-licensed DeepSeek-native coding agent — native desktop app and CLI, one Go kernel.**
+
+Run long agent sessions without paying full context price every turn. **ArcDesk** is the desktop product; **`ARCDESK`** is the CLI binary and config namespace (`ARCDESK.toml`, `ARCDESK chat`). Both share the same engine.
+
+| | |
+|---|---|
+| **Desktop-first** | Windows · macOS · Linux — chat, tools, inline diffs, project workspace |
+| **DeepSeek economics** | Prefix-cache–friendly append-only sessions; optional executor + planner split |
+| **Open & local** | MCP (stdio + HTTP), `.mcp.json`, TOML permissions, MIT source you can read |
+
+<p align="center">
+  <a href="https://github.com/esengine/DeepSeek-ARCDESK/releases">
+    <img src="docs/screenshots/desktop-hero.svg" alt="ArcDesk desktop — agent workbench (screenshot placeholder)" width="900"/>
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/esengine/DeepSeek-ARCDESK/releases"><strong>Download desktop</strong></a>
+  &nbsp;&nbsp;·&nbsp;&nbsp;
+  <a href="#cli-install"><strong>Install CLI</strong></a>
+  &nbsp;&nbsp;·&nbsp;&nbsp;
+  <a href="./docs/SPEC.md"><strong>Read the spec</strong></a>
+  &nbsp;&nbsp;·&nbsp;&nbsp;
+  <a href="#faq"><strong>FAQ</strong></a>
+</p>
 
 <br/>
 
-> [!IMPORTANT]
-> **Community · 加入社区** — bilingual Discord for setup help (`#help` / `#求助`), workflow showcases, and feature ideas. → **<https://discord.gg/XF78rEME2D>**
+## Quick install
+
+### Desktop
+
+| Platform | Download |
+|----------|----------|
+| **Windows** | [`.exe` installer](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-windows-amd64-installer.exe) |
+| **macOS** | [Universal `.dmg`](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-darwin-universal.dmg) |
+| **Linux** | [`.tar.gz` (amd64)](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-linux-amd64.tar.gz) |
+
+1. Download for your platform from the table or **[GitHub Releases](https://github.com/esengine/DeepSeek-ARCDESK/releases)**.
+2. Open **ArcDesk** and paste a [DeepSeek API key](https://platform.deepseek.com/) in the setup overlay (stored locally).
+3. **Open a project folder** and start a task.
+
+Checksums and **minisign** signatures ship with every release. Verify downloads: [`desktop/README.md`](./desktop/README.md#verifying-a-download) · [`SECURITY.md`](./SECURITY.md).
+
+> **First launch:** macOS Gatekeeper and Windows SmartScreen may block unsigned builds — see [Troubleshooting](#troubleshooting).
+
+### CLI install
+
+```sh
+npm i -g ARCDESK
+```
+
+Ships a single native **Go binary** (Node is only the installer). Optional: `brew install esengine/ARCDESK/ARCDESK` on macOS.
 
 <br/>
+
+## 60-second quick start
+
+**Desktop** — install → API key → open project → type a task.
+
+**CLI**
+
+```sh
+export DEEPSEEK_API_KEY=sk-...     # or: ARCDESK setup
+ARCDESK chat                       # interactive TUI
+ARCDESK run "explain this repo"    # one-shot run
+```
+
+<br/>
+
+## Why ArcDesk?
+
+| | **ArcDesk** | **Cursor** | **Cline / Roo** | **Claude Code** | **OpenCode** |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **License** | MIT · OSS | Proprietary | Open source (VS Code ext.) | Proprietary | Open source |
+| **Desktop app** | Native (Wails) | VS Code fork | Extension in editor | CLI / plugins | Terminal-first |
+| **DeepSeek / cost** | Prefix-cache session design | Multi-model IDE | Model-agnostic | Claude stack | Model-agnostic CLI |
+| **MCP** | stdio + HTTP; `.mcp.json` | Ecosystem | Yes | MCP support | Varies |
+| **Control** | TOML, permissions, sandbox | Account policies | Extension settings | Anthropic account | Config / env |
+| **Best for** | **Standalone OSS desktop + CLI** tuned for DeepSeek | All-in-one proprietary IDE | Stay inside VS Code | Anthropic terminal workflow | Minimal terminal agent |
+
+**Choose ArcDesk** if you want an inspectable MIT agent with a **real desktop app** (not only an editor plugin), **MCP**, and a **CLI on the same kernel** — optimized for **DeepSeek long-session cost**, not vendor IDE lock-in.
+
+<br/>
+
+## Security & trust
+
+Defaults lean **ask before action**. Summary:
+
+| Layer | What you get |
+|-------|----------------|
+| **MCP trust** | Repo `.mcp.json` servers **quarantined** until you trust them per project |
+| **Native confirmations** | Credentials, MCP install, tunnels, LAN, high-risk shell → **OS dialog** |
+| **Tool permissions** | `allow` / `ask` / `deny`; writers prompt in chat; `deny` always wins |
+| **Workspace sandbox** | Writers stay under project root; macOS `bash` jailed by default |
+| **Signed updates** | Windows/Linux: **minisign + SHA256** before apply |
+
+Details: [`SECURITY.md`](./SECURITY.md) · [`desktop/README.md`](./desktop/README.md) · [`docs/SPEC.md`](./docs/SPEC.md) §9.
+
+<br/>
+
+## FAQ {#faq}
+
+<details>
+<summary><strong>What's the difference between ArcDesk and ARCDESK?</strong></summary>
+
+**ArcDesk** is the product name and **desktop app**. **ARCDESK** is the CLI command, npm package, and config prefix (`ARCDESK.toml`, `.ARCDESK/`). Same Go kernel underneath.
+</details>
+
+<details>
+<summary><strong>Is ArcDesk free?</strong></summary>
+
+The software is **MIT-licensed and free**. You pay your **model provider** (e.g. DeepSeek API usage). No ArcDesk subscription.
+</details>
+
+<details>
+<summary><strong>Do I need the desktop app, or can I use CLI only?</strong></summary>
+
+Either. Desktop is the recommended surface for diffs and tool visibility; **`ARCDESK chat`** / **`ARCDESK run`** use the identical engine and config.
+</details>
+
+<details>
+<summary><strong>Can I use models other than DeepSeek?</strong></summary>
+
+Yes. Any **OpenAI-compatible** endpoint is a `[[providers]]` entry in `ARCDESK.toml`. DeepSeek flash/pro presets ship built-in; session design favors prefix-cache economics.
+</details>
+
+<details>
+<summary><strong>Where are API keys stored?</strong></summary>
+
+CLI: environment variables (`api_key_env` in config). Desktop: local app credential store on first-run setup. Keys are **not** written into TOML config files.
+</details>
+
+<details>
+<summary><strong>Does it work with my existing MCP setup?</strong></summary>
+
+Drop **`.mcp.json`** in the project root — field mapping matches `[[plugins]]`. New repo-local servers are **quarantined** until you explicitly trust them.
+</details>
+
+<details>
+<summary><strong>How do updates work?</strong></summary>
+
+Desktop checks release metadata on startup. **Linux/Windows** auto-update after minisign + SHA256 verification. **macOS** downloads manually until notarization lands. See [`desktop/README.md`](./desktop/README.md).
+</details>
+
+<details>
+<summary><strong>I'm on 0.x TypeScript — what changed?</strong></summary>
+
+**1.0+** is a Go rewrite on `main-v2`. Legacy **0.x** lives on [`v1`](https://github.com/esengine/DeepSeek-ARCDESK/tree/v1). `npm i -g ARCDESK` still works; see [`docs/MIGRATING.md`](./docs/MIGRATING.md).
+</details>
+
+<br/>
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| **macOS: "app is damaged" / unidentified developer** | `xattr -dr com.apple.quarantine /Applications/ARCDESK.app` — see [`desktop/README.md`](./desktop/README.md) |
+| **Windows: SmartScreen blocked** | *More info → Run anyway* (unsigned build) |
+| **Windows: blank window** | Install [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/) |
+| **Linux: blank / flickering UI** | Install WebKitGTK 4.1; try `WEBKIT_DISABLE_COMPOSITING_MODE=1` — see [`desktop/README.md`](./desktop/README.md) |
+| **`ARCDESK: command not found` after npm** | Ensure npm global bin is on `PATH`; reinstall: `npm i -g ARCDESK` |
+| **401 / invalid API key** | Set `DEEPSEEK_API_KEY` or re-enter key in desktop setup; check provider `base_url` / model name |
+| **MCP server not loading** | Trust the project/server in desktop UI; check `.mcp.json` syntax and env vars |
+| **Tool call blocked** | Review `[permissions]` in `ARCDESK.toml` — `deny` rules hard-block everywhere |
+
+Still stuck? [Discussions](https://github.com/esengine/DeepSeek-ARCDESK/discussions) · [Discord](https://discord.gg/XF78rEME2D) · [open an issue](https://github.com/esengine/DeepSeek-ARCDESK/issues/new/choose) (non-security).
+
+<br/>
+
+---
+
+> **Naming:** **ArcDesk** = product · **ARCDESK** = CLI / config · Repo: [`esengine/DeepSeek-ARCDESK`](https://github.com/esengine/DeepSeek-ARCDESK)
+
+<br/>
+
+## Advanced documentation
+
+The sections below are for contributors and power users. New here? Stay above the fold — install desktop, add a key, open a project.
 
 ## Features
 
@@ -58,35 +217,15 @@
   two models together (executor + planner) in separate, cache-stable sessions.
 - **Plugin-driven.** External tools run as subprocesses over stdio JSON-RPC
   (MCP-compatible). Built-in tools self-register at compile time.
-- **Zero-friction distribution.** `CGO_ENABLED=0` single binary; cross-compile
-  to six targets with one command. The only dependency is a TOML parser.
+- **Zero-friction distribution.** `CGO_ENABLED=0` single binary for CLI; cross-compile
+  to six targets with one command. Desktop builds are platform-native (Wails).
 
-## Install
-
-```sh
-npm i -g ARCDESK                  # any OS; pulls the prebuilt native binary
-brew install esengine/ARCDESK/ARCDESK   # macOS
-```
-
-Prebuilt archives (`darwin|linux|windows × amd64|arm64`) and `SHA256SUMS` are on
-every [GitHub release](https://github.com/esengine/DeepSeek-ARCDESK/releases).
-
-### Build from source
+## Build from source
 
 ```sh
 make build      # -> bin/ARCDESK(.exe)
 make cross      # -> dist/ (darwin|linux|windows × amd64|arm64)
-```
-
-## Quick start
-
-```sh
-ARCDESK setup                      # config wizard → ./ARCDESK.toml
-export DEEPSEEK_API_KEY=sk-...  # or put it in .env (see .env.example)
-ARCDESK chat                       # then run /init to generate AGENTS.md (project memory)
-ARCDESK run "implement the TODOs in main.go"
-ARCDESK run --model mimo-pro "add unit tests for this function"
-echo "explain this code" | ARCDESK run
+cd desktop && wails build   # -> desktop app (see desktop/README.md)
 ```
 
 ## Configuration
@@ -308,7 +447,7 @@ legacy SSE. See `docs/SPEC.md` §9.
 
 ## Support
 
-If ARCDESK has been useful and you'd like to say thanks, you can. It stays a coffee, not a contract — donations don't buy feature priority or change how issues get triaged.
+If ArcDesk has been useful and you'd like to say thanks, you can. It stays a coffee, not a contract — donations don't buy feature priority or change how issues get triaged.
 
 - **International** — PayPal: [paypal.me/yuhuahui](https://paypal.me/yuhuahui)
 - **国内** — 微信支付（扫码）
@@ -321,7 +460,7 @@ If ARCDESK has been useful and you'd like to say thanks, you can. It stays a cof
 
 ## Acknowledgments
 
-A small list of folks whose work has shaped ARCDESK the most — measured
+A small list of folks whose work has shaped ArcDesk the most — measured
 by both commit count and code volume. **Listed alphabetically, no ordering
 of importance.** The full contributor graph is on
 [GitHub](https://github.com/esengine/DeepSeek-ARCDESK/graphs/contributors).
@@ -351,7 +490,7 @@ for designing the project logo, and to
 ---
 
 <p align="center">
-  <sub>MIT — see <a href="./LICENSE">LICENSE</a></sub>
+  <sub>MIT — see <a href="./LICENSE">LICENSE</a> · <a href="./SECURITY.md">Security</a> · <a href="./CONTRIBUTING.md">Contributing</a></sub>
   <br/>
-  <sub>Built by the community at <a href="https://github.com/esengine/DeepSeek-ARCDESK/graphs/contributors">esengine/DeepSeek-ARCDESK</a></sub>
+  <sub><strong>ArcDesk</strong> · <a href="https://github.com/esengine/DeepSeek-ARCDESK">esengine/DeepSeek-ARCDESK</a></sub>
 </p>

@@ -1,6 +1,6 @@
 # Cold start + 2min idle sampling for arcdesk-desktop.exe
 param(
-  [string]$Exe = "d:\reasonix_code\DeepSeek-Reasonix-desktop-v1.2.1\desktop\build\bin\arcdesk-desktop.exe",
+  [string]$Exe = (Join-Path (Split-Path $PSScriptRoot -Parent) "desktop\build\bin\arcdesk-desktop.exe"),
   [int]$IdleSeconds = 120,
   [int]$SampleEverySec = 5
 )

@@ -1,0 +1,10 @@
+# Dev-only paths — never package into release binaries.
+.cursor/
+**/.cursor/
+frontend/node_modules/
+frontend/playwright-report/
+frontend/test-results/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+build/

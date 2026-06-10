@@ -170,7 +170,7 @@ func TestRenderMCPManagerListGroupsRuntimeAndConfiguredServers(t *testing.T) {
 		"Manage MCP servers",
 		"3 servers",
 		"Built-in MCPs",
-		"User MCPs (ARCDESK.toml)",
+		"User MCPs (arcdesk.toml)",
 		"codegraph",
 		"connected",
 		"github",
@@ -298,7 +298,7 @@ func TestRenderMCPManagerDetailCompactsConfigPath(t *testing.T) {
 			}},
 		},
 	}
-	got := p.renderDetail(80)
+	got := p.renderDetail(50)
 	for _, line := range strings.Split(got, "\n") {
 		if visibleWidth(line) > 80 {
 			t.Fatalf("detail line exceeds width 80 (%d): %q\n%s", visibleWidth(line), line, got)

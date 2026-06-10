@@ -1,156 +1,48 @@
 ﻿{
-    "process_start_ms":  102,
-    "main_window_ms":  2220,
-    "idle_seconds":  120,
-    "sample_count":  24,
-    "idle_avg_cpu_pct_per_core":  0.01,
-    "idle_ram_start_mb":  36.84,
-    "idle_ram_end_mb":  41.24,
-    "idle_ram_growth_mb":  4.4,
+    "process_start_ms":  46,
+    "main_window_ms":  2093,
+    "idle_seconds":  30,
+    "sample_count":  6,
+    "idle_avg_cpu_pct_per_core":  0.06,
+    "idle_ram_start_mb":  40,
+    "idle_ram_end_mb":  46.43,
+    "idle_ram_growth_mb":  6.43,
     "samples":  [
                     {
-                        "t_sec":  2.3,
-                        "working_set_mb":  36.84,
-                        "private_mb":  25.55,
-                        "cpu_total_sec":  1.109
+                        "t_sec":  2.1,
+                        "working_set_mb":  40,
+                        "private_mb":  25.09,
+                        "cpu_total_sec":  0.906
                     },
                     {
-                        "t_sec":  7.4,
-                        "working_set_mb":  41.33,
-                        "private_mb":  27.41,
-                        "cpu_total_sec":  1.406
+                        "t_sec":  7.2,
+                        "working_set_mb":  46.32,
+                        "private_mb":  27.18,
+                        "cpu_total_sec":  1.188
                     },
                     {
-                        "t_sec":  12.4,
-                        "working_set_mb":  41.33,
-                        "private_mb":  27.41,
-                        "cpu_total_sec":  1.406
+                        "t_sec":  12.2,
+                        "working_set_mb":  46.31,
+                        "private_mb":  27.18,
+                        "cpu_total_sec":  1.203
                     },
                     {
-                        "t_sec":  17.4,
-                        "working_set_mb":  41.33,
-                        "private_mb":  27.41,
-                        "cpu_total_sec":  1.406
+                        "t_sec":  17.2,
+                        "working_set_mb":  46.34,
+                        "private_mb":  27.18,
+                        "cpu_total_sec":  1.203
                     },
                     {
-                        "t_sec":  22.4,
-                        "working_set_mb":  41.33,
-                        "private_mb":  27.41,
-                        "cpu_total_sec":  1.406
+                        "t_sec":  22.2,
+                        "working_set_mb":  46.34,
+                        "private_mb":  27.18,
+                        "cpu_total_sec":  1.203
                     },
                     {
-                        "t_sec":  27.4,
-                        "working_set_mb":  41.33,
-                        "private_mb":  27.41,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  32.4,
-                        "working_set_mb":  41.26,
-                        "private_mb":  27.29,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  37.4,
-                        "working_set_mb":  41.26,
-                        "private_mb":  27.29,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  42.4,
-                        "working_set_mb":  41.26,
-                        "private_mb":  27.29,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  47.4,
-                        "working_set_mb":  41.27,
-                        "private_mb":  27.29,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  52.4,
-                        "working_set_mb":  41.27,
-                        "private_mb":  27.29,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  57.5,
-                        "working_set_mb":  41.27,
-                        "private_mb":  27.29,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  62.5,
-                        "working_set_mb":  41.22,
-                        "private_mb":  27.2,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  67.5,
-                        "working_set_mb":  41.22,
-                        "private_mb":  27.2,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  72.5,
-                        "working_set_mb":  41.22,
-                        "private_mb":  27.2,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  77.5,
-                        "working_set_mb":  41.22,
-                        "private_mb":  27.2,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  82.5,
-                        "working_set_mb":  41.22,
-                        "private_mb":  27.2,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  87.5,
-                        "working_set_mb":  41.22,
-                        "private_mb":  27.2,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  92.5,
-                        "working_set_mb":  41.23,
-                        "private_mb":  27.2,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  97.5,
-                        "working_set_mb":  41.24,
-                        "private_mb":  27.2,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  102.5,
-                        "working_set_mb":  41.24,
-                        "private_mb":  27.2,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  107.5,
-                        "working_set_mb":  41.24,
-                        "private_mb":  27.2,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  112.6,
-                        "working_set_mb":  41.24,
-                        "private_mb":  27.2,
-                        "cpu_total_sec":  1.406
-                    },
-                    {
-                        "t_sec":  117.6,
-                        "working_set_mb":  41.24,
-                        "private_mb":  27.2,
-                        "cpu_total_sec":  1.406
+                        "t_sec":  27.2,
+                        "working_set_mb":  46.43,
+                        "private_mb":  28.02,
+                        "cpu_total_sec":  1.219
                     }
                 ]
 }

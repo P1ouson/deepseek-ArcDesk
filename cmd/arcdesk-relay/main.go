@@ -11,8 +11,12 @@ import (
 	"arcdesk/internal/relay"
 )
 
+const defaultRelayListenAddr = "127.0.0.1:8788"
+
 func main() {
-	addr := flag.String("addr", ":8788", "listen address")
+	// Default to loopback — public relay deployments must pass -addr explicitly
+	// (e.g. -addr 0.0.0.0:8788) behind TLS and network ACLs.
+	addr := flag.String("addr", defaultRelayListenAddr, "listen address")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

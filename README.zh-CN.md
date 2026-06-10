@@ -1,5 +1,13 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="ARCDESK" width="640"/>
+  <img src="docs/logo.svg" alt="ArcDesk" width="440"/>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/ARCDESK"><img src="https://img.shields.io/npm/v/ARCDESK.svg?style=flat-square&color=cb3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm"/></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/ARCDESK.svg?style=flat-square&color=8b949e&labelColor=161b22" alt="MIT"/></a>
+  <a href="https://github.com/esengine/DeepSeek-ARCDESK/stargazers"><img src="https://img.shields.io/github/stars/esengine/DeepSeek-ARCDESK?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="stars"/></a>
+  <a href="https://github.com/esengine/DeepSeek-ARCDESK/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/esengine/DeepSeek-ARCDESK/ci.yml?branch=main-v2&style=flat-square&label=ci&labelColor=161b22&logo=githubactions&logoColor=white" alt="CI"/></a>
+  <a href="https://discord.gg/XF78rEME2D"><img src="https://img.shields.io/badge/discord-join-5865F2.svg?style=flat-square&labelColor=161b22&logo=discord&logoColor=white" alt="Discord"/></a>
 </p>
 
 <p align="center">
@@ -7,45 +15,146 @@
   &nbsp;·&nbsp;
   <strong>简体中文</strong>
   &nbsp;·&nbsp;
+  <a href="https://github.com/esengine/DeepSeek-ARCDESK/releases">发布页</a>
+  &nbsp;·&nbsp;
   <a href="./docs/SPEC.md">规格</a>
   &nbsp;·&nbsp;
-  <a href="https://esengine.github.io/DeepSeek-ARCDESK/">官方网站</a>
+  <a href="./SECURITY.md">安全</a>
   &nbsp;·&nbsp;
-  <strong><a href="https://discord.gg/XF78rEME2D">Discord</a></strong>
-</p>
-
-> [!IMPORTANT]
-> **ARCDESK 1.0 是用 Go 从零重写的版本** —— 本分支(`main-v2`)已是新的默认分支,后续开发都在这里。
-> 早期的 `0.x` TypeScript 版本转为 **legacy**,保留在 [`v1`](https://github.com/esengine/DeepSeek-ARCDESK/tree/v1) 分支(仅维护)。
-> 详见**[迁移指南](./docs/MIGRATING.md)**。`npm i -g ARCDESK` 仍是安装命令——`1.0.0`+ 装的是 Go 二进制,`0.x` 是 legacy TS 版。
-
-<p align="center">
-  <a href="https://www.npmjs.com/package/ARCDESK"><img src="https://img.shields.io/npm/v/ARCDESK.svg?style=flat-square&color=cb3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm version"/></a>
-  <a href="https://github.com/esengine/ARCDESK/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/esengine/ARCDESK/ci.yml?style=flat-square&label=ci&labelColor=161b22&logo=githubactions&logoColor=white" alt="CI"/></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/ARCDESK.svg?style=flat-square&color=8b949e&labelColor=161b22" alt="license"/></a>
-  <a href="https://www.npmjs.com/package/ARCDESK"><img src="https://img.shields.io/npm/dm/ARCDESK.svg?style=flat-square&color=3fb950&labelColor=161b22&label=downloads" alt="downloads"/></a>
-  <a href="https://github.com/esengine/ARCDESK/stargazers"><img src="https://img.shields.io/github/stars/esengine/ARCDESK.svg?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
-  <a href="https://atomgit.com/esengine/DeepSeek-ARCDESK"><img src="https://atomgit.com/esengine/DeepSeek-ARCDESK/star/badge.svg" alt="AtomGit stars"/></a>
-  <a href="https://github.com/esengine/ARCDESK/graphs/contributors"><img src="https://img.shields.io/github/contributors/esengine/ARCDESK.svg?style=flat-square&color=bc8cff&labelColor=161b22&logo=github&logoColor=white" alt="contributors"/></a>
-  <a href="https://github.com/esengine/ARCDESK/discussions"><img src="https://img.shields.io/github/discussions/esengine/ARCDESK.svg?style=flat-square&color=58a6ff&labelColor=161b22&logo=github&logoColor=white" alt="Discussions"/></a>
-  <a href="https://discord.gg/XF78rEME2D"><img src="https://img.shields.io/badge/discord-join-5865F2.svg?style=flat-square&labelColor=161b22&logo=discord&logoColor=white" alt="Discord"/></a>
-</p>
-
-<p align="center">
-  <a href="https://oosmetrics.com/repo/esengine/ARCDESK"><img src="https://api.oosmetrics.com/api/v1/badge/achievement/9e931d80-2050-4b10-902e-44970cc133ad.svg" alt="oosmetrics — Top 2 in Agents by velocity"/></a>
-  <a href="https://oosmetrics.com/repo/esengine/ARCDESK"><img src="https://api.oosmetrics.com/api/v1/badge/achievement/556d94b3-61b7-486b-baf2-888b9327deab.svg" alt="oosmetrics — Top 3 in LLMs by velocity"/></a>
-  <a href="https://oosmetrics.com/repo/esengine/ARCDESK"><img src="https://api.oosmetrics.com/api/v1/badge/achievement/0f457d4c-efca-4d15-ad2b-139691ff342c.svg" alt="oosmetrics — Top 3 in CLI by velocity"/></a>
+  <a href="./CONTRIBUTING.md">贡献</a>
+  &nbsp;·&nbsp;
+  <a href="https://discord.gg/XF78rEME2D">Discord</a>
 </p>
 
 <br/>
 
-<h3 align="center">面向终端的 DeepSeek 原生 AI coding agent。</h3>
-<p align="center">由配置与插件驱动的极薄 harness——单一静态 Go 二进制，围绕 DeepSeek 的前缀缓存调优，长会话也能把 token 成本压低。</p>
+# ArcDesk
+
+**MIT 开源的 DeepSeek 原生 coding agent —— 桌面应用 + CLI，共用同一 Go 内核。**
+
+长会话不必每轮为完整上下文付全价。**ArcDesk** 是桌面产品名；**`ARCDESK`** 是 CLI 命令与配置前缀（`ARCDESK.toml`）。
+
+| | |
+|---|---|
+| **桌面优先** | Windows · macOS · Linux — 对话、工具、内联 diff、项目工作区 |
+| **DeepSeek 成本** | 面向前缀缓存的 append-only 会话；可选执行器 + 规划器分离 |
+| **开放可控** | MCP（stdio + HTTP）、`.mcp.json`、TOML 权限规则、MIT 源码 |
+
+<p align="center">
+  <a href="https://github.com/esengine/DeepSeek-ARCDESK/releases">
+    <img src="docs/screenshots/desktop-hero.svg" alt="ArcDesk 桌面工作台（截图占位）" width="900"/>
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/esengine/DeepSeek-ARCDESK/releases"><strong>下载桌面版</strong></a>
+  &nbsp;&nbsp;·&nbsp;&nbsp;
+  <a href="#cli-安装"><strong>安装 CLI</strong></a>
+  &nbsp;&nbsp;·&nbsp;&nbsp;
+  <a href="./docs/SPEC.md"><strong>阅读规格</strong></a>
+  &nbsp;&nbsp;·&nbsp;&nbsp;
+  <a href="#常见问题"><strong>FAQ</strong></a>
+</p>
 
 <br/>
 
-> [!IMPORTANT]
-> **加入社区 · Community** — 双语 Discord，提供安装答疑（`#help` / `#求助`）、工作流展示与功能想法。→ **<https://discord.gg/XF78rEME2D>**
+## 快速安装
+
+### 桌面版
+
+| 平台 | 下载 |
+|------|------|
+| **Windows** | [`.exe` 安装包](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-windows-amd64-installer.exe) |
+| **macOS** | [通用 `.dmg`](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-darwin-universal.dmg) |
+| **Linux** | [`.tar.gz` (amd64)](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-linux-amd64.tar.gz) |
+
+1. 从表格或 **[GitHub Releases](https://github.com/esengine/DeepSeek-ARCDESK/releases)** 下载。
+2. 打开 **ArcDesk**，在引导页粘贴 [DeepSeek API Key](https://platform.deepseek.com/)（本地保存）。
+3. **打开项目文件夹**，输入任务即可。
+
+校验和与 **minisign** 签名见发布页 · [`SECURITY.md`](./SECURITY.md) · [`desktop/README.md`](./desktop/README.md)。
+
+> 首次启动：macOS Gatekeeper / Windows SmartScreen 可能拦截未签名构建 — 见 [故障排查](#故障排查)。
+
+### CLI 安装 {#cli-安装}
+
+```sh
+npm i -g ARCDESK
+```
+
+安装后为原生 **Go 二进制**（Node 仅作安装器）。macOS 可选：`brew install esengine/ARCDESK/ARCDESK`。
+
+<br/>
+
+## 60 秒上手
+
+**桌面**：安装 → API Key → 打开项目 → 输入任务。
+
+**CLI**
+
+```sh
+export DEEPSEEK_API_KEY=sk-...     # 或：ARCDESK setup
+ARCDESK chat
+ARCDESK run "解释这个仓库"
+```
+
+<br/>
+
+## 为什么选 ArcDesk？
+
+| | **ArcDesk** | **Cursor** | **Cline / Roo** | **Claude Code** | **OpenCode** |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **许可证** | MIT · 开源 | 专有 | 开源（VS Code 插件） | 专有 | 开源 |
+| **桌面应用** | 原生 (Wails) | VS Code 分支 | 编辑器插件 | CLI / 插件 | 终端优先 |
+| **DeepSeek / 成本** | 前缀缓存会话设计 | 多模型 IDE | 模型无关 | Claude 生态 | 模型无关 CLI |
+| **MCP** | stdio + HTTP；`.mcp.json` | 生态 | 支持 | 支持 MCP | 各异 |
+| **本地控制** | TOML、权限、沙箱 | 账号策略 | 插件设置 | Anthropic 账号 | 配置 / 环境 |
+
+<br/>
+
+## 安全与信任
+
+默认 **先询问再执行**。详见 [`SECURITY.md`](./SECURITY.md) · [`desktop/README.md`](./desktop/README.md) · [`docs/SPEC.md`](./docs/SPEC.md) §9。
+
+<br/>
+
+## 常见问题 {#常见问题}
+
+**ArcDesk 和 ARCDESK 有什么区别？** — ArcDesk 是产品与桌面应用；ARCDESK 是 CLI 命令与配置命名空间，底层同一内核。
+
+**是否免费？** — 软件 MIT 免费；模型 API（如 DeepSeek）按用量计费。
+
+**必须用桌面吗？** — 否；`ARCDESK chat` / `run` 与桌面共用引擎。
+
+**支持非 DeepSeek 模型吗？** — 支持任意 OpenAI 兼容端点，在 `ARCDESK.toml` 配置。
+
+**0.x 如何迁移？** — 见 [`docs/MIGRATING.md`](./docs/MIGRATING.md)；legacy 在 [`v1`](https://github.com/esengine/DeepSeek-ARCDESK/tree/v1) 分支。
+
+<br/>
+
+## 故障排查 {#故障排查}
+
+| 现象 | 处理 |
+|------|------|
+| macOS「应用已损坏」 | `xattr -dr com.apple.quarantine /Applications/ARCDESK.app` |
+| Windows SmartScreen | *更多信息 → 仍要运行* |
+| Windows 空白窗口 | 安装 [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) |
+| Linux 空白/闪烁 | 安装 WebKitGTK 4.1；可试 `WEBKIT_DISABLE_COMPOSITING_MODE=1` |
+| MCP 未加载 | 在桌面 UI 信任项目/服务器；检查 `.mcp.json` |
+
+更多：[Discussions](https://github.com/esengine/DeepSeek-ARCDESK/discussions) · [Discord](https://discord.gg/XF78rEME2D)
+
+<br/>
+
+---
+
+> **命名**：**ArcDesk** = 产品 · **ARCDESK** = CLI / 配置 · 仓库 [`esengine/DeepSeek-ARCDESK`](https://github.com/esengine/DeepSeek-ARCDESK)
+
+<br/>
+
+## 进阶文档
+
+以下为贡献者与高级用户内容。新用户只需：安装桌面版 → 填 Key → 打开项目。
 
 ## 特性
 
@@ -56,34 +165,14 @@
 - **插件驱动**：外部工具以子进程形式运行，通过 stdio JSON-RPC 通信（MCP 兼容）；
   内置工具在编译期自注册。
 - **零摩擦分发**：`CGO_ENABLED=0` 单二进制；一条命令交叉编译到六个目标平台。
-  唯一依赖是一个 TOML 解析库。
-
-## 安装
-
-```sh
-npm i -g ARCDESK                  # 任意系统;自动拉取对应平台的原生二进制
-brew install esengine/ARCDESK/ARCDESK   # macOS
-```
-
-预编译归档(`darwin|linux|windows × amd64|arm64`)和 `SHA256SUMS` 见每个
-[GitHub release](https://github.com/esengine/DeepSeek-ARCDESK/releases)。
+  桌面版为原生 Wails 构建。
 
 ### 从源码构建
 
 ```sh
 make build      # -> bin/ARCDESK(.exe)
 make cross      # -> dist/（darwin|linux|windows × amd64|arm64）
-```
-
-## 快速开始
-
-```sh
-ARCDESK setup                      # 配置向导 → ./ARCDESK.toml
-export DEEPSEEK_API_KEY=sk-...  # 或写入 .env（见 .env.example）
-ARCDESK chat                       # 然后在会话里运行 /init 生成 AGENTS.md（项目记忆）
-ARCDESK run "把 main.go 里的 TODO 实现掉"
-ARCDESK run --model mimo-pro "给这个函数补单元测试"
-echo "解释这段代码" | ARCDESK run
+cd desktop && wails build   # 桌面应用（见 desktop/README.md）
 ```
 
 ## 配置

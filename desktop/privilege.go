@@ -128,6 +128,17 @@ func (a *App) confirmStartMobileTunnel() bool {
 	})
 }
 
+func (a *App) confirmAllowLAN() bool {
+	return a.requireNativeConfirm(NativeConfirmRequest{
+		Title:        "Expose mobile bridge to your local network?",
+		Message:      "This binds the mobile bridge to all network interfaces (0.0.0.0).",
+		Detail:       "Devices on your Wi‑Fi or LAN can reach the pairing page and API on this machine until you turn this off. Pairing is still required for control actions.",
+		ConfirmLabel: "Allow LAN access",
+		CancelLabel:  "Cancel",
+		Destructive:  true,
+	})
+}
+
 func (a *App) confirmAddMCPServer(name string) bool {
 	n := strings.TrimSpace(name)
 	if n == "" {

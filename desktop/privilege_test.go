@@ -2,6 +2,15 @@ package main
 
 import "testing"
 
+func TestConfirmAllowLANBlocksWithoutApproval(t *testing.T) {
+	a := &App{}
+	nativeConfirmHook = func(_ NativeConfirmRequest) (bool, error) { return false, nil }
+	defer func() { nativeConfirmHook = nil }()
+	if a.confirmAllowLAN() {
+		t.Fatal("expected LAN confirm blocked")
+	}
+}
+
 func TestConfirmRunShellBlocksWithoutApproval(t *testing.T) {
 	a := &App{}
 	nativeConfirmHook = func(_ NativeConfirmRequest) (bool, error) { return false, nil }

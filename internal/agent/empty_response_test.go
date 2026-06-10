@@ -58,7 +58,7 @@ func TestRunAcceptsToolOnlyResponse(t *testing.T) {
 
 	sink := &recordSink{}
 	reg := tool.NewRegistry()
-	a := New(prov, reg, NewSession(""), Options{}, sink)
+	a := New(prov, reg, NewSession(""), Options{MaxSteps: 1}, sink)
 	// glob with no matches still counts as a tool turn, not an empty response.
 	err = a.Run(context.Background(), "find files")
 	if err != nil && strings.Contains(err.Error(), "empty model response") {

@@ -27,6 +27,8 @@ mem.prof
 !/desktop/frontend/dist/.gitkeep
 /desktop/frontend/wailsjs/
 /desktop/frontend/package.json.md5
+/desktop/frontend/test-results/
+/desktop/frontend/playwright-report/
 
 # Environment / local config (ARCDESK.example.toml is the shared template)
 .env

@@ -30,6 +30,8 @@ var upgrader = websocket.Upgrader{
 }
 
 // Server is the cloud relay that bridges phone HTTP clients and desktop websockets.
+// Deployments listening beyond loopback must sit behind TLS and network ACLs; the
+// default arcdesk-relay binary binds 127.0.0.1:8788.
 type Server struct {
 	mu         sync.RWMutex
 	devices    map[string]*desktopLink

@@ -183,7 +183,7 @@ func TestEditFile(t *testing.T) {
 	os.WriteFile(f, []byte("hello world\n"), 0o644)
 
 	runTool(t, editFile{}, map[string]any{"path": f, "old_string": "world", "new_string": "arcdesk"})
-	if b, _ := os.ReadFile(f); string(b) != "hello ARCDESK\n" {
+	if b, _ := os.ReadFile(f); string(b) != "hello arcdesk\n" {
 		t.Fatalf("after edit = %q", b)
 	}
 
@@ -215,7 +215,7 @@ func TestMultiEdit(t *testing.T) {
 		t.Errorf("summary unexpected: %q", out)
 	}
 	got, _ := os.ReadFile(f)
-	want := "package new\n\nfunc ARCDESK() {\n\tARCDESK()\n}\n"
+	want := "package new\n\nfunc arcdesk() {\n\tarcdesk()\n}\n"
 	if string(got) != want {
 		t.Errorf("after multi_edit = %q\n          want = %q", got, want)
 	}
@@ -457,7 +457,7 @@ func TestMultiEditGB18030RoundTrip(t *testing.T) {
 
 	got, _ := os.ReadFile(f)
 	dec, _ := simplifiedchinese.GB18030.NewDecoder().Bytes(got)
-	want := "package new\n\nfunc ARCDESK() {\n\tARCDESK()\n}\n"
+	want := "package new\n\nfunc arcdesk() {\n\tarcdesk()\n}\n"
 	if string(dec) != want {
 		t.Errorf("after multi_edit = %q (decoded), want %q", dec, want)
 	}

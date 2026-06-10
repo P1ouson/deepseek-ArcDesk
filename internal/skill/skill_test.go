@@ -36,7 +36,7 @@ func TestListPrecedenceProjectOverGlobal(t *testing.T) {
 	writeSkill(t, home, ".arcdesk/skills/greet.md", "---\ndescription: global greet\n---\nglobal body")
 	writeSkill(t, home, ".arcdesk/skills/onlyglobal.md", "---\ndescription: only global\n---\nbody")
 
-	st := New(Options{HomeDir: home, ProjectRoot: proj, DisableBuiltins: true})
+	st := New(Options{HomeDir: home, ProjectRoot: proj, ProjectTrusted: true, DisableBuiltins: true})
 	list := st.List()
 
 	greet, ok := find(list, "greet")
@@ -71,7 +71,7 @@ func TestConventionDirsDiscovered(t *testing.T) {
 	writeSkill(t, proj, ".claude/skills/fromclaude.md", "---\ndescription: c\n---\nb")
 	writeSkill(t, proj, ".agents/skills/fromagents.md", "---\ndescription: a\n---\nb")
 	writeSkill(t, proj, ".agent/skills/fromagent.md", "---\ndescription: s\n---\nb")
-	st := New(Options{HomeDir: t.TempDir(), ProjectRoot: proj, DisableBuiltins: true})
+	st := New(Options{HomeDir: t.TempDir(), ProjectRoot: proj, ProjectTrusted: true, DisableBuiltins: true})
 	list := st.List()
 	for _, name := range []string{"fromclaude", "fromagents", "fromagent"} {
 		if _, ok := find(list, name); !ok {

@@ -1,6 +1,6 @@
 module arcdesk/desktop
 
-go 1.25.0
+go 1.25.11
 
 // The desktop shell is a nested module so its CGO/WebKit build never touches the
 // CLI's CGO_ENABLED=0 single-static-binary guarantee. The replace lets it import

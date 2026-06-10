@@ -1,22 +1,34 @@
-# Contributing to ARCDESK
+# Contributing to ArcDesk
 
-Thank you for your interest in contributing to ARCDESK! This guide covers
-everything you need to get started.
+Thank you for contributing. **ArcDesk** is the product; **`ARCDESK`** is the CLI binary and config namespace. Upstream repo: [`esengine/DeepSeek-ARCDESK`](https://github.com/esengine/DeepSeek-ARCDESK).
+
+## Security issues
+
+**Do not open public issues for vulnerabilities.** See [`SECURITY.md`](./SECURITY.md).
 
 ## Prerequisites
 
-- **Go 1.25+** — the project targets the latest stable Go release
-- **Git** — for version control
-- **Node.js** (optional) — only if you work on the desktop app (`desktop/`)
+- **Go 1.25+** (see `go.mod` / `toolchain` pin — run `make check-toolchain`)
+- **Git**
+- **Node.js + pnpm** — only for `desktop/` frontend work
 
 ## Getting started
 
 ```bash
 git clone https://github.com/esengine/DeepSeek-ARCDESK.git
 cd DeepSeek-ARCDESK
-go build ./cmd/ARCDESK    # builds the CLI binary
-go test ./...              # runs the full test suite
+make build          # bin/ARCDESK
+make test           # full CLI test suite
 ```
+
+Desktop development:
+
+```bash
+cd desktop
+wails dev           # hot-reload Go + React
+```
+
+See [`desktop/README.md`](./desktop/README.md) for platform webview prerequisites.
 
 ## Project structure
 
@@ -29,109 +41,96 @@ go test ./...              # runs the full test suite
 | `internal/config` | TOML configuration loading |
 | `internal/tool/builtin` | Built-in tools (bash, read_file, …) |
 | `internal/provider` | Model-backend abstraction |
-| `internal/provider/openai` | OpenAI-compatible provider |
 | `internal/plugin` | MCP client (stdio + HTTP) |
-| `internal/event` | Typed event stream |
-| `internal/hook` | Shell hooks (PreToolUse, …) |
-| `internal/memory` | ARCDESK.md hierarchy + auto-memory |
-| `internal/skill` | Skill discovery from Markdown |
-| `internal/sandbox` | OS-level sandboxing |
-| `internal/serve` | HTTP/SSE server frontend |
-| `internal/checkpoint` | Snapshot-based rewind |
-| `desktop/` | Wails-based desktop app (separate Go module) |
+| `desktop/` | Wails desktop app (separate Go module) |
 | `docs/` | Engineering spec, migration guide |
 
-### Dependency direction
-
-```
-cli → {agent, plugin, config} → {tool, provider}
-```
-
-Built-in subpackages import their parent to self-register via `init()`.
-Parents never import children.
+Dependency direction: `cli → {agent, plugin, config} → {tool, provider}`.
 
 ## Development workflow
 
-### Building
-
 ```bash
-make build          # go build ./...
+make build          # CLI + plugin example
 make test           # go test ./...
 make vet            # go vet ./...
 make fmt            # gofmt -w .
 make hooks          # install git hooks (pre-push: go vet)
-make cross          # cross-compile for all 6 targets
+make cross          # cross-compile six CLI targets
+make check-toolchain
 ```
 
-### Running tests
+Desktop tests:
 
 ```bash
-go test ./...                           # all tests
-go test ./internal/agent/ -v            # verbose, one package
-go test ./internal/tool/builtin/ -run TestGrep  # one test
+cd desktop && go test ./...
 ```
 
 ### Code style
 
-- `gofmt` is enforced by CI — format before committing
-- Follow existing patterns: wrap errors with `fmt.Errorf("...: %w", err)`
+- `gofmt` before commit
+- Wrap errors: `fmt.Errorf("...: %w", err)`
 - Library code never calls `os.Exit` or prints to stdout/stderr
 - Only `cli/` and `main/` decide exit codes and user-facing messages
-- Exported identifiers must have doc comments
+- Exported identifiers need doc comments
 
 ### Commit messages
 
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
+[Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
 feat(glob): add ** recursive pattern support
 fix: replace silent error discards with structured logging
-test(event): add comprehensive unit tests for event package
-docs: add CONTRIBUTING.md
-ci: add golangci-lint and govulncheck
+docs: polish README for desktop-first launch
+ci: add go test workflow
 ```
 
-## Adding a new built-in tool
+## Adding a built-in tool
 
 1. Create `internal/tool/builtin/mytool.go`
-2. Implement the `tool.Tool` interface: `Name()`, `Description()`, `Schema()`, `ReadOnly()`, `Execute()`
-3. Register via `func init() { tool.RegisterBuiltin(myTool{}) }`
-4. Add tests in `internal/tool/builtin/builtin_test.go` or a separate `mytool_test.go`
-5. The tool is automatically available — `main` blank-imports `builtin`
+2. Implement `tool.Tool`: `Name()`, `Description()`, `Schema()`, `ReadOnly()`, `Execute()`
+3. Register: `func init() { tool.RegisterBuiltin(myTool{}) }`
+4. Add tests
 
-## Adding a new model provider
-
-(For MCP tool servers see `internal/plugin` instead — that's a different layer.)
+## Adding a model provider
 
 1. Create `internal/provider/myprovider/`
 2. Implement `provider.Provider`: `Name()`, `Stream()`
-3. Register via `func init() { provider.Register("mykind", New) }`
-4. The provider is available from config with `kind = "mykind"`
+3. Register: `func init() { provider.Register("mykind", New) }`
 
 ## Adding i18n strings
 
-1. Add the field to `internal/i18n/i18n.go` (`Messages` struct)
-2. Add the value in `internal/i18n/messages_en.go` and `messages_zh.go`
-3. The `TestCatalogsComplete` test will fail if you miss a locale
+1. Field in `internal/i18n/i18n.go` (`Messages` struct)
+2. Values in `messages_en.go` and `messages_zh.go`
+3. `TestCatalogsComplete` must pass
 
 ## Submitting changes
 
-1. Fork the repository
-2. Create a feature branch from `main-v2`
-3. Make your changes with tests
-4. Ensure `go test ./...` passes
-5. Ensure `gofmt -l .` shows no changes
-6. Submit a pull request to `main-v2`
+1. Fork [`esengine/DeepSeek-ARCDESK`](https://github.com/esengine/DeepSeek-ARCDESK)
+2. Branch from **`main-v2`** (current default development branch)
+3. Include tests where behavior changes
+4. `make test` and `make vet` pass
+5. Open a PR to **`main-v2`**
 
-## Reporting issues
+## Releases (maintainers)
 
-Open an issue on GitHub with:
-- Steps to reproduce
-- Expected vs actual behavior
-- Go version and OS
-- Relevant logs or error messages
+| Artifact | Tag / channel |
+|----------|----------------|
+| CLI / npm | semver tags on `main-v2` |
+| Desktop | `desktop-v*` tags → signed builds, `latest.json`, GitHub Releases + CDN mirror |
+
+Signing: minisign (see [`desktop/README.md`](./desktop/README.md)). Do not publish unsigned artifacts outside the release pipeline.
+
+## Reporting bugs
+
+Use [issue templates](https://github.com/esengine/DeepSeek-ARCDESK/issues/new/choose). Include:
+
+- ArcDesk desktop version **or** `ARCDESK --version`
+- OS and architecture
+- Steps to reproduce, expected vs actual
+- Redacted logs (no API keys)
+
+Usage questions → [Discussions](https://github.com/esengine/DeepSeek-ARCDESK/discussions) or [Discord](https://discord.gg/XF78rEME2D).
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the
-same license as the project.
+Contributions are licensed under the project **MIT** license ([`LICENSE`](./LICENSE)).

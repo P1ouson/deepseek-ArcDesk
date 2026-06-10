@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -260,6 +261,7 @@ func (c *client) readStream(ctx context.Context, resp *http.Response, out chan<-
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
+	sawDone := false
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || !strings.HasPrefix(line, "data:") {
@@ -267,6 +269,7 @@ func (c *client) readStream(ctx context.Context, resp *http.Response, out chan<-
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "[DONE]" {
+			sawDone = true
 			break
 		}
 
@@ -333,6 +336,9 @@ func (c *client) readStream(ctx context.Context, resp *http.Response, out chan<-
 
 	if err := scanner.Err(); err != nil {
 		return emitted, fmt.Errorf("%s: read stream: %w", c.name, err)
+	}
+	if !sawDone {
+		return emitted, fmt.Errorf("%s: read stream: %w", c.name, io.ErrUnexpectedEOF)
 	}
 
 	if r, txt := think.flush(); r != "" || txt != "" {
