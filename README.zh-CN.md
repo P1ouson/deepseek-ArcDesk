@@ -5,8 +5,8 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/ARCDESK"><img src="https://img.shields.io/npm/v/ARCDESK.svg?style=flat-square&color=cb3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm"/></a>
   <a href="./LICENSE"><img src="https://img.shields.io/npm/l/ARCDESK.svg?style=flat-square&color=8b949e&labelColor=161b22" alt="MIT"/></a>
-  <a href="https://github.com/esengine/DeepSeek-ARCDESK/stargazers"><img src="https://img.shields.io/github/stars/esengine/DeepSeek-ARCDESK?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="stars"/></a>
-  <a href="https://github.com/esengine/DeepSeek-ARCDESK/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/esengine/DeepSeek-ARCDESK/ci.yml?branch=main-v2&style=flat-square&label=ci&labelColor=161b22&logo=githubactions&logoColor=white" alt="CI"/></a>
+  <a href="https://github.com/P1ouson/ArcDesk/stargazers"><img src="https://img.shields.io/github/stars/P1ouson/ArcDesk?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="stars"/></a>
+  <a href="https://github.com/P1ouson/ArcDesk/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/P1ouson/ArcDesk/ci.yml?branch=main&style=flat-square&label=ci&labelColor=161b22&logo=githubactions&logoColor=white" alt="CI"/></a>
   <a href="https://discord.gg/XF78rEME2D"><img src="https://img.shields.io/badge/discord-join-5865F2.svg?style=flat-square&labelColor=161b22&logo=discord&logoColor=white" alt="Discord"/></a>
 </p>
 
@@ -15,7 +15,7 @@
   &nbsp;·&nbsp;
   <strong>简体中文</strong>
   &nbsp;·&nbsp;
-  <a href="https://github.com/esengine/DeepSeek-ARCDESK/releases">发布页</a>
+  <a href="https://github.com/P1ouson/ArcDesk/releases">发布页</a>
   &nbsp;·&nbsp;
   <a href="./docs/SPEC.md">规格</a>
   &nbsp;·&nbsp;
@@ -41,13 +41,13 @@
 | **开放可控** | MCP（stdio + HTTP）、`.mcp.json`、TOML 权限规则、MIT 源码 |
 
 <p align="center">
-  <a href="https://github.com/esengine/DeepSeek-ARCDESK/releases">
+  <a href="https://github.com/P1ouson/ArcDesk/releases">
     <img src="docs/screenshots/desktop-hero.svg" alt="ArcDesk 桌面工作台（截图占位）" width="900"/>
   </a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/esengine/DeepSeek-ARCDESK/releases"><strong>下载桌面版</strong></a>
+  <a href="https://github.com/P1ouson/ArcDesk/releases"><strong>下载桌面版</strong></a>
   &nbsp;&nbsp;·&nbsp;&nbsp;
   <a href="#cli-安装"><strong>安装 CLI</strong></a>
   &nbsp;&nbsp;·&nbsp;&nbsp;
@@ -64,11 +64,11 @@
 
 | 平台 | 下载 |
 |------|------|
-| **Windows** | [`.exe` 安装包](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/arcdesk-desktop-amd64-installer.exe)（小安装器，可选路径） |
-| **macOS** | [通用 `.dmg`](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-darwin-universal.dmg) |
-| **Linux** | [`.tar.gz` (amd64)](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-linux-amd64.tar.gz) |
+| **Windows** | [`.exe` 安装包](https://github.com/P1ouson/ArcDesk/releases/latest/download/arcdesk-desktop-amd64-installer.exe)（小安装器，可选路径） |
+| **macOS** | [通用 `.dmg`](https://github.com/P1ouson/ArcDesk/releases/latest/download/ARCDESK-darwin-universal.dmg) |
+| **Linux** | [`.tar.gz` (amd64)](https://github.com/P1ouson/ArcDesk/releases/latest/download/ARCDESK-linux-amd64.tar.gz) |
 
-1. 从表格或 **[GitHub Releases](https://github.com/esengine/DeepSeek-ARCDESK/releases)** 下载。
+1. 从表格或 **[GitHub Releases](https://github.com/P1ouson/ArcDesk/releases)** 下载。
 2. 打开 **ArcDesk**，在引导页粘贴 [DeepSeek API Key](https://platform.deepseek.com/)（本地保存）。
 3. **打开项目文件夹**，输入任务即可。
 
@@ -127,7 +127,7 @@ ARCDESK run "解释这个仓库"
 
 **支持非 DeepSeek 模型吗？** — 可接入任意 OpenAI 兼容端点（`ARCDESK.toml` 的 `[[providers]]`），但**内核会话设计与成本优化主要针对 DeepSeek**（前缀缓存、flash/pro 预设、长会话控费等）；其他模型可用，体验与经济性未必相同。
 
-**0.x 如何迁移？** — 见 [`docs/MIGRATING.md`](./docs/MIGRATING.md)；legacy 在 [`v1`](https://github.com/esengine/DeepSeek-ARCDESK/tree/v1) 分支。
+**0.x 如何迁移？** — 见 [`docs/MIGRATING.md`](./docs/MIGRATING.md)；legacy 在 [`v1`](https://github.com/P1ouson/ArcDesk/tree/v1) 分支。
 
 <br/>
 
@@ -141,13 +141,13 @@ ARCDESK run "解释这个仓库"
 | Linux 空白/闪烁 | 安装 WebKitGTK 4.1；可试 `WEBKIT_DISABLE_COMPOSITING_MODE=1` |
 | MCP 未加载 | 在桌面 UI 信任项目/服务器；检查 `.mcp.json` |
 
-更多：[Discussions](https://github.com/esengine/DeepSeek-ARCDESK/discussions) · [Discord](https://discord.gg/XF78rEME2D)
+更多：[Discussions](https://github.com/P1ouson/ArcDesk/discussions) · [Discord](https://discord.gg/XF78rEME2D)
 
 <br/>
 
 ---
 
-> **命名**：**ArcDesk** = 产品 · **ARCDESK** = CLI / 配置 · 仓库 [`esengine/DeepSeek-ARCDESK`](https://github.com/esengine/DeepSeek-ARCDESK)
+> **命名**：**ArcDesk** = 产品 · **ARCDESK** = CLI / 配置 · 仓库 [`P1ouson/ArcDesk`](https://github.com/P1ouson/ArcDesk)
 
 <br/>
 
@@ -391,7 +391,7 @@ Reasonix 仍以终端为主；我们保留从旧版 `~/.reasonix/` 配置与 ski
 
 下面这些朋友的工作塑造了 ARCDESK 今天的样子 —— 综合 commit 数和代码量两个维度。
 **按字母顺序排列，排名不分先后。** 完整贡献者列表在
-[GitHub](https://github.com/esengine/DeepSeek-ARCDESK/graphs/contributors)。
+[GitHub](https://github.com/P1ouson/ArcDesk/graphs/contributors)。
 
 - [**ctharvey**](https://github.com/ctharvey)
 - [**dimasd-angga**](https://github.com/dimasd-angga)（Dimas D. Angga）
@@ -410,8 +410,8 @@ Reasonix 仍以终端为主；我们保留从旧版 `~/.reasonix/` 配置与 ski
 ArcDesk Go 内核所参考的基础（见 [渊源 — 与 Reasonix 的关系](#渊源--与-reasonix-的关系)）。
 
 <p align="center">
-  <a href="https://github.com/esengine/DeepSeek-ARCDESK/graphs/contributors">
-    <img src="https://contrib.rocks/image?repo=esengine/DeepSeek-ARCDESK&max=100&columns=12" alt="esengine/DeepSeek-ARCDESK 贡献者" width="860"/>
+  <a href="https://github.com/P1ouson/ArcDesk/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=P1ouson/ArcDesk&max=100&columns=12" alt="P1ouson/ArcDesk 贡献者" width="860"/>
   </a>
 </p>
 
@@ -422,5 +422,5 @@ ArcDesk Go 内核所参考的基础（见 [渊源 — 与 Reasonix 的关系](#�
 <p align="center">
   <sub>MIT —— 见 <a href="./LICENSE">LICENSE</a></sub>
   <br/>
-  <sub>由 <a href="https://github.com/esengine/DeepSeek-ARCDESK/graphs/contributors">esengine/DeepSeek-ARCDESK</a> 社区共建</sub>
+  <sub>由 <a href="https://github.com/P1ouson/ArcDesk/graphs/contributors">P1ouson/ArcDesk</a> 社区共建</sub>
 </p>

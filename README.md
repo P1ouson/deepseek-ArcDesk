@@ -5,15 +5,15 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/ARCDESK"><img src="https://img.shields.io/npm/v/ARCDESK.svg?style=flat-square&color=cb3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm"/></a>
   <a href="./LICENSE"><img src="https://img.shields.io/npm/l/ARCDESK.svg?style=flat-square&color=8b949e&labelColor=161b22" alt="MIT"/></a>
-  <a href="https://github.com/esengine/DeepSeek-ARCDESK/stargazers"><img src="https://img.shields.io/github/stars/esengine/DeepSeek-ARCDESK?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="stars"/></a>
-  <a href="https://github.com/esengine/DeepSeek-ARCDESK/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/esengine/DeepSeek-ARCDESK/ci.yml?branch=main-v2&style=flat-square&label=ci&labelColor=161b22&logo=githubactions&logoColor=white" alt="CI"/></a>
+  <a href="https://github.com/P1ouson/ArcDesk/stargazers"><img src="https://img.shields.io/github/stars/P1ouson/ArcDesk?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="stars"/></a>
+  <a href="https://github.com/P1ouson/ArcDesk/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/P1ouson/ArcDesk/ci.yml?branch=main&style=flat-square&label=ci&labelColor=161b22&logo=githubactions&logoColor=white" alt="CI"/></a>
   <a href="https://discord.gg/XF78rEME2D"><img src="https://img.shields.io/badge/discord-join-5865F2.svg?style=flat-square&labelColor=161b22&logo=discord&logoColor=white" alt="Discord"/></a>
 </p>
 
 <p align="center">
   <a href="./README.zh-CN.md">简体中文</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/esengine/DeepSeek-ARCDESK/releases">Releases</a>
+  <a href="https://github.com/P1ouson/ArcDesk/releases">Releases</a>
   &nbsp;·&nbsp;
   <a href="./docs/SPEC.md">Docs</a>
   &nbsp;·&nbsp;
@@ -39,13 +39,13 @@ Run long agent sessions without paying full context price every turn. **ArcDesk*
 | **Open & local** | MCP (stdio + HTTP), `.mcp.json`, TOML permissions, MIT source you can read |
 
 <p align="center">
-  <a href="https://github.com/esengine/DeepSeek-ARCDESK/releases">
+  <a href="https://github.com/P1ouson/ArcDesk/releases">
     <img src="docs/screenshots/desktop-hero.svg" alt="ArcDesk desktop — agent workbench (screenshot placeholder)" width="900"/>
   </a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/esengine/DeepSeek-ARCDESK/releases"><strong>Download desktop</strong></a>
+  <a href="https://github.com/P1ouson/ArcDesk/releases"><strong>Download desktop</strong></a>
   &nbsp;&nbsp;·&nbsp;&nbsp;
   <a href="#cli-install"><strong>Install CLI</strong></a>
   &nbsp;&nbsp;·&nbsp;&nbsp;
@@ -62,11 +62,11 @@ Run long agent sessions without paying full context price every turn. **ArcDesk*
 
 | Platform | Download |
 |----------|----------|
-| **Windows** | [`.exe` installer](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/arcdesk-desktop-amd64-installer.exe) (small setup wizard) |
-| **macOS** | [Universal `.dmg`](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-darwin-universal.dmg) |
-| **Linux** | [`.tar.gz` (amd64)](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-linux-amd64.tar.gz) |
+| **Windows** | [`.exe` installer](https://github.com/P1ouson/ArcDesk/releases/latest/download/arcdesk-desktop-amd64-installer.exe) (small setup wizard) |
+| **macOS** | [Universal `.dmg`](https://github.com/P1ouson/ArcDesk/releases/latest/download/ARCDESK-darwin-universal.dmg) |
+| **Linux** | [`.tar.gz` (amd64)](https://github.com/P1ouson/ArcDesk/releases/latest/download/ARCDESK-linux-amd64.tar.gz) |
 
-1. Download for your platform from the table or **[GitHub Releases](https://github.com/esengine/DeepSeek-ARCDESK/releases)**.
+1. Download for your platform from the table or **[GitHub Releases](https://github.com/P1ouson/ArcDesk/releases)**.
 2. Open **ArcDesk** and paste a [DeepSeek API key](https://platform.deepseek.com/) in the setup overlay (stored locally).
 3. **Open a project folder** and start a task.
 
@@ -175,7 +175,7 @@ Desktop checks release metadata on startup. **Linux/Windows** auto-update after 
 <details>
 <summary><strong>I'm on 0.x TypeScript — what changed?</strong></summary>
 
-**1.0+** is a Go rewrite on `main-v2`. Legacy **0.x** lives on [`v1`](https://github.com/esengine/DeepSeek-ARCDESK/tree/v1). `npm i -g ARCDESK` still works; see [`docs/MIGRATING.md`](./docs/MIGRATING.md).
+**1.0+** is a Go rewrite on `main-v2`. Legacy **0.x** lives on [`v1`](https://github.com/P1ouson/ArcDesk/tree/v1). `npm i -g ARCDESK` still works; see [`docs/MIGRATING.md`](./docs/MIGRATING.md).
 </details>
 
 <br/>
@@ -193,13 +193,13 @@ Desktop checks release metadata on startup. **Linux/Windows** auto-update after 
 | **MCP server not loading** | Trust the project/server in desktop UI; check `.mcp.json` syntax and env vars |
 | **Tool call blocked** | Review `[permissions]` in `ARCDESK.toml` — `deny` rules hard-block everywhere |
 
-Still stuck? [Discussions](https://github.com/esengine/DeepSeek-ARCDESK/discussions) · [Discord](https://discord.gg/XF78rEME2D) · [open an issue](https://github.com/esengine/DeepSeek-ARCDESK/issues/new/choose) (non-security).
+Still stuck? [Discussions](https://github.com/P1ouson/ArcDesk/discussions) · [Discord](https://discord.gg/XF78rEME2D) · [open an issue](https://github.com/P1ouson/ArcDesk/issues/new/choose) (non-security).
 
 <br/>
 
 ---
 
-> **Naming:** **ArcDesk** = product · **ARCDESK** = CLI / config · Repo: [`esengine/DeepSeek-ARCDESK`](https://github.com/esengine/DeepSeek-ARCDESK)
+> **Naming:** **ArcDesk** = product · **ARCDESK** = CLI / config · Repo: [`P1ouson/ArcDesk`](https://github.com/P1ouson/ArcDesk)
 
 <br/>
 
@@ -463,7 +463,7 @@ Details: [`SECURITY.md`](./SECURITY.md) · [`desktop/README.md`](./desktop/READM
 A small list of folks whose work has shaped ArcDesk the most — measured
 by both commit count and code volume. **Listed alphabetically, no ordering
 of importance.** The full contributor graph is on
-[GitHub](https://github.com/esengine/DeepSeek-ARCDESK/graphs/contributors).
+[GitHub](https://github.com/P1ouson/ArcDesk/graphs/contributors).
 
 - [**ctharvey**](https://github.com/ctharvey)
 - [**dimasd-angga**](https://github.com/dimasd-angga) (Dimas D. Angga)
@@ -483,8 +483,8 @@ for designing the project logo, and to
 Go kernel lineage ArcDesk builds on (see [Lineage — Reasonix](#lineage--reasonix)).
 
 <p align="center">
-  <a href="https://github.com/esengine/DeepSeek-ARCDESK/graphs/contributors">
-    <img src="https://contrib.rocks/image?repo=esengine/DeepSeek-ARCDESK&max=100&columns=12" alt="Contributors to esengine/DeepSeek-ARCDESK" width="860"/>
+  <a href="https://github.com/P1ouson/ArcDesk/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=P1ouson/ArcDesk&max=100&columns=12" alt="Contributors to P1ouson/ArcDesk" width="860"/>
   </a>
 </p>
 
@@ -495,5 +495,5 @@ Go kernel lineage ArcDesk builds on (see [Lineage — Reasonix](#lineage--reason
 <p align="center">
   <sub>MIT — see <a href="./LICENSE">LICENSE</a> · <a href="./SECURITY.md">Security</a> · <a href="./CONTRIBUTING.md">Contributing</a></sub>
   <br/>
-  <sub><strong>ArcDesk</strong> · <a href="https://github.com/esengine/DeepSeek-ARCDESK">esengine/DeepSeek-ARCDESK</a></sub>
+  <sub><strong>ArcDesk</strong> · <a href="https://github.com/P1ouson/ArcDesk">P1ouson/ArcDesk</a></sub>
 </p>
