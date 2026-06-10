@@ -11,6 +11,7 @@ export type DesktopSendRoute =
   | { action: "reviewOpen" }
   | { action: "reviewRun" }
   | { action: "openSdd" }
+  | { action: "openPreview"; url?: string }
   | { action: "themeShowCurrent" }
   | { action: "themeSet"; theme: Theme }
   | { action: "themeUnknown"; name: string }
@@ -39,6 +40,8 @@ export function routeDesktopSend(displayText: string, submitText = displayText):
     return trimmed === "/review run" ? { action: "reviewRun" } : { action: "reviewOpen" };
   }
   if (trimmed === "/sdd") return { action: "openSdd" };
+  const preview = /^\/preview(?:\s+(\S+))?$/.exec(trimmed);
+  if (preview) return { action: "openPreview", url: preview[1] };
   const theme = /^\/theme(?:\s+(\S+))?$/.exec(trimmed);
   if (theme) {
     const arg = theme[1]?.toLowerCase();

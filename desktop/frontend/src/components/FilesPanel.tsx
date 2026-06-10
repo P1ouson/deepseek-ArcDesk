@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type DragEvent as ReactDragEv
 import {
   ChevronRight,
   Copy,
+  Eye,
   FileText,
   FolderOpen,
   MessageSquarePlus,
@@ -15,6 +16,7 @@ import { parentDirs, shortCwd } from "../lib/workspaceFilePreview";
 import { addWorkspaceFileContentToChat } from "../lib/workspaceAddToChat";
 import type { DirEntry } from "../lib/types";
 import { formatWorkspaceReference, WORKSPACE_REF_DRAG_TYPE } from "../lib/workspaceDrag";
+import { isPreviewablePagePath } from "../lib/previewPage";
 import { useDismissOnClickOutside } from "../lib/useDismissOnClickOutside";
 import { ContextMenu, contextMenuPointFromEvent, type ContextMenuItem, type ContextMenuPoint } from "./ContextMenu";
 import { MotionUnfold } from "./MotionUnfold";
@@ -26,6 +28,7 @@ interface FilesPanelProps {
   refreshKey?: number;
   activeFilePath?: string | null;
   onOpenFile: (path: string) => void;
+  onPreviewPage?: (path: string) => void;
   onAddToChat?: (text: string) => void;
 }
 
@@ -43,7 +46,7 @@ function revealInFileManagerLabelKey(platform: string): DictKey {
   return "projectTree.revealInFileManager";
 }
 
-export function FilesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToChat }: FilesPanelProps) {
+export function FilesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onPreviewPage, onAddToChat }: FilesPanelProps) {
   const t = useT();
   const openDirsRef = useRef<Set<string>>(new Set([""]));
   const [platform, setPlatform] = useState("");
@@ -186,6 +189,12 @@ export function FilesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddT
     setTreeMenu(null);
   };
 
+  const openPreviewPage = () => {
+    if (!treeMenu || treeMenu.isDir) return;
+    onPreviewPage?.(treeMenu.path);
+    setTreeMenu(null);
+  };
+
   const copyTreePath = () => {
     if (!treeMenu) return;
     void copyWorkspacePath(treeMenu.path);
@@ -299,6 +308,15 @@ export function FilesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddT
                       label: t("workspace.addFileContentToChat"),
                       onSelect: () => void addTreeFileToChat(),
                     },
+                    ...(isPreviewablePagePath(treeMenu.path)
+                      ? [
+                          {
+                            icon: <Eye size={14} />,
+                            label: t("pagePreview.open"),
+                            onSelect: openPreviewPage,
+                          },
+                        ]
+                      : []),
                   ]),
               {
                 icon: <FolderOpen size={14} />,

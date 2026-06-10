@@ -1,11 +1,12 @@
 import type { RightDockTab } from "../components/Topbar";
 
 export type DockHub = "context" | "work" | "preview";
-export type PreviewMode = "browser" | "terminal";
+export type PreviewMode = "browser" | "page" | "terminal";
 
 export interface PreviewPanelState {
   terminal: boolean;
   browser: boolean;
+  page: boolean;
 }
 
 export interface DockHubDef {
@@ -18,7 +19,7 @@ export interface DockHubDef {
 export const DOCK_HUBS: DockHubDef[] = [
   { id: "context", defaultTab: "context", tabs: ["context"] },
   { id: "work", defaultTab: "changes", tabs: ["changes", "files", "todo", "git"] },
-  { id: "preview", defaultTab: "browser", tabs: ["browser"], previewModes: ["browser", "terminal"] },
+  { id: "preview", defaultTab: "page", tabs: ["page", "browser"], previewModes: ["page", "browser", "terminal"] },
 ];
 
 const HUB_BY_TAB = new Map<RightDockTab, DockHub>(
@@ -48,7 +49,7 @@ export function previewModesForHub(hub: DockHub): PreviewMode[] {
 }
 
 export function loadHubLastTab(hub: DockHub): RightDockTab {
-  if (hub === "preview") return "browser";
+  if (hub === "preview") return loadPreviewHubTab();
   if (typeof window === "undefined") return dockHubDef(hub).defaultTab;
   try {
     const raw = window.localStorage.getItem(LAST_TAB_STORAGE_KEY);
@@ -75,48 +76,82 @@ export function saveHubLastTab(hub: DockHub, tab: RightDockTab): void {
   }
 }
 
+const PREVIEW_HUB_TAB_KEY = "ARCDESK.dock.previewHubTab.v1";
+
+export function loadPreviewHubTab(): RightDockTab {
+  if (typeof window === "undefined") return "page";
+  try {
+    const raw = window.localStorage.getItem(PREVIEW_HUB_TAB_KEY);
+    if (raw === "browser" || raw === "page") return raw;
+  } catch {
+    /* ignore */
+  }
+  return "page";
+}
+
+export function savePreviewHubTab(tab: "browser" | "page"): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PREVIEW_HUB_TAB_KEY, tab);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function loadPreviewPanelState(): PreviewPanelState {
-  if (typeof window === "undefined") return { terminal: false, browser: true };
+  if (typeof window === "undefined") return { terminal: false, browser: false, page: true };
   try {
     const raw = window.localStorage.getItem(PREVIEW_PANEL_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PreviewPanelState>;
       return {
         terminal: parsed.terminal === true,
-        browser: parsed.browser !== false,
+        browser: parsed.browser === true,
+        page: parsed.page !== false,
       };
     }
     const legacy = window.localStorage.getItem(PREVIEW_MODE_STORAGE_KEY);
-    if (legacy === "terminal") return { terminal: true, browser: false };
-    if (legacy === "browser") return { terminal: false, browser: true };
+    if (legacy === "terminal") return { terminal: true, browser: false, page: false };
+    if (legacy === "browser") return { terminal: false, browser: true, page: false };
   } catch {
     /* ignore */
   }
-  return { terminal: false, browser: true };
+  return { terminal: false, browser: false, page: true };
 }
 
 export function savePreviewPanelState(state: PreviewPanelState): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(PREVIEW_PANEL_STORAGE_KEY, JSON.stringify(state));
-    window.localStorage.setItem(
-      PREVIEW_MODE_STORAGE_KEY,
-      state.terminal && !state.browser ? "terminal" : state.browser ? "browser" : "browser",
-    );
+    const legacyMode =
+      state.terminal && !state.browser && !state.page
+        ? "terminal"
+        : state.browser
+          ? "browser"
+          : state.page
+            ? "page"
+            : "browser";
+    window.localStorage.setItem(PREVIEW_MODE_STORAGE_KEY, legacyMode);
   } catch {
     /* ignore */
   }
 }
 
 export function resolveHubTab(hub: DockHub, tab?: RightDockTab): RightDockTab {
-  if (hub === "preview") return "browser";
+  if (hub === "preview") {
+    if (tab === "browser" || tab === "page") return tab;
+    return loadPreviewHubTab();
+  }
   if (tab && dockTabInHub(tab, hub)) return tab;
   return loadHubLastTab(hub);
 }
 
 export function saveDockTabSelection(tab: RightDockTab): void {
   const hub = dockHubForTab(tab);
-  if (hub === "preview") return;
+  if (hub === "preview") {
+    if (tab === "browser" || tab === "page") savePreviewHubTab(tab);
+    return;
+  }
   saveHubLastTab(hub, tab);
 }
 
@@ -128,6 +163,7 @@ export function getPreviewPanelState(
   return {
     terminal: terminalOpen,
     browser: dockOpen && activeTab === "browser",
+    page: dockOpen && activeTab === "page",
   };
 }
 
@@ -137,7 +173,7 @@ export function isPreviewHubActive(
   activeTab: RightDockTab | null | undefined,
 ): boolean {
   const state = getPreviewPanelState(terminalOpen, dockOpen, activeTab);
-  return state.terminal || state.browser;
+  return state.terminal || state.browser || state.page;
 }
 
 /** @deprecated use getPreviewPanelState */
@@ -148,6 +184,7 @@ export function getActivePreviewMode(
 ): PreviewMode | null {
   const state = getPreviewPanelState(terminalOpen, dockOpen, activeTab);
   if (state.terminal) return "terminal";
+  if (state.page) return "page";
   if (state.browser) return "browser";
   return null;
 }
@@ -164,5 +201,6 @@ export function savePreviewMode(mode: PreviewMode): void {
   savePreviewPanelState({
     terminal: mode === "terminal",
     browser: mode === "browser",
+    page: mode === "page",
   });
 }

@@ -80,6 +80,8 @@ function TimelineRow({
   onRewind,
   actionPending,
   rewindDisabled,
+  turnCopyText,
+  showTurnCopy,
 }: {
   item: Item;
   live?: LiveStream;
@@ -91,6 +93,8 @@ function TimelineRow({
   onRewind?: (turn: number, scope: string) => void;
   actionPending?: boolean;
   rewindDisabled?: boolean;
+  turnCopyText?: string;
+  showTurnCopy?: boolean;
 }) {
   switch (item.kind) {
     case "user": {
@@ -115,6 +119,8 @@ function TimelineRow({
           checkpoint={turn != null ? checkpointsByTurn.get(turn) : undefined}
           actionPending={actionPending}
           rewindDisabled={rewindDisabled}
+          copyText={turnCopyText}
+          showCopyButton={showTurnCopy}
           onRewind={(tn, scope) => {
             onRewind?.(tn, scope);
             onToggleRewind(null);
@@ -212,6 +218,36 @@ export function MessageTimeline({
   }, [items, userTurn]);
 
   const checkpointsByTurn = useMemo(() => new Map(checkpoints.map((cp) => [cp.turn, cp])), [checkpoints]);
+
+  const turnAssistantCopy = useMemo(() => {
+    const copyTextByAssistantId = new Map<string, string>();
+    const showCopyByAssistantId = new Map<string, boolean>();
+    let turn: number | undefined;
+    const chunks: string[] = [];
+    let lastAssistantId: string | undefined;
+
+    const flush = () => {
+      if (lastAssistantId && chunks.length > 0) {
+        copyTextByAssistantId.set(lastAssistantId, chunks.join("\n\n"));
+        showCopyByAssistantId.set(lastAssistantId, true);
+      }
+      chunks.length = 0;
+      lastAssistantId = undefined;
+    };
+
+    for (const it of items) {
+      if (it.kind === "user") {
+        flush();
+        turn = userTurn.get(it.id);
+      } else if (it.kind === "assistant" && turn != null) {
+        lastAssistantId = it.id;
+        const text = it.text.trim();
+        if (text) chunks.push(text);
+      }
+    }
+    flush();
+    return { copyTextByAssistantId, showCopyByAssistantId };
+  }, [items, userTurn]);
 
   const rows = useMemo(
     () => buildTimelineRows(items, subcallsByParent, live),
@@ -318,6 +354,8 @@ export function MessageTimeline({
                 onRewind={onRewind}
                 actionPending={actionPending}
                 rewindDisabled={rewindDisabled}
+                turnCopyText={turnAssistantCopy.copyTextByAssistantId.get(row.item.id)}
+                showTurnCopy={turnAssistantCopy.showCopyByAssistantId.get(row.item.id) === true}
               />
             )}
           </div>

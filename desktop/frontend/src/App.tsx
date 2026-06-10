@@ -5,6 +5,7 @@ import { clearLegacyLangPref, normalizeLangPref, readLegacyLangPref, t, useI18n,
 import { useController } from "./lib/useController";
 import { app, onProjectTreeChanged, onScheduleTask } from "./lib/bridge";
 import { logBridgeError } from "./lib/logBridgeError";
+import { findDevPreviewTrigger, isCancellableAgentWork } from "./lib/agentActivity";
 import { isComposerSendDisabled } from "./lib/composerSendGate";
 import { useRuntimeReady } from "./lib/runtime";
 import { MessageTimeline } from "./components/MessageTimeline";
@@ -233,6 +234,14 @@ export default function App() {
     filePreviewResizing,
     rightDockMode,
     browserPreviewExpanded,
+    browserPreviewOpen,
+    pagePreviewOpen,
+    webPreviewUrl,
+    setWebPreviewUrl,
+    pagePreviewPath,
+    setPagePreviewPath,
+    openWebPreview,
+    openPagePreview,
     filePreviewOpen,
     showRightDock,
     closeWorkspacePanel,
@@ -334,6 +343,29 @@ export default function App() {
       setAppMode("settings");
     });
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.runtime) return;
+    return window.runtime.EventsOn("app:open-web-preview", (payload) => {
+      const detail = payload as { url?: string } | undefined;
+      const url = typeof detail?.url === "string" ? detail.url : undefined;
+      setAppMode("code");
+      void (async () => {
+        if (!url) {
+          try {
+            const detected = await app.DetectDevServerURL();
+            openWebPreview(detected || undefined);
+            return;
+          } catch {
+            openWebPreview();
+            return;
+          }
+        }
+        openWebPreview(url);
+      })();
+    });
+  }, [openWebPreview]);
+
   useEffect(() => {
     const openGitHubCliSettings = () => setAppMode("settings");
     window.addEventListener(GITHUB_CLI_SETTINGS_EVENT, openGitHubCliSettings);
@@ -344,6 +376,28 @@ export default function App() {
   const footerRef = useRef<HTMLDivElement>(null);
   const chatMode = appMode === "code";
   const showWorkbenchFooter = chatMode || appMode === "write";
+  const devPreviewTriggerRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!chatMode) return;
+    const trigger = findDevPreviewTrigger(state.items);
+    if (!trigger) return;
+    const key = JSON.stringify(trigger);
+    if (devPreviewTriggerRef.current === key) return;
+    devPreviewTriggerRef.current = key;
+    void (async () => {
+      if (trigger.url) {
+        openWebPreview(trigger.url);
+        return;
+      }
+      try {
+        const detected = await app.DetectDevServerURL();
+        openWebPreview(detected || undefined);
+      } catch {
+        openWebPreview();
+      }
+    })();
+  }, [chatMode, openWebPreview, state.items]);
 
   useEffect(() => {
     if (chatMode) return;
@@ -613,6 +667,7 @@ export default function App() {
     dispatchSideChat: (text) => dispatchSideChatRef.current(text),
     setAppMode,
     openDockTab,
+    openWebPreview,
     runCodeReview,
     setSddOpen,
     syncModeToController,
@@ -1084,6 +1139,7 @@ export default function App() {
   }, []);
 
   const agentActive = state.running || state.turnActive || state.approval != null || state.ask != null;
+  const composerAgentRunning = isCancellableAgentWork(state);
 
   useEffect(() => {
     if (!decisionPending) {
@@ -1420,7 +1476,7 @@ export default function App() {
                       <FloatingComposer
                         key={appMode === "write" ? "write" : "code"}
                         composerSurface={appMode === "write" ? "write" : "code"}
-                        running={state.running}
+                        running={composerAgentRunning}
                         mode={mode}
                         cwd={composerCwd}
                         modelLabel={state.meta?.label ?? t("status.connecting")}
@@ -1447,6 +1503,10 @@ export default function App() {
                         onUseNoWorkspace={handleUseNoWorkspace}
                         terminalActive={chatMode && terminalOpen && terminalTabs.length > 0}
                         terminalLabel={activeTerminalTab?.title}
+                        browserPreviewActive={chatMode && browserPreviewOpen}
+                        browserPreviewLabel={webPreviewUrl ?? undefined}
+                        pagePreviewActive={chatMode && pagePreviewOpen}
+                        pagePreviewLabel={pagePreviewPath ?? undefined}
                         context={state.context}
                         usage={state.usage}
                         balance={state.balance}
@@ -1539,6 +1599,11 @@ export default function App() {
                   onClearCodeReview={clearCodeReview}
                   browserExpanded={browserPreviewExpanded}
                   onToggleBrowserExpanded={toggleBrowserPreviewExpanded}
+                  webPreviewUrl={webPreviewUrl}
+                  onWebPreviewUrlChange={setWebPreviewUrl}
+                  pagePreviewPath={pagePreviewPath}
+                  onPagePreviewPathChange={setPagePreviewPath}
+                  onPreviewPage={openPagePreview}
                 />
               </>
             )}

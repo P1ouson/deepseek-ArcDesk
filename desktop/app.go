@@ -78,6 +78,7 @@ type App struct {
 	clawRunMu      sync.Mutex
 	clawRunCtrl    *control.Controller
 	term           *terminalManager
+	pagePreview    *pagePreviewServer
 }
 
 // NewApp constructs the bound object. Tabs are restored in startup from the
@@ -86,6 +87,7 @@ func NewApp() *App {
 	return &App{
 		tabs:           map[string]*WorkspaceTab{},
 		term:           newTerminalManager(),
+		pagePreview:    newPagePreviewServer(),
 		mobileDecision: newMobileDecisionStore(),
 		decisionRoutes: newDecisionRouteStore(),
 	}
@@ -176,6 +178,7 @@ func (a *App) restoreOrBuildTabs() {
 			tab.model = entry.Model
 			tab.effort = cloneStringPtr(entry.Effort)
 			tab.mode = persistedTabMode(entry.Mode)
+			tab.sessionPath = strings.TrimSpace(entry.SessionPath)
 			tab.sink = &tabEventSink{tabID: tab.ID, app: a, ctx: ctx}
 			a.mu.Lock()
 			a.tabs[tab.ID] = tab
@@ -244,6 +247,9 @@ func (a *App) shutdown(context.Context) {
 	a.stopClawBridge()
 	a.stopTray()
 	a.term.CloseAll()
+	if a.pagePreview != nil {
+		a.pagePreview.close()
+	}
 	// Save window geometry synchronously from Go so it's persisted even if the
 	// frontend's beforeunload promise hasn't resolved yet.
 	a.saveWindowStateSync()
@@ -257,9 +263,13 @@ func (a *App) shutdown(context.Context) {
 	for _, t := range tabs {
 		if t.Ctrl != nil {
 			_ = t.Ctrl.Snapshot()
+			a.syncTabSessionPathLocked(t)
 			t.Ctrl.Close()
 		}
 	}
+	a.mu.Lock()
+	a.saveTabsLocked()
+	a.mu.Unlock()
 }
 
 // domReady is called (via OnDomReady) after the webview finishes loading its DOM
@@ -571,15 +581,32 @@ func (a *App) Compact() error {
 	return ctrl.Compact(a.ctx, "")
 }
 
+func (a *App) syncTabSessionPathLocked(tab *WorkspaceTab) {
+	if tab == nil || tab.Ctrl == nil {
+		return
+	}
+	if sp := strings.TrimSpace(tab.Ctrl.SessionPath()); sp != "" {
+		tab.sessionPath = sp
+	}
+}
+
 // NewSession snapshots the current conversation and rotates to a fresh one.
 func (a *App) NewSession() error {
 	a.mu.RLock()
-	ctrl := a.activeCtrlLocked()
+	tab := a.activeTabLocked()
+	ctrl := tab.Ctrl
 	a.mu.RUnlock()
 	if ctrl == nil {
 		return errControllerNotReady
 	}
-	return ctrl.NewSession()
+	if err := ctrl.NewSession(); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.syncTabSessionPathLocked(tab)
+	a.saveTabsLocked()
+	a.mu.Unlock()
+	return nil
 }
 
 // CheckpointMeta summarises one rewind point (a user turn) for the desktop.
@@ -918,6 +945,7 @@ func (a *App) ResumeSession(path string) ([]HistoryMessage, error) {
 // matching tab should resume on that exact controller instead of whichever tab is
 // active by the time the async call reaches the backend.
 func (a *App) ResumeSessionForTab(tabID, path string) ([]HistoryMessage, error) {
+	tab := a.tabByID(tabID)
 	ctrl := a.ctrlByTabID(tabID)
 	if ctrl == nil {
 		return []HistoryMessage{}, fmt.Errorf("tab is not ready")
@@ -928,6 +956,10 @@ func (a *App) ResumeSessionForTab(tabID, path string) ([]HistoryMessage, error) 
 	}
 	_ = ctrl.Snapshot() // persist the current session before switching away
 	ctrl.Resume(loaded, path)
+	a.mu.Lock()
+	a.syncTabSessionPathLocked(tab)
+	a.saveTabsLocked()
+	a.mu.Unlock()
 	return a.HistoryForTab(tabID), nil
 }
 
@@ -2487,6 +2519,7 @@ func (a *App) SetModelForTab(tabID, name string) error {
 	a.saveTabsLocked()
 	a.mu.Unlock()
 	enableDesktopInteractive(newCtrl)
+	registerDesktopSessionTools(a, newCtrl)
 	applyTabModeToController(newCtrl, tab.mode)
 
 	path := agent.ContinueSessionPath(prevPath, newCtrl.SessionDir(), newCtrl.Label())
@@ -2577,6 +2610,7 @@ func (a *App) SetEffortForTab(tabID, level string) error {
 	a.saveTabsLocked()
 	a.mu.Unlock()
 	enableDesktopInteractive(newCtrl)
+	registerDesktopSessionTools(a, newCtrl)
 	applyTabModeToController(newCtrl, tab.mode)
 	path := agent.ContinueSessionPath(prevPath, newCtrl.SessionDir(), newCtrl.Label())
 	if len(carried) > 0 {

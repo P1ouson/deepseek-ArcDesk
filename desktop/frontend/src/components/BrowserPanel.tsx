@@ -23,51 +23,75 @@ import { Tooltip } from "./Tooltip";
 export interface BrowserPanelProps {
   expanded?: boolean;
   onToggleExpanded?: () => void;
+  /** Controlled preview URL from workbench state. */
+  previewUrl?: string | null;
+  onPreviewUrlChange?: (url: string) => void;
+  /** Bump to soft-reload iframe after workspace file changes (HMR fallback). */
+  refreshKey?: number;
+  workspaceRoot?: string;
 }
 
-type LoadPhase = "idle" | "probing" | "ready" | "offline";
+type Reachability = "unknown" | "online" | "offline";
 
-export function BrowserPanel({ expanded = false, onToggleExpanded }: BrowserPanelProps) {
+export function BrowserPanel({
+  expanded = false,
+  onToggleExpanded,
+  previewUrl,
+  onPreviewUrlChange,
+  refreshKey = 0,
+  workspaceRoot: _workspaceRoot,
+}: BrowserPanelProps) {
   const t = useT();
-  const initialUrl = defaultPreviewUrl();
+  const initialUrl = previewUrl?.trim() || defaultPreviewUrl();
   const [url, setUrl] = useState(initialUrl);
-  const [src, setSrc] = useState<string | null>(null);
-  const [phase, setPhase] = useState<LoadPhase>("idle");
+  const [src, setSrc] = useState<string | null>(initialUrl);
+  const [reachability, setReachability] = useState<Reachability>("unknown");
   const [status, setStatus] = useState<PreviewURLValidation>(() => ({
     decision: "allow",
     url: initialUrl,
     strict: false,
   }));
   const [blockedMessage, setBlockedMessage] = useState("");
+  const [iframeLoaded, setIframeLoaded] = useState(false);
   const probeGen = useRef(0);
+  const reloadGen = useRef(0);
+  const lastRefreshKey = useRef(refreshKey);
 
-  const resolveUrl = useCallback(async (raw: string): Promise<PreviewURLValidation> => {
-    try {
-      return await app.ValidatePreviewURL(raw);
-    } catch {
-      const fallback = validatePreviewUrl(raw);
-      return {
-        decision: fallback.decision,
-        url: fallback.url,
-        reason: fallback.reason,
-        strict: false,
-      };
-    }
+  const bumpIframe = useCallback((base: string) => {
+    const clean = base.split("#")[0] ?? base;
+    setSrc(`${clean}${clean.includes("?") ? "&" : "?"}_preview=${Date.now()}`);
+    setIframeLoaded(false);
   }, []);
 
-  const loadPreview = useCallback(
-    async (raw: string, skipConfirm = false) => {
-      const gen = ++probeGen.current;
-      setBlockedMessage("");
-      setPhase("probing");
-      setSrc(null);
+  const checkReachability = useCallback(async (href: string) => {
+    const gen = ++probeGen.current;
+    setReachability("unknown");
+    const ok = await probePreviewReachable(href);
+    if (gen !== probeGen.current) return;
+    setReachability(ok ? "online" : "offline");
+  }, []);
 
-      const next = await resolveUrl(raw);
-      if (gen !== probeGen.current) return;
+  const applyPreviewUrl = useCallback(
+    async (raw: string, skipConfirm = false) => {
+      setBlockedMessage("");
+      const next = await (async (): Promise<PreviewURLValidation> => {
+        try {
+          return await app.ValidatePreviewURL(raw);
+        } catch {
+          const fallback = validatePreviewUrl(raw);
+          return {
+            decision: fallback.decision,
+            url: fallback.url,
+            reason: fallback.reason,
+            strict: false,
+          };
+        }
+      })();
 
       setStatus(next);
       if (next.decision === "blocked") {
-        setPhase("idle");
+        setSrc(null);
+        setReachability("offline");
         setBlockedMessage(
           next.reason === "unsafe-scheme"
             ? t("browser.blockedScheme")
@@ -82,51 +106,72 @@ export function BrowserPanel({ expanded = false, onToggleExpanded }: BrowserPane
           title: t("browser.externalConfirmTitle"),
           message: t("browser.externalConfirm", { url: next.url }),
         });
-        if (!ok) {
-          setPhase("idle");
-          return;
-        }
+        if (!ok) return;
       }
 
       setUrl(next.url);
-      const reachable = await probePreviewReachable(next.url);
-      if (gen !== probeGen.current) return;
-
-      if (!reachable) {
-        setPhase("offline");
-        setSrc(null);
-        return;
-      }
-
+      onPreviewUrlChange?.(next.url);
       setSrc(next.url);
-      setPhase("ready");
+      setIframeLoaded(false);
+      void checkReachability(next.url);
     },
-    [resolveUrl, t],
+    [checkReachability, onPreviewUrlChange, t],
   );
 
   useEffect(() => {
-    void loadPreview(initialUrl, true);
-  }, [initialUrl, loadPreview]);
+    if (!previewUrl?.trim()) return;
+    if (previewUrl.trim() === url.trim()) return;
+    void applyPreviewUrl(previewUrl, true);
+  }, [applyPreviewUrl, previewUrl, url]);
 
   useEffect(() => {
-    if (phase !== "offline") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const detected = await app.DetectDevServerURL();
+        if (cancelled || !detected) return;
+        if (previewUrl?.trim()) return;
+        await applyPreviewUrl(detected, true);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyPreviewUrl, previewUrl, refreshKey]);
+
+  useEffect(() => {
+    if (!src || reachability !== "offline") return;
     const id = window.setInterval(() => {
-      void loadPreview(url, true);
+      void checkReachability(url);
     }, 5000);
     return () => window.clearInterval(id);
-  }, [loadPreview, phase, url]);
+  }, [checkReachability, reachability, src, url]);
+
+  useEffect(() => {
+    if (!src) return;
+    if (lastRefreshKey.current === refreshKey) return;
+    lastRefreshKey.current = refreshKey;
+    const gen = ++reloadGen.current;
+    const id = window.setTimeout(() => {
+      if (gen !== reloadGen.current) return;
+      bumpIframe(url);
+    }, 700);
+    return () => window.clearTimeout(id);
+  }, [bumpIframe, refreshKey, src, url]);
 
   const reload = useCallback(() => {
     if (!src) {
-      void loadPreview(url, true);
+      void applyPreviewUrl(url, true);
       return;
     }
-    const base = src.split("#")[0] ?? src;
-    setSrc(`${base}${base.includes("?") ? "&" : "?"}_preview=${Date.now()}`);
-  }, [loadPreview, src, url]);
+    bumpIframe(url);
+    void checkReachability(url);
+  }, [applyPreviewUrl, bumpIframe, checkReachability, src, url]);
 
   const statusBadge = (() => {
-    if (phase === "offline") {
+    if (reachability === "offline" && src) {
       return (
         <span className="browser-panel__badge browser-panel__badge--warn">
           <AlertTriangle size={12} />
@@ -172,17 +217,11 @@ export function BrowserPanel({ expanded = false, onToggleExpanded }: BrowserPane
         <div className="browser-panel__row">
           <div className="browser-panel__tools" role="toolbar" aria-label={t("browser.title")}>
             <Tooltip label={t("browser.reload")}>
-              <button
-                type="button"
-                className="browser-panel__tool"
-                onClick={reload}
-                disabled={phase === "probing"}
-                aria-label={t("browser.reload")}
-              >
-                <RefreshCw size={15} strokeWidth={1.75} className={phase === "probing" ? "dock-panel__spin" : undefined} />
+              <button type="button" className="browser-panel__tool" onClick={reload} aria-label={t("browser.reload")}>
+                <RefreshCw size={15} strokeWidth={1.75} />
               </button>
             </Tooltip>
-            {onToggleExpanded && (
+            {onToggleExpanded ? (
               <Tooltip label={t(expanded ? "browser.collapse" : "browser.expand")}>
                 <button
                   type="button"
@@ -194,7 +233,7 @@ export function BrowserPanel({ expanded = false, onToggleExpanded }: BrowserPane
                   {expanded ? <Minimize2 size={15} strokeWidth={1.75} /> : <Maximize2 size={15} strokeWidth={1.75} />}
                 </button>
               </Tooltip>
-            )}
+            ) : null}
           </div>
 
           <div className="browser-panel__omnibox">
@@ -203,7 +242,7 @@ export function BrowserPanel({ expanded = false, onToggleExpanded }: BrowserPane
               value={url}
               onChange={(event) => setUrl(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") void loadPreview(url);
+                if (event.key === "Enter") void applyPreviewUrl(url);
               }}
               placeholder={t("rightDock.urlPlaceholder")}
               spellCheck={false}
@@ -213,8 +252,7 @@ export function BrowserPanel({ expanded = false, onToggleExpanded }: BrowserPane
               <button
                 type="button"
                 className="browser-panel__go"
-                onClick={() => void loadPreview(url)}
-                disabled={phase === "probing"}
+                onClick={() => void applyPreviewUrl(url)}
                 aria-label={t("rightDock.browserGo")}
               >
                 <ArrowRight size={14} strokeWidth={2} />
@@ -228,27 +266,30 @@ export function BrowserPanel({ expanded = false, onToggleExpanded }: BrowserPane
 
       {blockedMessage ? (
         <div className="right-dock__browser-blocked">{blockedMessage}</div>
-      ) : phase === "probing" ? (
-        <div className="right-dock__browser-blocked browser-panel__idle">
-          <p>{t("browser.probing")}</p>
-        </div>
-      ) : phase === "offline" ? (
-        <div className="right-dock__browser-blocked browser-panel__idle">
-          <p>{t("browser.offlineTitle")}</p>
-          <p className="browser-panel__idle-hint">{t("browser.offlineHint")}</p>
-          <button type="button" className="browser-panel__retry" onClick={() => void loadPreview(url, true)}>
-            {t("browser.retry")}
-          </button>
-        </div>
       ) : src ? (
-        <iframe
-          key={src}
-          title={t("browser.title")}
-          src={src}
-          className="right-dock__iframe"
-          sandbox={PREVIEW_IFRAME_SANDBOX}
-          referrerPolicy="no-referrer"
-        />
+        <div className="browser-panel__viewport">
+          {reachability === "offline" && !iframeLoaded ? (
+            <div className="browser-panel__overlay">
+              <p>{t("browser.offlineTitle")}</p>
+              <p className="browser-panel__idle-hint">{t("browser.offlineHint")}</p>
+              <button type="button" className="browser-panel__retry" onClick={() => void applyPreviewUrl(url, true)}>
+                {t("browser.retry")}
+              </button>
+            </div>
+          ) : null}
+          <iframe
+            key={src}
+            title={t("browser.title")}
+            src={src}
+            className="right-dock__iframe"
+            sandbox={PREVIEW_IFRAME_SANDBOX}
+            referrerPolicy="no-referrer"
+            onLoad={() => {
+              setIframeLoaded(true);
+              if (reachability === "unknown") setReachability("online");
+            }}
+          />
+        </div>
       ) : (
         <div className="right-dock__browser-blocked browser-panel__idle">
           <p>{t("browser.idleTitle")}</p>

@@ -1479,6 +1479,15 @@ func (c *Controller) SetSkillEnabled(name string, enabled bool) error {
 // so a frontend can list the active hooks via `/hooks`.
 func (c *Controller) HookRunner() *hook.Runner { return c.hooks }
 
+// RegisterSessionTool adds a tool for the remainder of this controller session.
+// Desktop uses this for UI affordances (e.g. open_web_preview) after boot.Build.
+func (c *Controller) RegisterSessionTool(t tool.Tool) {
+	if c == nil || t == nil || c.reg == nil {
+		return
+	}
+	c.reg.Add(t)
+}
+
 // AddMCPServer connects an MCP server live and persists it to the config file. Its
 // tools are registered immediately and become available on the next turn (the
 // agent reads the registry per turn). The raw entry — ${VARS} intact — is what's

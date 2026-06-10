@@ -7,6 +7,7 @@ import {
   FileText,
   GitBranch,
   GitCommitHorizontal,
+  Globe,
   ListChecks,
   Monitor,
   PanelRight,
@@ -33,10 +34,12 @@ const TAB_META: Record<RightDockTab, { icon: ReactNode; labelKey: string; fallba
   git: { icon: <GitCommitHorizontal size={14} />, labelKey: "rightDock.tab.git", fallback: "Git" },
   browser: { icon: <Monitor size={14} />, labelKey: "browser.title", fallback: "Browser" },
   files: { icon: <FileText size={14} />, labelKey: "rightDock.tab.files", fallback: "Files" },
+  page: { icon: <Globe size={14} />, labelKey: "pagePreview.title", fallback: "Preview" },
 };
 
 const PREVIEW_META: Record<PreviewMode, { icon: ReactNode; labelKey: string; fallback: string }> = {
   browser: { icon: <Monitor size={14} />, labelKey: "browser.title", fallback: "Browser" },
+  page: { icon: <Globe size={14} />, labelKey: "pagePreview.title", fallback: "Preview" },
   terminal: { icon: <SquareTerminal size={14} />, labelKey: "terminal.title", fallback: "Terminal" },
 };
 
@@ -86,12 +89,14 @@ export function DockHubButtons({
   };
 
   const hubIsActive = (hub: DockHub): boolean => {
-    if (hub === "preview") return previewState.terminal || previewState.browser;
+    if (hub === "preview") return previewState.terminal || previewState.browser || previewState.page;
     return dockOpen && activeHub === hub;
   };
 
   const previewModeChecked = (mode: PreviewMode): boolean => {
-    return mode === "terminal" ? previewState.terminal : previewState.browser;
+    if (mode === "terminal") return previewState.terminal;
+    if (mode === "page") return previewState.page;
+    return previewState.browser;
   };
 
   const menuItemCount = (hub: DockHub): number => {

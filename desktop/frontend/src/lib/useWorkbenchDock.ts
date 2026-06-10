@@ -15,18 +15,19 @@ import type { ActionFileOpenRequest } from "../components/ActionStream";
 import type { AppMode } from "./appMode";
 import {
   dockHubForTab,
-  isPreviewHubActive,
   loadHubLastTab,
   loadPreviewPanelState,
   resolveHubTab,
   saveDockTabSelection,
   savePreviewPanelState,
+  loadPreviewHubTab,
   type DockHub,
   type PreviewMode,
 } from "./dockHubs";
 import { loadLayoutSize, loadOptionalLayoutSize, saveLayoutSize } from "./layoutPreferences";
 import type { ToolFileDiff } from "./tools";
 import type { ComposerInsertRequest } from "./types";
+import { isPreviewablePagePath } from "./previewPage";
 
 const STUDIO_RAIL_WIDTH = 76;
 const STUDIO_DRAWER_WIDTH = 280;
@@ -123,6 +124,8 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
   const [filePreviewComposerOpen, setFilePreviewComposerOpen] = useState(false);
   const [filePreviewResizing, setFilePreviewResizing] = useState(false);
   const [browserPreviewExpanded, setBrowserPreviewExpanded] = useState(false);
+  const [webPreviewUrl, setWebPreviewUrl] = useState<string | null>(null);
+  const [pagePreviewPath, setPagePreviewPath] = useState<string | null>(null);
   const [rightDockMode, setRightDockMode] = useState<RightDockTab>(() => loadHubLastTab("context"));
 
   const chatMode = appMode === "code";
@@ -165,6 +168,8 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
   targetDockWidthRef.current = workspacePanelRenderWidth;
   const dockGridWidth = 0;
   const browserPreviewOpen = workspacePanelOpen && rightDockMode === "browser";
+  const pagePreviewOpen = workspacePanelOpen && rightDockMode === "page";
+  const previewPanelOpen = browserPreviewOpen || pagePreviewOpen;
 
   useEffect(() => {
     if (!workspacePanelOpen) {
@@ -191,8 +196,8 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
   }, [workspacePanelRenderWidth, workspacePanelOpen, dockAnimWidth]);
 
   useEffect(() => {
-    savePreviewPanelState({ terminal: terminalOpen, browser: browserPreviewOpen });
-  }, [browserPreviewOpen, terminalOpen]);
+    savePreviewPanelState({ terminal: terminalOpen, browser: browserPreviewOpen, page: pagePreviewOpen });
+  }, [browserPreviewOpen, pagePreviewOpen, terminalOpen]);
 
   useEffect(() => {
     setFilePreviewPath(null);
@@ -227,12 +232,12 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
     }, MOTION_PANEL_MS);
   }, [workspacePanelOpen]);
 
-  const closeBrowserPreview = useCallback(() => {
+  const closePreviewPanel = useCallback(() => {
     setBrowserPreviewExpanded(false);
-    if (browserPreviewOpen) {
+    if (previewPanelOpen) {
       closeWorkspacePanel();
     }
-  }, [browserPreviewOpen, closeWorkspacePanel]);
+  }, [closeWorkspacePanel, previewPanelOpen]);
 
   const toggleBrowserPreviewExpanded = useCallback(() => {
     setBrowserPreviewExpanded((value) => !value);
@@ -246,7 +251,7 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
         closeWorkspacePanel();
         return;
       }
-      if (tab !== "browser") {
+      if (tab !== "browser" && tab !== "page") {
         setBrowserPreviewExpanded(false);
       }
       setRightDockMode(tab);
@@ -257,6 +262,11 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
 
   const openFilePreview = useCallback(
     (path: string, dockTab: RightDockTab = "files") => {
+      if (isPreviewablePagePath(path) && dockTab === "files") {
+        setPagePreviewPath(path);
+        openDockTab("page", { toggle: false });
+        return;
+      }
       const width = clampFilePreviewWidth(rightDockWidth);
       setFilePreviewWidth(width);
       saveFilePreviewWidth(width);
@@ -309,27 +319,52 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
     void openNewTerminal();
   }, [closeTerminalPanel, openNewTerminal, terminalOpen]);
 
+  const openWebPreview = useCallback(
+    (url?: string) => {
+      if (url?.trim()) setWebPreviewUrl(url.trim());
+      openDockTab("browser", { toggle: false });
+      savePreviewPanelState({ terminal: terminalOpen, browser: true, page: false });
+    },
+    [openDockTab, terminalOpen],
+  );
+
+  const openPagePreview = useCallback(
+    (path?: string) => {
+      if (path?.trim()) setPagePreviewPath(path.trim());
+      openDockTab("page", { toggle: false });
+      savePreviewPanelState({ terminal: terminalOpen, browser: false, page: true });
+    },
+    [openDockTab, terminalOpen],
+  );
+
   const openPreviewBrowser = useCallback(() => {
-    openDockTab("browser", { toggle: false });
-    savePreviewPanelState({ terminal: terminalOpen, browser: true });
-  }, [openDockTab, terminalOpen]);
+    openWebPreview();
+  }, [openWebPreview]);
 
   const togglePreviewBrowser = useCallback(() => {
     if (browserPreviewOpen) {
-      closeBrowserPreview();
+      closePreviewPanel();
       return;
     }
-    openPreviewBrowser();
-  }, [browserPreviewOpen, closeBrowserPreview, openPreviewBrowser]);
+    openWebPreview();
+  }, [browserPreviewOpen, closePreviewPanel, openWebPreview]);
+
+  const togglePreviewPage = useCallback(() => {
+    if (pagePreviewOpen) {
+      closePreviewPanel();
+      return;
+    }
+    openPagePreview();
+  }, [closePreviewPanel, openPagePreview, pagePreviewOpen]);
 
   const deactivatePreview = useCallback(() => {
     if (terminalOpen) {
       closeTerminalPanel();
     }
-    if (browserPreviewOpen) {
-      closeBrowserPreview();
+    if (previewPanelOpen) {
+      closePreviewPanel();
     }
-  }, [browserPreviewOpen, closeBrowserPreview, closeTerminalPanel, terminalOpen]);
+  }, [closePreviewPanel, closeTerminalPanel, previewPanelOpen, terminalOpen]);
 
   const togglePreviewMode = useCallback(
     (mode: PreviewMode) => {
@@ -337,23 +372,28 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
         togglePreviewTerminal();
         return;
       }
+      if (mode === "page") {
+        togglePreviewPage();
+        return;
+      }
       togglePreviewBrowser();
     },
-    [togglePreviewBrowser, togglePreviewTerminal],
+    [togglePreviewBrowser, togglePreviewPage, togglePreviewTerminal],
   );
 
   const openDockHub = useCallback(
     (hub: DockHub) => {
       if (hub === "preview") {
-        if (browserPreviewOpen) {
+        if (previewPanelOpen || terminalOpen) {
           deactivatePreview();
           return;
         }
-        if (isPreviewHubActive(terminalOpen, workspacePanelOpen, rightDockMode)) {
-          deactivatePreview();
-          return;
+        const tab = loadPreviewHubTab();
+        if (tab === "browser") {
+          openWebPreview();
+        } else {
+          openPagePreview();
         }
-        openPreviewBrowser();
         const saved = loadPreviewPanelState();
         if (saved.terminal) {
           void openNewTerminal();
@@ -369,12 +409,13 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
       openDockTab(tab, { toggle: false });
     },
     [
-      browserPreviewOpen,
-      closeWorkspacePanel,
       deactivatePreview,
+      closeWorkspacePanel,
       openDockTab,
       openNewTerminal,
-      openPreviewBrowser,
+      openPagePreview,
+      openWebPreview,
+      previewPanelOpen,
       rightDockMode,
       terminalOpen,
       workspacePanelOpen,
@@ -522,6 +563,16 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
     rightDockMode,
     rightDockWidth,
     browserPreviewExpanded,
+    browserPreviewOpen,
+    pagePreviewOpen,
+    previewPanelOpen,
+    webPreviewUrl,
+    setWebPreviewUrl,
+    pagePreviewPath,
+    setPagePreviewPath,
+    openWebPreview,
+    openPagePreview,
+    openPreviewBrowser,
     filePreviewOpen,
     showRightDock,
     closeWorkspacePanel,

@@ -3,7 +3,9 @@ package main
 import (
 	"arcdesk/internal/config"
 	"encoding/json"
+	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -318,4 +320,45 @@ func mergeSandboxInput(workspaceRoot string, in ConfigureProjectSandboxInput) (P
 		profile.PreviewPorts = def.PreviewPorts
 	}
 	return profile, nil
+}
+
+// probePreviewReachable checks TCP/HTTP from the native side (no WebView CORS).
+func probePreviewReachable(raw string, timeout time.Duration) bool {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return false
+	}
+	parsed, err := url.Parse(trimmed)
+	if !strings.Contains(trimmed, "://") {
+		parsed, err = url.Parse("http://" + trimmed)
+	}
+	if err != nil || parsed == nil {
+		return false
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https":
+	default:
+		return false
+	}
+	if strings.TrimSpace(parsed.Host) == "" {
+		return false
+	}
+
+	client := &http.Client{Timeout: timeout}
+	target := parsed.String()
+
+	req, err := http.NewRequest(http.MethodHead, target, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		resp, err = client.Get(target)
+	}
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode < 600
 }

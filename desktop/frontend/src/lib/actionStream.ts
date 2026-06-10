@@ -179,121 +179,67 @@ function isRootTool(item: Item): item is ToolItem {
   return item.kind === "tool" && !item.parentId && !SKIPPED_TOOLS.has(item.name);
 }
 
-/** Kernel creates the assistant bubble before tool rows; reorder to tools → assistant per turn. */
-function normalizeTurnOrder(items: Item[]): Item[] {
-  const out: Item[] = [];
-  let bufTools: ToolItem[] = [];
-  let bufAssistant: AssistantItem | null = null;
-
-  const flushBuffer = () => {
-    for (const tool of bufTools) out.push(tool);
-    if (bufAssistant) out.push(bufAssistant);
-    bufTools = [];
-    bufAssistant = null;
-  };
-
-  for (const item of items) {
-    if (item.kind === "user") {
-      flushBuffer();
-      out.push(item);
-      continue;
-    }
-    if (isRootTool(item)) {
-      bufTools.push(item);
-      continue;
-    }
-    if (item.kind === "assistant") {
-      bufAssistant = item;
-      continue;
-    }
-    flushBuffer();
-    out.push(item);
-  }
-  flushBuffer();
-  return out;
-}
-
+/** Interleave assistant narration and tool rows in timeline order (Cursor-style). */
 export function buildTimelineRows(
   items: Item[],
   subcallsByParent: Map<string, ToolItem[]>,
   live?: LiveStream,
 ): TimelineRow[] {
   const rows: TimelineRow[] = [];
-  let segmentEntries: SegmentEntry[] = [];
-  let segmentId = "";
+  let toolBuffer: ToolItem[] = [];
 
-  const flushSegment = (complete: boolean) => {
-    if (segmentEntries.length === 0) return;
-    rows.push({
-      kind: "action-segment",
-      segment: {
-        id: segmentId || `seg-${rows.length}`,
-        entries: segmentEntries,
-        complete,
-      },
-    });
-    segmentEntries = [];
-    segmentId = "";
-  };
-
-  const pushTool = (item: ToolItem) => {
-    if (segmentEntries.length === 0) segmentId = `seg-${item.id}`;
-    segmentEntries.push({
+  const flushTools = () => {
+    if (toolBuffer.length === 0) return;
+    const entries: SegmentEntry[] = toolBuffer.map((item) => ({
       kind: "tool",
       item,
       subcalls: subcallsByParent.get(item.id),
+    }));
+    const complete = !entries.some((entry) => entry.kind === "tool" && entry.item.status === "running");
+    rows.push({
+      kind: "action-segment",
+      segment: {
+        id: `seg-${toolBuffer[0]!.id}`,
+        entries,
+        complete,
+      },
     });
+    toolBuffer = [];
   };
 
-  for (const item of normalizeTurnOrder(items)) {
-    if (item.kind === "tool") {
-      pushTool(item);
+  for (const item of items) {
+    if (isRootTool(item)) {
+      toolBuffer.push(item);
       continue;
     }
 
+    flushTools();
+
     if (item.kind === "assistant") {
       const isLive = live?.id === item.id;
-      const reasoning = (isLive ? live.reasoning : item.reasoning)?.trim() ?? "";
-      const text = (isLive ? live.text : item.text)?.trim() ?? "";
-      const streaming = item.streaming || (isLive && !text);
+      const text = isLive ? live.text : item.text;
+      const reasoning = isLive ? live.reasoning : item.reasoning;
+      const hasText = text.trim().length > 0;
+      const hasReasoning = reasoning.trim().length > 0;
+      const streaming = item.streaming || isLive === true;
 
-      if (reasoning) {
-        if (segmentEntries.length === 0) segmentId = `seg-think-${item.id}`;
-        const thinkingIdx = segmentEntries.findIndex((e) => e.kind === "thinking" && e.id === item.id);
-        const thinkingEntry: SegmentEntry = {
-          kind: "thinking",
-          id: item.id,
-          status: streaming && !text ? "running" : "done",
-        };
-        if (thinkingIdx >= 0) {
-          segmentEntries[thinkingIdx] = thinkingEntry;
-        } else if (segmentEntries.length > 0) {
-          segmentEntries.unshift(thinkingEntry);
-        } else {
-          segmentEntries.push(thinkingEntry);
-        }
-      }
-
-      if (text) {
-        flushSegment(true);
+      if (hasText || hasReasoning || streaming) {
         rows.push({
           kind: "single",
-          item: { ...item, reasoning: "", text: isLive ? live!.text : item.text, streaming: item.streaming },
+          item: {
+            ...item,
+            text,
+            reasoning,
+            streaming: item.streaming || isLive === true,
+          },
         });
-        continue;
       }
-
-      if (reasoning || streaming) continue;
+      continue;
     }
 
-    flushSegment(true);
     rows.push({ kind: "single", item });
   }
 
-  if (segmentEntries.length > 0) {
-    const complete = !segmentIsRunning({ id: segmentId, entries: segmentEntries, complete: false });
-    flushSegment(complete);
-  }
-
+  flushTools();
   return rows;
 }

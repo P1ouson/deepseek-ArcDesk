@@ -113,6 +113,11 @@ export interface AppBindings {
   ProjectSandboxStatus(): Promise<ProjectSandboxStatus>;
   ConfigureProjectSandbox(input: ConfigureProjectSandboxInput): Promise<void>;
   ValidatePreviewURL(url: string): Promise<PreviewURLValidation>;
+  ProbePreviewURL(url: string): Promise<boolean>;
+  DetectDevServerURL(): Promise<string>;
+  OpenWebPreview(url: string): Promise<void>;
+  WorkspacePagePreviewURL(path: string): Promise<string>;
+  IsPreviewablePage(path: string): Promise<boolean>;
   Cancel(): Promise<void>;
   CancelTab(tabID: string): Promise<void>;
   Approve(id: string, allow: boolean, session: boolean, persist: boolean): Promise<void>;
@@ -1265,6 +1270,33 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
             return { decision: "allow", url: trimmed.includes("://") ? trimmed : `http://${trimmed}`, strict: false };
           }
           return { decision: "confirm", url: trimmed, reason: "external", strict: false };
+        },
+        async ProbePreviewURL(url) {
+          const trimmed = url.trim();
+          if (!trimmed) return false;
+          const href = trimmed.includes("://") ? trimmed : `http://${trimmed}`;
+          try {
+            await fetch(href, { method: "GET", mode: "no-cors", cache: "no-store" });
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        async DetectDevServerURL() {
+          return "http://localhost:5173";
+        },
+        async OpenWebPreview(url) {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("arcdesk:open-web-preview", { detail: { url } }));
+          }
+        },
+        async WorkspacePagePreviewURL(path) {
+          const trimmed = path.trim();
+          if (!trimmed) throw new Error("path is required");
+          return `http://127.0.0.1:4173/p/mock/${trimmed.replace(/^\.?\//, "")}`;
+        },
+        async IsPreviewablePage(path) {
+          return /\.(html?|xhtml|svg)$/i.test(path.trim());
         },
         async Cancel() {
           cancelled = true;

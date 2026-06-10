@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"arcdesk/internal/config"
 )
@@ -84,6 +85,15 @@ func (a *App) ValidatePreviewURL(raw string) PreviewURLValidation {
 	profile, _ := loadProjectSandboxProfile(root)
 	strict := profile.PreviewStrict || (isYoloMode(a.activeTabMode()) && profile.Configured)
 	return validatePreviewURL(raw, profile, strict)
+}
+
+// ProbePreviewURL checks whether a preview URL is reachable from the desktop host.
+func (a *App) ProbePreviewURL(raw string) bool {
+	v := a.ValidatePreviewURL(raw)
+	if v.Decision == "blocked" || strings.TrimSpace(v.URL) == "" {
+		return false
+	}
+	return probePreviewReachable(v.URL, 3*time.Second)
 }
 
 func (a *App) projectSandboxConfigured(root string) bool {

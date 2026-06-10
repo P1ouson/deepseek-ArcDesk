@@ -58,6 +58,7 @@ type WorkspaceTab struct {
 	mode        string // "normal" | "plan" | "yolo"; yolo is runtime-only
 	disabledMCP map[string]ServerView
 	mcpOrder    []string
+	sessionPath string // last active session file; persisted in desktop-tabs.json
 }
 
 type readFileRecord struct {
@@ -541,6 +542,7 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 	}
 
 	enableDesktopInteractive(ctrl)
+	registerDesktopSessionTools(a, ctrl)
 	applyTabModeToController(ctrl, tab.mode)
 
 	if dir := ctrl.SessionDir(); dir != "" {
@@ -558,31 +560,12 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 			a.mu.Unlock()
 		}
 		var path string
-		// When the tab has a TopicID, look for an existing session for this topic
-		// so the user continues the conversation rather than starting fresh.
-		if tab.TopicID != "" {
-			existingPath := findTopicSession(dir, tab.TopicID)
-			if existingPath != "" {
-				if loaded, err := agent.LoadSession(existingPath); err == nil {
-					ctrl.Resume(loaded, existingPath)
-					path = existingPath
-				}
-			}
-		} else {
-			// Default Global / unscoped tabs keep topicId empty; resume the most
-			// recent autosaved session for this tab's scope and workspace.
-			existingPath := findScopedTabSession(dir, tab.Scope, tab.WorkspaceRoot)
-			if existingPath != "" {
-				if loaded, err := agent.LoadSession(existingPath); err == nil {
-					ctrl.Resume(loaded, existingPath)
-					path = existingPath
-				}
-			}
-		}
+		path = a.resumeTabSession(ctrl, tab, dir)
 		if path == "" {
 			path = agent.NewSessionPath(dir, ctrl.Label())
 			ctrl.SetSessionPath(path)
 		}
+		tab.sessionPath = path
 		// Write/update scope/session meta.
 		if path != "" {
 			m, _ := agent.EnsureBranchMeta(path)
@@ -606,6 +589,7 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 	tab.Label = ctrl.Label()
 	tab.Ready = true
 	tab.StartupErr = ""
+	a.saveTabsLocked()
 	a.mu.Unlock()
 	a.emitReady(wailsCtx)
 }
@@ -745,8 +729,25 @@ func (a *App) tabSnapshotLoop(tab *WorkspaceTab) {
 		if ctrl != nil {
 			if err := ctrl.Snapshot(); err != nil {
 				slog.Warn("tab snapshot failed", "tabID", tab.ID, "err", err)
-			} else if !a.maybeAutoTitleTopic(tab) {
-				a.emitProjectTreeChanged()
+			} else {
+				a.mu.Lock()
+				if sp := ctrl.SessionPath(); sp != "" {
+					tab.sessionPath = sp
+				}
+				a.saveTabsLocked()
+				a.mu.Unlock()
+				if !a.maybeAutoTitleTopic(tab) {
+					a.emitProjectTreeChanged()
+				}
+				tab.saveMu.Lock()
+				if tab.saveAgain {
+					tab.saveAgain = false
+					tab.saveMu.Unlock()
+					continue
+				}
+				tab.saving = false
+				tab.saveMu.Unlock()
+				return
 			}
 		}
 		tab.saveMu.Lock()
@@ -866,6 +867,7 @@ type desktopTabEntry struct {
 	Scope         string  `json:"scope"`
 	WorkspaceRoot string  `json:"workspaceRoot"`
 	TopicID       string  `json:"topicId"`
+	SessionPath   string  `json:"sessionPath,omitempty"`
 	Model         string  `json:"model,omitempty"`
 	Effort        *string `json:"effort,omitempty"`
 	Mode          string  `json:"mode,omitempty"`
@@ -891,11 +893,18 @@ func (a *App) saveTabsLocked() {
 	var entries []desktopTabEntry
 	for _, id := range a.orderedTabIDsLocked() {
 		if tab := a.tabs[id]; tab != nil {
+			sessionPath := strings.TrimSpace(tab.sessionPath)
+			if tab.Ctrl != nil {
+				if sp := strings.TrimSpace(tab.Ctrl.SessionPath()); sp != "" {
+					sessionPath = sp
+				}
+			}
 			entries = append(entries, desktopTabEntry{
 				ID:            tab.ID,
 				Scope:         tab.Scope,
 				WorkspaceRoot: tab.WorkspaceRoot,
 				TopicID:       tab.TopicID,
+				SessionPath:   sessionPath,
 				Model:         tab.model,
 				Effort:        cloneStringPtr(tab.effort),
 				Mode:          persistedTabMode(currentTabMode(tab)),
@@ -2245,6 +2254,45 @@ func sessionWorkspaceMatches(tabRoot, metaRoot string) bool {
 	tabRoot = filepath.Clean(strings.TrimSpace(tabRoot))
 	metaRoot = filepath.Clean(strings.TrimSpace(metaRoot))
 	return tabRoot == metaRoot || strings.EqualFold(tabRoot, metaRoot)
+}
+
+// resumeTabSession restores the last active session for a tab. The persisted
+// sessionPath from desktop-tabs.json wins; topic/scoped fallbacks follow.
+func (a *App) resumeTabSession(ctrl *control.Controller, tab *WorkspaceTab, dir string) string {
+	if ctrl == nil || tab == nil || dir == "" {
+		return ""
+	}
+	var candidates []string
+	if sp := strings.TrimSpace(tab.sessionPath); sp != "" {
+		candidates = append(candidates, sp)
+	}
+	if tab.TopicID != "" {
+		if p := findTopicSession(dir, tab.TopicID); p != "" {
+			candidates = append(candidates, p)
+		}
+	}
+	if p := findScopedTabSession(dir, tab.Scope, tab.WorkspaceRoot); p != "" {
+		candidates = append(candidates, p)
+	}
+	seen := map[string]bool{}
+	for _, raw := range candidates {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || seen[raw] {
+			continue
+		}
+		seen[raw] = true
+		sessionPath, _, err := validateSessionPath(dir, raw)
+		if err != nil {
+			continue
+		}
+		loaded, err := agent.LoadSession(sessionPath)
+		if err != nil {
+			continue
+		}
+		ctrl.Resume(loaded, sessionPath)
+		return sessionPath
+	}
+	return ""
 }
 
 // findScopedTabSession returns the most recently updated session for a tab

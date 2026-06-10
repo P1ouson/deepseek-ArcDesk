@@ -4,6 +4,7 @@
 // is what components render.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { shouldBlockAgentSend } from "./agentActivity";
 import { asArray } from "./array";
 import { app, onEvent, onReady } from "./bridge";
 import { logBridgeError } from "./logBridgeError";
@@ -142,8 +143,22 @@ function ensureAssistant(s: State): { items: Item[]; id: string; seq: number } {
   return { items: [...s.items, item], id, seq: s.seq + 1 };
 }
 
+/** Commit in-flight assistant text before tool rows so pre-tool narration stays visible. */
+function finalizeLiveAssistant(s: State): State {
+  if (!s.live || !s.currentAssistant) return s;
+  const { text, reasoning } = s.live;
+  if (!text.trim() && !reasoning.trim()) return s;
+  const id = s.currentAssistant;
+  const items = s.items.map((it) =>
+    it.kind === "assistant" && it.id === id
+      ? { ...it, text, reasoning, streaming: false }
+      : it,
+  );
+  return { ...s, items, live: undefined, currentAssistant: undefined };
+}
+
 function shouldBlockConcurrentSend(state: State): boolean {
-  return state.running || state.turnActive;
+  return shouldBlockAgentSend(state);
 }
 
 const TURN_WATCHDOG_MS = 180_000;
@@ -243,11 +258,12 @@ function applyEvent(s: State, e: WireEvent): State {
         }
         return { ...s, items: next };
       }
+      const base = finalizeLiveAssistant(s);
       return {
-        ...s,
-        seq: s.seq + 1,
+        ...base,
+        seq: base.seq + 1,
         items: [
-          ...s.items,
+          ...base.items,
           {
             kind: "tool",
             id,

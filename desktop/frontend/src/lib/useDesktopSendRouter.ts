@@ -22,6 +22,7 @@ export type DesktopSendRouterDeps = {
   dispatchSideChat: (text: string) => void | Promise<void>;
   setAppMode: (mode: AppMode) => void;
   openDockTab: (tab: RightDockTab, options?: { toggle?: boolean }) => void;
+  openWebPreview: (url?: string) => void;
   runCodeReview: (reviewMode: ReviewMode, scope: ReviewScope, paths: string[]) => void | Promise<void>;
   setSddOpen: (open: boolean) => void;
   syncModeToController: (mode: Mode) => void | Promise<void>;
@@ -73,6 +74,11 @@ async function executeDesktopSendRoute(route: DesktopSendRoute, deps: DesktopSen
       deps.setSddOpen(true);
       deps.notice(deps.t("slash.sddOpened"));
       return;
+    case "openPreview":
+      deps.setAppMode("code");
+      deps.openWebPreview(route.url);
+      deps.notice(deps.t("slash.previewOpened"));
+      return;
     case "themeShowCurrent":
       deps.notice(deps.t("settings.themeCurrentSimple", { theme: getTheme() }));
       return;
@@ -116,6 +122,7 @@ export function useDesktopSendRouter(deps: DesktopSendRouterDeps) {
     dispatchSideChat,
     setAppMode,
     openDockTab,
+    openWebPreview,
     runCodeReview,
     setSddOpen,
     syncModeToController,
@@ -141,6 +148,7 @@ export function useDesktopSendRouter(deps: DesktopSendRouterDeps) {
       dispatchSideChat,
       setAppMode,
       openDockTab,
+      openWebPreview,
       runCodeReview,
       setSddOpen,
       syncModeToController,

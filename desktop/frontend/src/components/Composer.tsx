@@ -11,7 +11,9 @@ import {
   FolderGit2,
   FolderX,
   FolderPlus,
+  Globe,
   List,
+  Monitor,
   Square,
   SquareTerminal,
   TextQuote,
@@ -151,6 +153,10 @@ export function Composer({
   onUseNoWorkspace,
   terminalActive = false,
   terminalLabel,
+  browserPreviewActive = false,
+  browserPreviewLabel,
+  pagePreviewActive = false,
+  pagePreviewLabel,
   composerSurface = "code",
   sendExternally = false,
   onSendState,
@@ -188,6 +194,10 @@ export function Composer({
   onUseNoWorkspace?: () => void;
   terminalActive?: boolean;
   terminalLabel?: string;
+  browserPreviewActive?: boolean;
+  browserPreviewLabel?: string;
+  pagePreviewActive?: boolean;
+  pagePreviewLabel?: string;
   composerSurface?: ComposerSurface;
   sendExternally?: boolean;
   onSendState?: (state: ComposerSendState | null) => void;
@@ -227,10 +237,12 @@ export function Composer({
   const codeSurface = composerSurface === "code";
   const activeWriteContext = writeSurface ? writeContext : null;
   const showTerminalTag = codeSurface && terminalActive;
+  const showBrowserTag = codeSurface && browserPreviewActive;
+  const showPageTag = codeSurface && pagePreviewActive;
   const showCodeAttachments = codeSurface && attachments.length > 0;
   const showCodeWorkspaceRefs = codeSurface && workspaceRefs.length > 0;
   const hasContextTags =
-    showTerminalTag || activeWriteContext || showCodeAttachments || showCodeWorkspaceRefs;
+    showTerminalTag || showBrowserTag || showPageTag || activeWriteContext || showCodeAttachments || showCodeWorkspaceRefs;
 
   useEffect(() => {
     if (writeSurface) {
@@ -1195,6 +1207,26 @@ export function Composer({
                 <span className="composer-context__text">
                   <span className="composer-context__name">
                     {terminalLabel?.trim() || t("composer.terminalActive")}
+                  </span>
+                </span>
+              </div>
+            ) : null}
+            {showBrowserTag ? (
+              <div className="composer-context__item composer-context__item--browser">
+                <Monitor size={14} />
+                <span className="composer-context__text">
+                  <span className="composer-context__name">
+                    {browserPreviewLabel?.trim() || t("composer.browserActive")}
+                  </span>
+                </span>
+              </div>
+            ) : null}
+            {showPageTag ? (
+              <div className="composer-context__item composer-context__item--page">
+                <Globe size={14} />
+                <span className="composer-context__text">
+                  <span className="composer-context__name">
+                    {pagePreviewLabel?.trim() || t("composer.pageActive")}
                   </span>
                 </span>
               </div>

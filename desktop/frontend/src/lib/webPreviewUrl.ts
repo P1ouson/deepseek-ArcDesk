@@ -1,3 +1,5 @@
+import { app } from "./bridge";
+
 export type WebPreviewDecision = "allow" | "blocked" | "confirm";
 
 export interface WebPreviewValidation {
@@ -29,25 +31,29 @@ export function defaultPreviewUrl(): string {
   return DEFAULT_PREVIEW_URL;
 }
 
-/** Best-effort probe — false when nothing is listening (e.g. pnpm dev not running). */
+/** Best-effort probe — uses native HTTP from Wails (WebView fetch hits CORS on localhost). */
 export async function probePreviewReachable(raw: string, timeoutMs = 2800): Promise<boolean> {
   const trimmed = raw.trim();
   if (!trimmed) return false;
-  let href: string;
   try {
-    href = new URL(trimmed.includes("://") ? trimmed : `http://${trimmed}`).href;
+    return await app.ProbePreviewURL(trimmed);
   } catch {
-    return false;
-  }
-  const ctrl = new AbortController();
-  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    await fetch(href, { method: "GET", signal: ctrl.signal, cache: "no-store" });
-    return true;
-  } catch {
-    return false;
-  } finally {
-    window.clearTimeout(timer);
+    let href: string;
+    try {
+      href = new URL(trimmed.includes("://") ? trimmed : `http://${trimmed}`).href;
+    } catch {
+      return false;
+    }
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      await fetch(href, { method: "GET", mode: "no-cors", signal: ctrl.signal, cache: "no-store" });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      window.clearTimeout(timer);
+    }
   }
 }
 

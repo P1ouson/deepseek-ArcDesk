@@ -132,6 +132,7 @@ func (a *App) runClawAgentReply(ch ClawChannel, userText string) (string, error)
 	defer ctrl.Close()
 
 	enableDesktopInteractive(ctrl)
+	registerDesktopSessionTools(a, ctrl)
 	a.setClawRunCtrl(ctrl)
 	defer a.clearClawRunCtrl(ctrl)
 

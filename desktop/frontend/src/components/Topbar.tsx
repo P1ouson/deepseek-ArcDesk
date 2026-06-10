@@ -3,7 +3,7 @@ import type { KeyboardEvent } from "react";
 import { useT } from "../lib/i18n";
 import { Tooltip } from "./Tooltip";
 
-export type RightDockTab = "context" | "changes" | "todo" | "git" | "browser" | "files";
+export type RightDockTab = "context" | "changes" | "todo" | "git" | "browser" | "page" | "files";
 
 export interface TopbarProps {
   title: string;

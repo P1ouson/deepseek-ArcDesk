@@ -498,6 +498,7 @@ func (a *App) rebuild() error {
 	a.mu.Unlock()
 	a.emitReady(a.ctx)
 	enableDesktopInteractive(ctrl)
+	registerDesktopSessionTools(a, ctrl)
 	applyTabModeToController(ctrl, tab.mode)
 	path := agent.ContinueSessionPath(prevPath, ctrl.SessionDir(), ctrl.Label())
 	if len(carried) > 0 {

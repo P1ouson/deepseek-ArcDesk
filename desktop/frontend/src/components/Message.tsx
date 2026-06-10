@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { MotionUnfold } from "./MotionUnfold";
 import { ChevronRight, MoreHorizontal } from "lucide-react";
 import { Markdown } from "./Markdown";
@@ -183,6 +183,8 @@ export const AssistantMessage = memo(function AssistantMessage({
   checkpoint,
   actionPending = false,
   rewindDisabled = false,
+  copyText,
+  showCopyButton = true,
 }: {
   item: AssistantItem;
   turn?: number;
@@ -192,15 +194,33 @@ export const AssistantMessage = memo(function AssistantMessage({
   checkpoint?: CheckpointMeta;
   actionPending?: boolean;
   rewindDisabled?: boolean;
+  /** When set, only the turn's last assistant bubble should pass this (aggregated answer text). */
+  copyText?: string;
+  showCopyButton?: boolean;
 }) {
   const t = useT();
-  const [reasoningOpen, setReasoningOpen] = useState(false);
-  const showActions = !item.streaming && Boolean(item.text);
+  const hasText = item.text.trim().length > 0;
+  const hasReasoning = item.reasoning.trim().length > 0;
+  const thinkingActive = item.streaming && hasReasoning && !hasText;
+  const [reasoningOpen, setReasoningOpen] = useState(thinkingActive);
+  const showActions = !item.streaming && hasText;
   const canRewind = onRewind != null && turn != null;
+  const resolvedCopyText = (copyText ?? item.text).trim();
+  const showCopy = showCopyButton && resolvedCopyText.length > 0;
+
+  useEffect(() => {
+    if (thinkingActive) {
+      setReasoningOpen(true);
+      return;
+    }
+    if (!item.streaming || hasText) {
+      setReasoningOpen(false);
+    }
+  }, [thinkingActive, item.streaming, hasText]);
 
   return (
     <div className="msg msg--assistant">
-      {item.reasoning && (
+      {hasReasoning ? (
         <div className="reasoning">
           <button className="reasoning__toggle" onClick={() => setReasoningOpen((v) => !v)}>
             <ChevronRight
@@ -210,23 +230,28 @@ export const AssistantMessage = memo(function AssistantMessage({
             {t("msg.thinking")}
           </button>
           <MotionUnfold open={reasoningOpen}>
-            <div className="reasoning__body">{item.reasoning}</div>
+            <div className="reasoning__body">
+              {item.reasoning}
+              {thinkingActive ? <span className="cursor" /> : null}
+            </div>
           </MotionUnfold>
         </div>
-      )}
-      <div className="msg__body">
-        {item.streaming ? (
-          <div className="msg__stream">
-            {item.text}
-            <span className="cursor" />
-          </div>
-        ) : (
-          <Markdown text={item.text} />
-        )}
-      </div>
-      {showActions ? (
+      ) : null}
+      {hasText || (item.streaming && !thinkingActive) ? (
+        <div className="msg__body">
+          {item.streaming ? (
+            <div className="msg__stream">
+              {item.text}
+              <span className="cursor" />
+            </div>
+          ) : (
+            <Markdown text={item.text} />
+          )}
+        </div>
+      ) : null}
+      {showActions && (showCopy || canRewind) ? (
         <div className="msg__actions">
-          <CopyButton text={item.text} variant="tool" />
+          {showCopy ? <CopyButton text={resolvedCopyText} variant="tool" /> : null}
           <span className="msg__actions-spacer" aria-hidden="true" />
           {canRewind ? (
             <MessageRewindMenu

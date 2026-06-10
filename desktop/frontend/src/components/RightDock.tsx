@@ -7,6 +7,7 @@ import { dockHubForTab } from "../lib/dockHubs";
 import { dockHubLabel, dockTabLabel, dockTabsForHub } from "./DockHubButtons";
 
 import { BrowserPanel } from "./BrowserPanel";
+import { PagePreviewPanel } from "./PagePreviewPanel";
 
 import { ChangesPanel } from "./ChangesPanel";
 
@@ -90,6 +91,16 @@ export interface RightDockProps {
 
   onToggleBrowserExpanded?: () => void;
 
+  webPreviewUrl?: string | null;
+
+  onWebPreviewUrlChange?: (url: string) => void;
+
+  pagePreviewPath?: string | null;
+
+  onPagePreviewPathChange?: (path: string) => void;
+
+  onPreviewPage?: (path: string) => void;
+
 }
 
 
@@ -156,6 +167,16 @@ export function RightDock({
 
   onToggleBrowserExpanded,
 
+  webPreviewUrl,
+
+  onWebPreviewUrlChange,
+
+  pagePreviewPath,
+
+  onPagePreviewPathChange,
+
+  onPreviewPage,
+
 }: RightDockProps) {
 
   const t = useT();
@@ -178,6 +199,7 @@ export function RightDock({
       className={[
         "right-dock",
         tab === "browser" && browserExpanded ? "right-dock--browser-expanded" : "",
+        tab === "page" && browserExpanded ? "right-dock--browser-expanded" : "",
         closing ? "motion-panel--closing" : "",
       ]
         .filter(Boolean)
@@ -303,6 +325,7 @@ export function RightDock({
             refreshKey={refreshKey}
             activeFilePath={filePreviewPath}
             onOpenFile={(path) => onOpenFile?.(path, "files")}
+            onPreviewPage={onPreviewPage}
             onAddToChat={onAddToChat}
           />
         )}
@@ -316,8 +339,25 @@ export function RightDock({
           />
         )}
 
+        {tab === "page" && (
+          <PagePreviewPanel
+            expanded={browserExpanded}
+            onToggleExpanded={onToggleBrowserExpanded}
+            pagePath={pagePreviewPath}
+            onPagePathChange={onPagePreviewPathChange}
+            refreshKey={refreshKey}
+            workspaceRoot={cwd}
+          />
+        )}
         {tab === "browser" && (
-          <BrowserPanel expanded={browserExpanded} onToggleExpanded={onToggleBrowserExpanded} />
+          <BrowserPanel
+            expanded={browserExpanded}
+            onToggleExpanded={onToggleBrowserExpanded}
+            previewUrl={webPreviewUrl}
+            onPreviewUrlChange={onWebPreviewUrlChange}
+            refreshKey={refreshKey}
+            workspaceRoot={cwd}
+          />
         )}
 
       </div>

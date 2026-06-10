@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { MotionUnfold } from "./MotionUnfold";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { AnchoredPopover } from "./AnchoredPopover";
@@ -245,15 +245,7 @@ export const ActionSegmentView = memo(function ActionSegmentView({
   workspaceRoot: string;
   onOpenFile?: (req: ActionFileOpenRequest) => void;
 }) {
-  const [collapsed, setCollapsed] = useState(segment.complete);
-  const wasComplete = useRef(segment.complete);
-
-  useEffect(() => {
-    if (segment.complete && !wasComplete.current) {
-      setCollapsed(true);
-    }
-    wasComplete.current = segment.complete;
-  }, [segment.complete]);
+  const [collapsed, setCollapsed] = useState(false);
 
   if (segment.entries.length === 0) return null;
 

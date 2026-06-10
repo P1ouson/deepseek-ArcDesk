@@ -1731,6 +1731,82 @@ button:disabled:active,
 .composer-context__item--terminal .composer-context__name {
   font-family: var(--mono);
 }
+.composer-context__item--browser {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border-soft));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-soft));
+}
+.composer-context__item--browser .composer-context__name {
+  font-family: var(--mono);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-context__item--page {
+  border-color: color-mix(in srgb, var(--ok, #2f9e44) 24%, var(--border-soft));
+  background: color-mix(in srgb, var(--ok, #2f9e44) 8%, var(--bg-soft));
+}
+.composer-context__item--page .composer-context__name {
+  font-family: var(--mono);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.browser-panel__viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.browser-panel__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  text-align: center;
+  background: color-mix(in srgb, var(--bg-soft) 88%, transparent);
+  pointer-events: auto;
+}
+.page-preview-panel__path {
+  min-width: 0;
+}
+.page-preview-panel__path-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+.page-preview-panel__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  color: var(--fg-dim);
+}
+.page-preview-panel__loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-soft) 70%, transparent);
+  font-size: 12px;
+  color: var(--fg-dim);
+}
 .composer-meta__model-effort .modelsw__trigger--open,
 .composer-meta__model-effort .effortsw__trigger--open {
   background: var(--bg-soft);
