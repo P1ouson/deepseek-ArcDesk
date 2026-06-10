@@ -10,6 +10,30 @@ import (
 	"arcdesk/internal/config"
 )
 
+// Default and minimum window geometry. The studio sidebar needs the icon rail
+// (76px) plus the project drawer (280px) with a usable chat column — restored
+// sizes below MinWindowWidth leave the drawer feeling cramped or collapsed.
+const (
+	DefaultWindowWidth  = 1360
+	DefaultWindowHeight = 880
+	MinWindowWidth      = 1020
+	MinWindowHeight     = 640
+)
+
+func defaultWindowSize() (int, int) {
+	return DefaultWindowWidth, DefaultWindowHeight
+}
+
+func normalizeWindowState(s DesktopWindowState) DesktopWindowState {
+	if s.Width > 0 && s.Width < MinWindowWidth {
+		s.Width = DefaultWindowWidth
+	}
+	if s.Height > 0 && s.Height < MinWindowHeight {
+		s.Height = DefaultWindowHeight
+	}
+	return s
+}
+
 // DesktopWindowState captures the window geometry to restore across launches.
 type DesktopWindowState struct {
 	Width     int  `json:"width"`
@@ -49,7 +73,7 @@ func loadWindowState() (DesktopWindowState, bool) {
 	if s.Width == 0 && s.Height == 0 && s.X == 0 && s.Y == 0 {
 		return DesktopWindowState{}, false
 	}
-	return s, true
+	return normalizeWindowState(s), true
 }
 
 // SaveWindowState is the bound method the frontend calls to persist the current

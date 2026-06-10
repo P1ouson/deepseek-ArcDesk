@@ -40,7 +40,7 @@ func main() {
 	app := NewApp()
 
 	// Restore saved window size, or fall back to the default.
-	width, height := 1240, 720
+	width, height := defaultWindowSize()
 	if saved, ok := loadWindowState(); ok {
 		if saved.Width > 0 {
 			width = saved.Width
@@ -54,8 +54,8 @@ func main() {
 		Title:     "arcdesk",
 		Width:     width,
 		Height:    height,
-		MinWidth:  760,
-		MinHeight: 480,
+		MinWidth:  MinWindowWidth,
+		MinHeight: MinWindowHeight,
 		// Match the dark UI shell so the initial webview background doesn't flash
 		// white before CSS loads — particularly visible on WebKitGTK.
 		BackgroundColour:   &options.RGBA{R: 26, G: 26, B: 46, A: 255},

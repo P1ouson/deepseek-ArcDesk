@@ -308,6 +308,9 @@ func (a *App) domReady(_ context.Context) {
 		} else {
 			runtime.WindowCenter(a.ctx)
 		}
+		if !state.Maximised && state.Width > 0 && state.Height > 0 {
+			runtime.WindowSetSize(a.ctx, state.Width, state.Height)
+		}
 	} else {
 		runtime.WindowCenter(a.ctx)
 	}

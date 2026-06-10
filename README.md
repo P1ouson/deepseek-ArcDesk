@@ -62,7 +62,7 @@ Run long agent sessions without paying full context price every turn. **ArcDesk*
 
 | Platform | Download |
 |----------|----------|
-| **Windows** | [`.exe` installer](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-windows-amd64-installer.exe) |
+| **Windows** | [`.exe` installer](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/arcdesk-desktop-amd64-installer.exe) (small setup wizard) |
 | **macOS** | [Universal `.dmg`](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-darwin-universal.dmg) |
 | **Linux** | [`.tar.gz` (amd64)](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-linux-amd64.tar.gz) |
 
@@ -102,7 +102,6 @@ ARCDESK run "explain this repo"    # one-shot run
 
 | | **ArcDesk** | **Cursor** | **Cline / Roo** | **Claude Code** | **OpenCode** |
 |---|:---:|:---:|:---:|:---:|:---:|
-| **License** | MIT · OSS | Proprietary | Open source (VS Code ext.) | Proprietary | Open source |
 | **Desktop app** | Native (Wails) | VS Code fork | Extension in editor | CLI / plugins | Terminal-first |
 | **DeepSeek / cost** | Prefix-cache session design | Multi-model IDE | Model-agnostic | Claude stack | Model-agnostic CLI |
 | **MCP** | stdio + HTTP; `.mcp.json` | Ecosystem | Yes | MCP support | Varies |
@@ -152,7 +151,7 @@ Either. Desktop is the recommended surface for diffs and tool visibility; **`ARC
 <details>
 <summary><strong>Can I use models other than DeepSeek?</strong></summary>
 
-Yes. Any **OpenAI-compatible** endpoint is a `[[providers]]` entry in `ARCDESK.toml`. DeepSeek flash/pro presets ship built-in; session design favors prefix-cache economics.
+Yes — any **OpenAI-compatible** endpoint works as a `[[providers]]` entry in `ARCDESK.toml`. **The kernel is engineered primarily for DeepSeek** (prefix-cache sessions, flash/pro presets, long-run cost control). Other models are supported; economics and tuning may differ.
 </details>
 
 <details>
@@ -204,17 +203,14 @@ Still stuck? [Discussions](https://github.com/esengine/DeepSeek-ARCDESK/discussi
 
 <br/>
 
-## Advanced documentation
-
-The sections below are for contributors and power users. New here? Stay above the fold — install desktop, add a key, open a project.
-
 ## Features
 
 - **Config-driven.** Providers, the agent, enabled tools, and plugins are all
   declared in `ARCDESK.toml`. No hardcoded models.
 - **Multi-model & composable.** DeepSeek (flash/pro) and MiMo ship as presets;
-  any OpenAI-compatible endpoint is a config entry, not new code. Optionally run
-  two models together (executor + planner) in separate, cache-stable sessions.
+  OpenAI-compatible endpoints also work, but **long-session cost and cache design
+  target DeepSeek first**. Optionally run two models together (executor + planner)
+  in separate, cache-stable sessions.
 - **Plugin-driven.** External tools run as subprocesses over stdio JSON-RPC
   (MCP-compatible). Built-in tools self-register at compile time.
 - **Zero-friction distribution.** `CGO_ENABLED=0` single binary for CLI; cross-compile
@@ -433,28 +429,32 @@ legacy SSE. See `docs/SPEC.md` §9.
 
 <br/>
 
-## Star History
+## Lineage — Reasonix
 
-<a href="https://www.star-history.com/?repos=esengine%2FDeepSeek-ARCDESK&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=esengine/DeepSeek-ARCDESK&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=esengine/DeepSeek-ARCDESK&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=esengine/DeepSeek-ARCDESK&type=date&legend=top-left" />
- </picture>
-</a>
+ArcDesk's **Go agent kernel** descends from
+[**Reasonix**](https://github.com/esengine/DeepSeek-Reasonix) — the
+DeepSeek-native, prefix-cache–first coding agent loop (tools, subagents,
+skills, hooks, MCP client, plan mode, CodeGraph). We are grateful to the
+Reasonix project and its contributors for that foundation.
 
-<br/>
+ArcDesk is a **separate product** (desktop-first branding, Wails shell, and the
+changes below). Reasonix remains the terminal-oriented upstream; we keep
+one-time, non-destructive import paths from legacy `~/.reasonix/` config and
+skills.
 
-## Support
+### What ArcDesk optimizes on top
 
-If ArcDesk has been useful and you'd like to say thanks, you can. It stays a coffee, not a contract — donations don't buy feature priority or change how issues get triaged.
+| Area | ArcDesk changes |
+|------|-----------------|
+| **Desktop shell** | Native **Wails** app — studio workbench (icon rail, project drawer, inline diffs, right dock), not CLI-only |
+| **Distribution** | Windows **NSIS setup wizard** (pick install folder, Start Menu / Desktop shortcuts, per-user, no admin); signed auto-update path |
+| **Security** | Desktop **Phase 9** hardening — OS-native confirms before credentials / LAN / tunnels / risky shell; MCP **quarantine until project trust**; mobile pair **rate limits**; tighter permissions on local secret files |
+| **Reliability** | OpenAI-compatible **SSE truncation detection** (missing `[DONE]` → reconnect); agent **step bounds** to avoid infinite tool-only loops; desktop **single-instance** lock |
+| **Migration & config** | `arcdesk.toml` / `.arcdesk/` branding with **non-destructive** import from Reasonix `~/.reasonix/config.json` and v1 TOML |
+| **UX defaults** | Sensible **default window size** so the project sidebar opens expanded; zh/en UI |
+| **Engineering** | CI + Go toolchain gate; broad regression tests including desktop security suites |
 
-- **International** — PayPal: [paypal.me/yuhuahui](https://paypal.me/yuhuahui)
-- **国内** — 微信支付（扫码）
-
-<p align="center">
-  <img src=".github/sponsor/wechat-pay.jpg" alt="WeChat Pay QR code" width="240"/>
-</p>
+Details: [`SECURITY.md`](./SECURITY.md) · [`desktop/README.md`](./desktop/README.md) · [`docs/MIGRATING.md`](./docs/MIGRATING.md).
 
 <br/>
 
@@ -478,6 +478,9 @@ of importance.** The full contributor graph is on
 Also a separate thank-you to [**Bernardxu123**](https://github.com/Bernardxu123)
 for designing the project logo, and to
 [AIGC Link](https://xhslink.com/m/80ngts127cA) for promoting the project on XiaoHongShu.
+
+**Upstream:** [**Reasonix**](https://github.com/esengine/DeepSeek-Reasonix) — the
+Go kernel lineage ArcDesk builds on (see [Lineage — Reasonix](#lineage--reasonix)).
 
 <p align="center">
   <a href="https://github.com/esengine/DeepSeek-ARCDESK/graphs/contributors">

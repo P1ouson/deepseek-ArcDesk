@@ -64,7 +64,7 @@
 
 | 平台 | 下载 |
 |------|------|
-| **Windows** | [`.exe` 安装包](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-windows-amd64-installer.exe) |
+| **Windows** | [`.exe` 安装包](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/arcdesk-desktop-amd64-installer.exe)（小安装器，可选路径） |
 | **macOS** | [通用 `.dmg`](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-darwin-universal.dmg) |
 | **Linux** | [`.tar.gz` (amd64)](https://github.com/esengine/DeepSeek-ARCDESK/releases/latest/download/ARCDESK-linux-amd64.tar.gz) |
 
@@ -104,7 +104,6 @@ ARCDESK run "解释这个仓库"
 
 | | **ArcDesk** | **Cursor** | **Cline / Roo** | **Claude Code** | **OpenCode** |
 |---|:---:|:---:|:---:|:---:|:---:|
-| **许可证** | MIT · 开源 | 专有 | 开源（VS Code 插件） | 专有 | 开源 |
 | **桌面应用** | 原生 (Wails) | VS Code 分支 | 编辑器插件 | CLI / 插件 | 终端优先 |
 | **DeepSeek / 成本** | 前缀缓存会话设计 | 多模型 IDE | 模型无关 | Claude 生态 | 模型无关 CLI |
 | **MCP** | stdio + HTTP；`.mcp.json` | 生态 | 支持 | 支持 MCP | 各异 |
@@ -126,7 +125,7 @@ ARCDESK run "解释这个仓库"
 
 **必须用桌面吗？** — 否；`ARCDESK chat` / `run` 与桌面共用引擎。
 
-**支持非 DeepSeek 模型吗？** — 支持任意 OpenAI 兼容端点，在 `ARCDESK.toml` 配置。
+**支持非 DeepSeek 模型吗？** — 可接入任意 OpenAI 兼容端点（`ARCDESK.toml` 的 `[[providers]]`），但**内核会话设计与成本优化主要针对 DeepSeek**（前缀缓存、flash/pro 预设、长会话控费等）；其他模型可用，体验与经济性未必相同。
 
 **0.x 如何迁移？** — 见 [`docs/MIGRATING.md`](./docs/MIGRATING.md)；legacy 在 [`v1`](https://github.com/esengine/DeepSeek-ARCDESK/tree/v1) 分支。
 
@@ -152,16 +151,12 @@ ARCDESK run "解释这个仓库"
 
 <br/>
 
-## 进阶文档
-
-以下为贡献者与高级用户内容。新用户只需：安装桌面版 → 填 Key → 打开项目。
-
 ## 特性
 
 - **配置驱动**：provider、agent、启用的工具、插件全部在 `ARCDESK.toml` 中声明，
   内核无硬编码模型。
-- **多模型 · 可组合**：DeepSeek（flash/pro）与 MiMo 作为预设内置；任何 OpenAI 兼容
-  端点都只是一条配置。可选让两个模型协同（执行器 + 规划器），各自独立、缓存稳定的 session。
+- **多模型 · 可组合**：DeepSeek（flash/pro）与 MiMo 作为预设内置；也可接入 OpenAI 兼容
+  端点，但**长会话成本与缓存策略主要围绕 DeepSeek 优化**。可选让两个模型协同（执行器 + 规划器），各自独立、缓存稳定的 session。
 - **插件驱动**：外部工具以子进程形式运行，通过 stdio JSON-RPC 通信（MCP 兼容）；
   内置工具在编译期自注册。
 - **零摩擦分发**：`CGO_ENABLED=0` 单二进制；一条命令交叉编译到六个目标平台。
@@ -173,6 +168,16 @@ ARCDESK run "解释这个仓库"
 make build      # -> bin/ARCDESK(.exe)
 make cross      # -> dist/（darwin|linux|windows × amd64|arm64）
 cd desktop && wails build   # 桌面应用（见 desktop/README.md）
+```
+
+**Windows 安装向导**（别人那种小安装包，可选安装目录）：
+
+```powershell
+# 需先安装 NSIS：winget install NSIS.NSIS
+cd desktop
+./scripts/build-windows-installer.ps1
+# 产物：build/bin/arcdesk-desktop-amd64-installer.exe（约 10MB）
+# 用户双击 → 欢迎页 → 选文件夹 → 安装 → 开始菜单/桌面快捷方式
 ```
 
 ## 配置
@@ -355,28 +360,30 @@ legacy SSE。见 `docs/SPEC.md` §9。
 
 <br/>
 
-## Star 趋势
+## 渊源 — 与 Reasonix 的关系
 
-<a href="https://www.star-history.com/?repos=esengine%2FDeepSeek-ARCDESK&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=esengine/DeepSeek-ARCDESK&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=esengine/DeepSeek-ARCDESK&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=esengine/DeepSeek-ARCDESK&type=date&legend=top-left" />
- </picture>
-</a>
+ArcDesk 的 **Go agent 内核**参考并延续自
+[**Reasonix**](https://github.com/esengine/DeepSeek-Reasonix) ——
+面向 DeepSeek 前缀缓存设计的 coding agent 循环（工具、子 agent、skills、hooks、
+MCP 客户端、计划模式、CodeGraph 等）。感谢 Reasonix 项目及其贡献者打下的基础。
 
-<br/>
+ArcDesk 是**独立产品方向**（桌面优先、Wails 壳层与下文优化）。
+Reasonix 仍以终端为主；我们保留从旧版 `~/.reasonix/` 配置与 skills 的**一次性、
+非破坏性**导入路径。
 
-## 支持本项目
+### 在 Reasonix 内核上，ArcDesk 做了哪些优化
 
-如果 ARCDESK 帮你省了时间或 token，欢迎请杯咖啡。捐助不会换来 feature 优先级，也不会影响 issue 的处理顺序——就是「谢谢」。
+| 方向 | ArcDesk 的改动 |
+|------|----------------|
+| **桌面壳层** | 原生 **Wails** 应用 — studio 工作台（图标栏、项目抽屉、内联 diff、右侧 dock），而非仅 CLI |
+| **分发方式** | Windows **NSIS 安装向导**（可选目录、开始菜单/桌面快捷方式、按用户安装、无需管理员）；带签名校验的自动更新 |
+| **安全加固** | 桌面 **Phase 9** — 凭证 / 局域网 / 隧道 / 高风险 shell 前 **系统原生确认**；MCP **按项目信任前隔离**；手机配对 **限流**；本地密钥文件权限收紧 |
+| **稳定性** | OpenAI 兼容 **SSE 截断检测**（缺少 `[DONE]` 时重连）；agent **步数上限**避免仅工具回复时死循环；桌面 **单实例**锁 |
+| **迁移与配置** | `arcdesk.toml` / `.arcdesk/` 品牌命名；从 Reasonix `~/.reasonix/config.json` 及 v1 TOML **无损导入** |
+| **体验默认值** | 更合理的**默认窗口尺寸**，保证左侧项目栏完整展开；中英文界面 |
+| **工程化** | CI + Go 工具链检查；含桌面安全回归在内的广泛测试 |
 
-- **国内** — 微信支付（扫下方二维码）
-- **海外** — PayPal: [paypal.me/yuhuahui](https://paypal.me/yuhuahui)
-
-<p align="center">
-  <img src=".github/sponsor/wechat-pay.jpg" alt="微信支付收款码" width="240"/>
-</p>
+详见 [`SECURITY.md`](./SECURITY.md) · [`desktop/README.md`](./desktop/README.md) · [`docs/MIGRATING.md`](./docs/MIGRATING.md)。
 
 <br/>
 
@@ -398,6 +405,9 @@ legacy SSE。见 `docs/SPEC.md` §9。
 
 另外特别感谢 [**Bernardxu123**](https://github.com/Bernardxu123) 设计的项目 logo，
 以及 [AIGC Link](https://xhslink.com/m/80ngts127cA) 在小红书上的推广。
+
+**上游项目：** [**Reasonix**](https://github.com/esengine/DeepSeek-Reasonix) ——
+ArcDesk Go 内核所参考的基础（见 [渊源 — 与 Reasonix 的关系](#渊源--与-reasonix-的关系)）。
 
 <p align="center">
   <a href="https://github.com/esengine/DeepSeek-ARCDESK/graphs/contributors">

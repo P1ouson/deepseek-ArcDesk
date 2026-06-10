@@ -66,7 +66,20 @@ diff seam can all be built without rebuilding Go.
 
 ```sh
 cd desktop
-wails build          # → build/bin/ARCDESK(.app/.exe)
+wails build          # → build/bin/arcdesk-desktop(.app/.exe)
+```
+
+**Windows setup wizard** (small NSIS installer — welcome page, choose install folder,
+Start Menu + Desktop shortcuts; per-user, no admin):
+
+```sh
+# One-shot (needs NSIS: winget install NSIS.NSIS)
+./scripts/build-windows-installer.ps1
+
+# Or manually:
+python scripts/generate-appicon.py
+wails build -nsis
+# → build/bin/arcdesk-desktop-amd64-installer.exe
 ```
 
 **Linux on WebKitGTK 4.1 only** (Fedora 40+, Ubuntu 24.04+, Arch — no
