@@ -69,8 +69,13 @@
 .msg__actions {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-top: 6px;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.msg__actions-spacer {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .cursor {

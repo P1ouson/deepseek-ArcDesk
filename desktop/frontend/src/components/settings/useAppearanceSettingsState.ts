@@ -51,7 +51,6 @@ export function useAppearanceSettingsState(
     const nextStyle = normalizeThemeStyleForTheme(s.desktopThemeStyle, nextTheme);
     setThemeState(nextTheme);
     setThemeStyleState(nextStyle);
-    applyTheme(nextTheme, nextStyle, { syncSurfaces: false });
   }, [s?.desktopTheme, s?.desktopThemeStyle]);
 
   useEffect(() => {

@@ -15,20 +15,38 @@ import (
 	"arcdesk/internal/hook"
 )
 
-func TestSaveMobileConnectConfigAllowLANRequiresConfirm(t *testing.T) {
+func TestSaveMobileConnectConfigAllowLANEnablesWithoutConfirm(t *testing.T) {
 	store := newMobileConnectStore()
-	bridge := &clawBridge{mobile: store, port: defaultClawBridgePort, pairRL: newPairRateLimiter()}
+	bridge := &clawBridge{mobile: store, port: 18786, pairRL: newPairRateLimiter()}
 	app := &App{clawBridge: bridge}
 
-	nativeConfirmHook = func(_ NativeConfirmRequest) (bool, error) { return false, nil }
+	called := false
+	nativeConfirmHook = func(_ NativeConfirmRequest) (bool, error) {
+		called = true
+		return true, nil
+	}
 	defer func() { nativeConfirmHook = nil }()
 
-	err := app.SaveMobileConnectConfig(MobileConnectConfig{Enabled: true, AllowLAN: true})
-	if err == nil {
-		t.Fatal("expected cancelled error")
+	if err := app.SaveMobileConnectConfig(MobileConnectConfig{Enabled: true, AllowLAN: true}); err != nil {
+		t.Fatal(err)
 	}
-	if store.getConfig().AllowLAN {
-		t.Fatal("AllowLAN must not persist when confirm is cancelled")
+	if called {
+		t.Fatal("enabling AllowLAN should not prompt for native confirm")
+	}
+	if !store.getConfig().AllowLAN {
+		t.Fatal("AllowLAN must be enabled in memory during the session")
+	}
+	path := ARCDESKDesktopDataPath("mobile-connect.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted MobileConnectConfig
+	if err := json.Unmarshal(raw, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.AllowLAN {
+		t.Fatal("AllowLAN must not be persisted to disk")
 	}
 }
 
@@ -37,7 +55,7 @@ func TestSaveMobileConnectConfigAllowLANOffSkipsConfirm(t *testing.T) {
 	store.mu.Lock()
 	store.config.AllowLAN = true
 	store.mu.Unlock()
-	bridge := &clawBridge{mobile: store, port: defaultClawBridgePort, pairRL: newPairRateLimiter()}
+	bridge := &clawBridge{mobile: store, port: 18787, pairRL: newPairRateLimiter()}
 	app := &App{clawBridge: bridge}
 
 	called := false

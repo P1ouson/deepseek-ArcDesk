@@ -242,6 +242,19 @@ func nonNil(s []string) []string {
 	return s
 }
 
+func desktopThemeStyleForSettings(cfg *config.Config) string {
+	if cfg == nil {
+		return "glacier"
+	}
+	if style := cfg.DesktopThemeStyle(); style != "" {
+		return style
+	}
+	if cfg.DesktopTheme() == "dark" {
+		return "cobalt"
+	}
+	return "glacier"
+}
+
 // Settings returns the current configuration for the Settings panel.
 func (a *App) Settings() SettingsView {
 	cfg, cfgPath, err := a.loadDesktopUserConfigForEdit()
@@ -263,7 +276,7 @@ func (a *App) Settings() SettingsView {
 			DesktopGit: desktopGitView(config.DesktopGitConfig{
 				PRMergeMethod: "merge",
 			}),
-			CloseBehavior:     "background",
+			CloseBehavior:     "quit",
 		}
 	}
 	ctrl := a.activeCtrl()
@@ -301,7 +314,7 @@ func (a *App) Settings() SettingsView {
 		Agent:             agentViewFromConfig(cfg),
 		DesktopLanguage:      cfg.DesktopLanguage(),
 		DesktopTheme:         cfg.DesktopTheme(),
-		DesktopThemeStyle:    cfg.DesktopThemeStyle(),
+		DesktopThemeStyle:    desktopThemeStyleForSettings(cfg),
 		DesktopTerminalShell: cfg.DesktopTerminalShell(),
 		DesktopGit: desktopGitView(cfg.DesktopGitSettings()),
 		DesktopAppearance:    desktopAppearanceView(cfg.DesktopAppearanceSettings()),

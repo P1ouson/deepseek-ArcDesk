@@ -6,6 +6,7 @@ import { sessionActivityTime } from "../lib/session";
 import type { HistoryMessage, SessionMeta } from "../lib/types";
 import type { Item } from "../lib/useController";
 import { ResizableDrawer } from "./ResizableDrawer";
+import { StudioCenterModal } from "./StudioCenterModal";
 import { Tooltip } from "./Tooltip";
 import { MessageTimeline } from "./MessageTimeline";
 import { ContextMenu, contextMenuPointFromEvent, type ContextMenuItem, type ContextMenuPoint } from "./ContextMenu";
@@ -25,6 +26,7 @@ export function HistoryPanel({
   onPurge,
   onPurgeAll,
   onClose,
+  presentation = "drawer",
 }: {
   kind?: "history" | "trash";
   sessions: SessionMeta[];
@@ -37,6 +39,7 @@ export function HistoryPanel({
   onPurge?: (path: string) => void;
   onPurgeAll?: (paths: string[]) => void;
   onClose: () => void;
+  presentation?: "drawer" | "modal";
 }) {
   const tr = useT();
   const isTrash = kind === "trash";
@@ -260,37 +263,49 @@ export function HistoryPanel({
           },
         ];
 
-  return (
-    <ResizableDrawer onClose={onClose} wide={showPreview || running}>
-      <header className="drawer__head">
-        <div>
-          <div className="drawer__title">{tr(isTrash ? "history.trashTitle" : "history.title")}</div>
-          {isTrash ? (
-            <div className="drawer__summary">{tr("history.trashHint")}</div>
-          ) : (
-            running && <div className="drawer__summary">{tr("history.readOnlyHint")}</div>
-          )}
-        </div>
-        <div className="drawer__actions">
-          {isTrash && sessions.length > 0 && (
-            <button
-              className="chip history-clear"
-              type="button"
-              onClick={openTrashClearMenu}
-            >
-              {tr("history.clearTrash")}
-            </button>
-          )}
-          <Tooltip label={tr("common.close")}>
-            <button className="chip" onClick={onClose}>
-              ✕
-            </button>
-          </Tooltip>
-        </div>
-      </header>
+  const isModal = presentation === "modal";
+  const panelTitle = tr(isTrash ? "history.trashTitle" : "history.title");
 
+  const toolbar = isModal ? (
+    <div className="studio-center-modal__toolbar">
+      {isTrash ? <p className="studio-center-modal__hint">{tr("history.trashHint")}</p> : null}
+      {!isTrash && running ? <p className="studio-center-modal__hint">{tr("history.readOnlyHint")}</p> : null}
+      {isTrash && sessions.length > 0 ? (
+        <button className="chip history-clear" type="button" onClick={openTrashClearMenu}>
+          {tr("history.clearTrash")}
+        </button>
+      ) : null}
+    </div>
+  ) : (
+    <header className="drawer__head">
+      <div>
+        <div className="drawer__title">{panelTitle}</div>
+        {isTrash ? (
+          <div className="drawer__summary">{tr("history.trashHint")}</div>
+        ) : (
+          running && <div className="drawer__summary">{tr("history.readOnlyHint")}</div>
+        )}
+      </div>
+      <div className="drawer__actions">
+        {isTrash && sessions.length > 0 && (
+          <button className="chip history-clear" type="button" onClick={openTrashClearMenu}>
+            {tr("history.clearTrash")}
+          </button>
+        )}
+        <Tooltip label={tr("common.close")}>
+          <button className="chip" onClick={onClose}>
+            ✕
+          </button>
+        </Tooltip>
+      </div>
+    </header>
+  );
+
+  const body = (
+    <>
+      {toolbar}
       <div
-        className={`drawer__body history-drawer${showPreview ? " history-drawer--preview" : ""}`}
+        className={`drawer__body history-drawer${showPreview ? " history-drawer--preview" : ""}${isModal ? " history-drawer--modal" : ""}`}
         onContextMenu={openTrashBlankMenu}
       >
         <div className={`history-list${isTrash ? " history-list--trash" : ""}`}>
@@ -405,8 +420,18 @@ export function HistoryPanel({
           onClose={closeHistoryMenus}
         />
       </div>
-    </ResizableDrawer>
+    </>
   );
+
+  if (isModal) {
+    return (
+      <StudioCenterModal title={panelTitle} onClose={onClose} wide>
+        {body}
+      </StudioCenterModal>
+    );
+  }
+
+  return <ResizableDrawer onClose={onClose} wide={showPreview || running}>{body}</ResizableDrawer>;
 }
 
 // dayLabel buckets a timestamp into "Today", "Yesterday", or a locale date. It's

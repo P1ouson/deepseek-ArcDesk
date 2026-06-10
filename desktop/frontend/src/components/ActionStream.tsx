@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { MotionUnfold } from "./MotionUnfold";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { AnchoredPopover } from "./AnchoredPopover";
 import { CodeViewer } from "./CodeViewer";
@@ -173,16 +174,18 @@ const ActionToolRow = memo(function ActionToolRow({
           </button>
         ) : null}
       </div>
-      {detailOpen && hasDetails ? (
-        <div className="action-row__detail">
-          {item.error ? <div className="action-row__err">{item.error}</div> : null}
-          {item.isShell && item.output ? (
-            <CodeViewer flat value={item.output} maxHeight={260} />
-          ) : null}
-          {!item.isShell && item.output ? <CodeViewer flat value={item.output} maxHeight={220} /> : null}
-          {!item.output && item.args ? <CodeViewer flat value={prettyJson(item.args)} language="json" maxHeight={160} /> : null}
-          {item.truncated ? <div className="action-row__note">{t("tool.truncated")}</div> : null}
-        </div>
+      {hasDetails ? (
+        <MotionUnfold open={detailOpen}>
+          <div className="action-row__detail">
+            {item.error ? <div className="action-row__err">{item.error}</div> : null}
+            {item.isShell && item.output ? (
+              <CodeViewer flat value={item.output} maxHeight={260} />
+            ) : null}
+            {!item.isShell && item.output ? <CodeViewer flat value={item.output} maxHeight={220} /> : null}
+            {!item.output && item.args ? <CodeViewer flat value={prettyJson(item.args)} language="json" maxHeight={160} /> : null}
+            {item.truncated ? <div className="action-row__note">{t("tool.truncated")}</div> : null}
+          </div>
+        </MotionUnfold>
       ) : null}
     </div>
   );
@@ -297,7 +300,13 @@ export const ActionSegmentView = memo(function ActionSegmentView({
   return (
     <div className={`action-segment${collapsed ? " action-segment--collapsed" : ""}${segment.complete ? " action-segment--complete" : ""}`}>
       {renderEntry(first, 0)}
-      {!collapsed && hiddenEntries.flatMap((entry, idx) => renderEntry(entry, idx + 1))}
+      {hiddenEntries.length > 0 ? (
+        <MotionUnfold open={!collapsed}>
+          <div className="action-segment__more">
+            {hiddenEntries.flatMap((entry, idx) => renderEntry(entry, idx + 1))}
+          </div>
+        </MotionUnfold>
+      ) : null}
     </div>
   );
 });

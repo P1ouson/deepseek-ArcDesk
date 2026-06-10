@@ -5,6 +5,7 @@ import { useT } from "../../lib/i18n";
 import { useDismissOnOutsidePointerDown } from "../../lib/useDismissOnOutsidePointerDown";
 import type { ProviderView } from "../../lib/types";
 import { confirmAction } from "../../lib/confirmAction";
+import { MotionUnfold } from "../MotionUnfold";
 import { StudioSelect } from "../StudioSelect";
 import {
   SettingsBlock,
@@ -209,14 +210,16 @@ export function ModelsServicesSection({ s, busy, apply }: SettingsSectionProps) 
               )}
             </button>
           </div>
-          {modelsExpanded && fetchedModels && fetchedModels.length > 0 ? (
-            <div ref={modelsPanelRef} className="settings-models-list-panel" role="list">
-              {fetchedModels.map((model) => (
-                <span key={model} className="settings-models-list-panel__item" role="listitem">
-                  {model}
-                </span>
-              ))}
-            </div>
+          {fetchedModels && fetchedModels.length > 0 ? (
+            <MotionUnfold open={modelsExpanded}>
+              <div ref={modelsPanelRef} className="settings-models-list-panel" role="list">
+                {fetchedModels.map((model) => (
+                  <span key={model} className="settings-models-list-panel__item" role="listitem">
+                    {model}
+                  </span>
+                ))}
+              </div>
+            </MotionUnfold>
           ) : null}
           {fetchCount !== null ? (
             <p className="settings-block__note settings-block__note--inline settings-models-fetch-note--ok">

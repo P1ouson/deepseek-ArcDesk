@@ -1,14 +1,11 @@
-import { createPortal } from "react-dom";
 import type { QuestionAnswer, WireApproval, WireAsk } from "../lib/types";
 import { ApprovalModal } from "./ApprovalModal";
 import { AskCard } from "./AskCard";
-import { DecisionCoach } from "./DecisionCoach";
-import { shouldShowDecisionCoach } from "../lib/decisionCoach";
 
 export function AgentDecisionLayer({
   approval,
   ask,
-  mode,
+  surface,
   planToolCount,
   onApprove,
   onRevisePlan,
@@ -18,7 +15,7 @@ export function AgentDecisionLayer({
 }: {
   approval: WireApproval | null | undefined;
   ask: WireAsk | null | undefined;
-  mode: string;
+  surface: "code" | "write";
   planToolCount?: number;
   onApprove: (allow: boolean, session: boolean, persist: boolean) => void;
   onRevisePlan: (text: string) => void;
@@ -28,20 +25,9 @@ export function AgentDecisionLayer({
 }) {
   if (!approval && !ask) return null;
 
-  const coachTopic = approval
-    ? approval.tool === "exit_plan_mode"
-      ? ("plan" as const)
-      : ("approval" as const)
-    : ask
-      ? ("ask" as const)
-      : null;
-
-  const showCoach = coachTopic ? shouldShowDecisionCoach(coachTopic) : false;
-
-  return createPortal(
-    <div className="arc-decision-layer" data-mode={mode}>
+  return (
+    <div className="arc-decision-layer" data-surface={surface}>
       <div className="arc-decision-layer__inner">
-        {showCoach && coachTopic ? <DecisionCoach topic={coachTopic} /> : null}
         {approval ? (
           <ApprovalModal
             approval={approval}
@@ -53,7 +39,6 @@ export function AgentDecisionLayer({
         ) : null}
         {ask ? <AskCard ask={ask} onAnswer={onAnswerAsk} onDismiss={onDismissAsk} /> : null}
       </div>
-    </div>,
-    document.body,
+    </div>
   );
 }

@@ -14,14 +14,51 @@ import (
 // (76px) plus the project drawer (280px) with a usable chat column — restored
 // sizes below MinWindowWidth leave the drawer feeling cramped or collapsed.
 const (
-	DefaultWindowWidth  = 1360
-	DefaultWindowHeight = 880
-	MinWindowWidth      = 1020
-	MinWindowHeight     = 640
+	DefaultWindowWidth  = 1020
+	DefaultWindowHeight = 760
+	MinWindowWidth      = 920
+	MinWindowHeight     = 580
+	maxWindowScreenRatio = 0.76
 )
 
 func defaultWindowSize() (int, int) {
 	return DefaultWindowWidth, DefaultWindowHeight
+}
+
+func fitWindowSize(width, height, screenWidth, screenHeight int) (int, int) {
+	if width <= 0 || height <= 0 {
+		width, height = defaultWindowSize()
+	}
+	if screenWidth > 0 && screenHeight > 0 {
+		maxW := int(float64(screenWidth) * maxWindowScreenRatio)
+		maxH := int(float64(screenHeight) * maxWindowScreenRatio)
+		if maxW >= MinWindowWidth && width > maxW {
+			width = maxW
+		}
+		if maxH >= MinWindowHeight && height > maxH {
+			height = maxH
+		}
+	}
+	if width < MinWindowWidth {
+		width = MinWindowWidth
+	}
+	if height < MinWindowHeight {
+		height = MinWindowHeight
+	}
+	return width, height
+}
+
+func primaryScreenSize(screens []runtime.Screen) (int, int) {
+	maxW, maxH := 0, 0
+	for _, sc := range screens {
+		if sc.Size.Width > maxW {
+			maxW = sc.Size.Width
+		}
+		if sc.Size.Height > maxH {
+			maxH = sc.Size.Height
+		}
+	}
+	return maxW, maxH
 }
 
 func normalizeWindowState(s DesktopWindowState) DesktopWindowState {

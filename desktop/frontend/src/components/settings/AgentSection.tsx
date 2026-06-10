@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { app } from "../../lib/bridge";
 import { useT } from "../../lib/i18n";
 import type { AgentSettingsInput, OutputStyleView, SettingsView } from "../../lib/types";
+import { MotionUnfold } from "../MotionUnfold";
 import { StudioSelect } from "../StudioSelect";
 import { SettingsBlock, SettingsSaveChip, type SettingsSectionProps } from "../settingsPrimitives";
 import { providerNames, toRef } from "./modelUtils";
@@ -379,7 +380,7 @@ export function AgentSection({
           <ChevronDown size={13} aria-hidden="true" />
           <span>{advancedOpen ? t("settings.agent.advancedHide") : t("settings.agent.advancedShow")}</span>
         </button>
-        {advancedOpen ? (
+        <MotionUnfold open={advancedOpen}>
           <div className="settings-block__form settings-agent-advanced-body">
             <div className="set-row set-row--stack">
               <label className="set-label">{t("settings.agent.systemPromptFile")}</label>
@@ -435,7 +436,7 @@ export function AgentSection({
               </button>
             </div>
           </div>
-        ) : null}
+        </MotionUnfold>
       </SettingsBlock>
 
       <div className="settings-agent-save-row">

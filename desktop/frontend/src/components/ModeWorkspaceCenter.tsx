@@ -156,7 +156,6 @@ export function ModeWorkspaceCenter({
       return (
         <Suspense fallback={<ModeCenterFallback />}>
           <SettingsPage
-          workspaceRoot={workspaceRoot}
           onComposerPrompt={onComposerPrompt}
           onChanged={() => onSettingsChanged?.()}
           onOpenHistory={onOpenHistory}

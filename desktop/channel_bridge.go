@@ -29,7 +29,7 @@ type clawBridge struct {
 	port   int
 	mobile *mobileConnectStore
 	relay  *mobileRelayClient
-	tunnel *cloudflaredTunnel
+	tunnel *mobileTunnelRunner
 	pairRL *pairRateLimiter
 }
 
@@ -84,6 +84,7 @@ func cloudflaredTunnelTarget(port int) string {
 func (b *clawBridge) newHTTPServer() *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/claw/wecom/", b.handleWeCom)
+	mux.HandleFunc("/mobile/health", b.handleMobileHealth)
 	mux.HandleFunc("/mobile/p/", b.handleMobilePairPage)
 	mux.HandleFunc("/mobile/api/pair", b.handleMobilePair)
 	mux.HandleFunc("/mobile/api/messages", b.handleMobileMessages)
@@ -97,16 +98,16 @@ func (b *clawBridge) newHTTPServer() *http.Server {
 	}
 }
 
-func (b *clawBridge) startListener() error {
-	if b == nil {
-		return fmt.Errorf("claw bridge unavailable")
-	}
+func (b *clawBridge) startListenerLocked() error {
 	addr := clawBridgeListenAddr(b.bindHost(), b.port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
 	b.srv = b.newHTTPServer()
+	if b.bindHost() == clawBridgeBindLAN {
+		ensureMobileLANFirewallRule(b.port)
+	}
 	slog.Info("claw bridge listening", "addr", addr)
 	go func() {
 		if err := b.srv.Serve(ln); err != nil && err != http.ErrServerClosed {
@@ -114,6 +115,15 @@ func (b *clawBridge) startListener() error {
 		}
 	}()
 	return nil
+}
+
+func (b *clawBridge) startListener() error {
+	if b == nil {
+		return fmt.Errorf("claw bridge unavailable")
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.startListenerLocked()
 }
 
 func (b *clawBridge) restartListener() error {
@@ -127,13 +137,20 @@ func (b *clawBridge) restartListener() error {
 		_ = b.srv.Shutdown(ctx)
 		cancel()
 		b.srv = nil
+		time.Sleep(120 * time.Millisecond)
 	}
-	return b.startListener()
+	if err := b.startListenerLocked(); err != nil {
+		return fmt.Errorf("listen on %s: %w", clawBridgeListenAddr(b.bindHost(), b.port), err)
+	}
+	return nil
 }
 
 func (b *clawBridge) start() error {
 	if err := b.startListener(); err != nil {
 		return err
+	}
+	if b.mobile != nil && b.mobile.getConfig().AllowLAN {
+		ensureMobileLANFirewallRule(b.port)
 	}
 	b.startRelayClient()
 	return nil
@@ -144,7 +161,7 @@ func (b *clawBridge) stop() {
 		return
 	}
 	b.stopRelayClient()
-	b.stopCloudflaredTunnel()
+	b.stopMobileTunnel()
 	if b.srv == nil {
 		return
 	}

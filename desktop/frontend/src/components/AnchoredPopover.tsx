@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useDismissOnOutsidePointerDown } from "../lib/useDismissOnOutsidePointerDown";
+import { MOTION_UNFOLD_MS } from "./MotionUnfold";
 
 type PopoverPosition = {
   left: number;
@@ -51,7 +52,6 @@ function calculatePosition(
     top = aboveTop >= belowTop ? aboveTop : belowTop;
   }
 
-  // Never cover the anchor: keep the menu fully above or fully below the trigger.
   let topClamped = clamp(top, EDGE_GAP, Math.max(EDGE_GAP, viewportHeight - menu.height - EDGE_GAP));
   const coversAnchor =
     topClamped + menu.height + offset > anchor.top && topClamped < anchor.bottom + offset;
@@ -90,9 +90,34 @@ export function AnchoredPopover({
   style?: CSSProperties;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(open);
+  const [unfolded, setUnfolded] = useState(false);
   const [position, setPosition] = useState<PopoverPosition | null>(null);
 
-  useDismissOnOutsidePointerDown(open, onClose, {
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      return;
+    }
+    setUnfolded(false);
+    const timer = window.setTimeout(() => setMounted(false), MOTION_UNFOLD_MS);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!mounted || !open) return;
+    setUnfolded(false);
+    let frame2 = 0;
+    const frame1 = requestAnimationFrame(() => {
+      frame2 = requestAnimationFrame(() => setUnfolded(true));
+    });
+    return () => {
+      cancelAnimationFrame(frame1);
+      if (frame2) cancelAnimationFrame(frame2);
+    };
+  }, [mounted, open]);
+
+  useDismissOnOutsidePointerDown(mounted && open, onClose, {
     excludeRefs: [anchorRef, menuRef],
   });
 
@@ -105,24 +130,24 @@ export function AnchoredPopover({
   }, [align, anchorRef, offset, placement]);
 
   useLayoutEffect(() => {
-    if (!open) {
+    if (!mounted) {
       setPosition(null);
       return;
     }
     updatePosition();
-  }, [open, updatePosition]);
+  }, [mounted, updatePosition, unfolded]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!mounted) return;
     const menu = menuRef.current;
     if (!menu || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => updatePosition());
     observer.observe(menu);
     return () => observer.disconnect();
-  }, [open, updatePosition]);
+  }, [mounted, updatePosition]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!mounted) return;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
@@ -135,16 +160,16 @@ export function AnchoredPopover({
       window.removeEventListener("resize", closeOnViewportChange);
       window.removeEventListener("scroll", closeOnViewportChange, true);
     };
-  }, [onClose, open]);
+  }, [mounted, onClose]);
 
-  if (!open) return null;
+  if (!mounted) return null;
 
   return createPortal(
     <>
       <div className="anchored-popover__backdrop" onMouseDown={onClose} />
       <div
         ref={menuRef}
-        className={`anchored-popover ${className}`}
+        className={`anchored-popover motion-unfold${unfolded ? " motion-unfold--open" : ""}${className ? ` ${className}` : ""}`}
         style={{
           ...style,
           left: position?.left ?? -9999,
@@ -158,7 +183,7 @@ export function AnchoredPopover({
           event.stopPropagation();
         }}
       >
-        {children}
+        <div className="motion-unfold__inner">{children}</div>
       </div>
     </>,
     document.body,

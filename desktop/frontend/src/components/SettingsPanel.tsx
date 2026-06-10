@@ -18,7 +18,6 @@ import { useT } from "../lib/i18n";
 import type { AppMode } from "../lib/appMode";
 import type { RightDockTab } from "./Topbar";
 import type { SettingsView } from "../lib/types";
-import { ClawChannelsSettings } from "./ClawChannelsSettings";
 import { UsageInsightsSettings } from "./UsageInsightsSettings";
 import { SettingsPageShell } from "./settingsPrimitives";
 import { normalizeSettingsView } from "./settings/normalizeSettingsView";
@@ -51,7 +50,6 @@ const UpdatesSection = lazy(() =>
 
 export interface SettingsPageProps {
   onChanged: () => void;
-  workspaceRoot?: string;
   onComposerPrompt?: (text: string) => void;
   onModeChange?: (mode: AppMode) => void;
   onOpenHistory?: () => void;
@@ -109,7 +107,6 @@ function settingsTabIcon(id: SettingsTab) {
 // SettingsPage is the full-page settings surface (Codex / Claude Code style).
 export function SettingsPage({
   onChanged,
-  workspaceRoot,
   onComposerPrompt,
   onOpenHistory,
   onOpenMemory,
@@ -214,7 +211,6 @@ export function SettingsPage({
                         onOpenCapabilities={onOpenCapabilities}
                         onOpenOnboarding={onOpenOnboarding}
                       />
-                      <ClawChannelsSettings busy={busy} workspaceRoot={workspaceRoot} />
                     </>
                   )}
                   {tab === "appearance" && <AppearanceSection {...appearance} />}

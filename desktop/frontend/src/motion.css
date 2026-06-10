@@ -97,7 +97,8 @@
 .composer__btn:hover:not(:disabled),
 .project-tree__new-topic:hover:not(:disabled),
 .studio-tool-rail .topbar__hub-main:hover:not(:disabled),
-.studio-tool-rail .topbar__hub-menu:hover:not(:disabled) {
+.studio-tool-rail .topbar__hub-menu:hover:not(:disabled),
+.msg-tool-btn:hover:not(:disabled) {
   background-color: var(--sidebar-hover);
 }
 
@@ -116,7 +117,8 @@
 .welcome--code .welcome__card:active:not(:disabled),
 .project-tree__new-topic:active:not(:disabled),
 .studio-tool-rail .topbar__hub-main:active:not(:disabled),
-.studio-tool-rail .topbar__hub-menu:active:not(:disabled) {
+.studio-tool-rail .topbar__hub-menu:active:not(:disabled),
+.msg-tool-btn:active:not(:disabled) {
   transform: scale(var(--motion-press-scale));
 }
 
@@ -153,10 +155,23 @@
   box-shadow: none;
 }
 
-/* —— C: list / tree expand (mount reveal) —— */
+/* —— C: vertical unfold (same timing as studio drawer width) —— */
+.motion-unfold {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--duration-normal) var(--ease-out);
+}
+.motion-unfold--open {
+  grid-template-rows: 1fr;
+}
+.motion-unfold__inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
 .project-tree__children,
 .files-panel__branch {
-  animation: motion-reveal-down var(--duration-fast) var(--ease-out);
+  animation: none;
 }
 
 .project-tree__chevron {
@@ -230,6 +245,10 @@
 
 @media (prefers-reduced-motion: reduce) {
   .motion-segment::before {
+    transition: none;
+  }
+
+  .motion-unfold {
     transition: none;
   }
 

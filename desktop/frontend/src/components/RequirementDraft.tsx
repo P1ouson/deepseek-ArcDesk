@@ -32,52 +32,58 @@ export function RequirementDraft({ onClose, onGeneratePlan, onAiAssist }: Requir
     ].join("\n\n");
 
   return (
-    <div className="requirement-draft-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="requirement-draft" role="dialog" aria-modal="true" aria-labelledby="requirement-draft-title">
-      <header className="requirement-draft__head">
-        <div>
-          <div className="requirement-draft__title" id="requirement-draft-title">
-            <Sparkles size={15} /> {t("sdd.title")}
+    <div className="requirement-draft-overlay">
+      <div
+        className="requirement-draft motion-fade-in"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="requirement-draft-title"
+      >
+        <header className="requirement-draft__head">
+          <div>
+            <div className="requirement-draft__title" id="requirement-draft-title">
+              <Sparkles size={15} /> {t("sdd.title")}
+            </div>
+            <div className="requirement-draft__meta">
+              {t("sdd.step", { current: step + 1, total: STEP_KEYS.length, label: t(STEP_KEYS[step]) })}
+            </div>
           </div>
-          <div className="requirement-draft__meta">
-            {t("sdd.step", { current: step + 1, total: STEP_KEYS.length, label: t(STEP_KEYS[step]) })}
-          </div>
+          <button type="button" className="requirement-draft__close btn btn--small" onClick={onClose} aria-label={t("common.close")}>
+            <X size={15} />
+          </button>
+        </header>
+        <div className="requirement-draft__body">
+          <label>
+            {t(STEP_KEYS[step])}
+            <textarea
+              value={values[step]}
+              onChange={(e) => setters[step](e.target.value)}
+              placeholder={t(PLACEHOLDER_KEYS[step])}
+            />
+          </label>
         </div>
-        <button type="button" onClick={onClose} aria-label={t("common.close")}>
-          <X size={15} />
-        </button>
-      </header>
-      <div className="requirement-draft__body">
-        <label>
-          {t(STEP_KEYS[step])}
-          <textarea
-            value={values[step]}
-            onChange={(e) => setters[step](e.target.value)}
-            placeholder={t(PLACEHOLDER_KEYS[step])}
-          />
-        </label>
-      </div>
-      <footer className="requirement-draft__foot">
-        <button type="button" disabled={step === 0} onClick={() => setStep((v) => Math.max(0, v - 1))}>
-          {t("sdd.back")}
-        </button>
-        <button type="button" disabled={!canNext} onClick={() => onAiAssist(values[step].trim())}>
-          {t("sdd.aiAssist")}
-        </button>
-        {step < STEP_KEYS.length - 1 ? (
-          <button type="button" disabled={!canNext} onClick={() => setStep((v) => v + 1)}>
-            {t("sdd.next")} <ArrowRight size={14} />
+        <footer className="requirement-draft__foot">
+          <button type="button" className="btn btn--small" disabled={step === 0} onClick={() => setStep((v) => Math.max(0, v - 1))}>
+            {t("sdd.back")}
           </button>
-        ) : (
-          <button
-            type="button"
-            disabled={!background.trim() || !goal.trim() || !criteria.trim()}
-            onClick={() => onGeneratePlan(buildPrompt())}
-          >
-            {t("sdd.generatePlan")} <ArrowRight size={14} />
+          <button type="button" className="btn btn--small" disabled={!canNext} onClick={() => onAiAssist(values[step].trim())}>
+            {t("sdd.aiAssist")}
           </button>
-        )}
-      </footer>
+          {step < STEP_KEYS.length - 1 ? (
+            <button type="button" className="btn btn--small btn--primary" disabled={!canNext} onClick={() => setStep((v) => v + 1)}>
+              {t("sdd.next")} <ArrowRight size={14} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn--small btn--primary"
+              disabled={!background.trim() || !goal.trim() || !criteria.trim()}
+              onClick={() => onGeneratePlan(buildPrompt())}
+            >
+              {t("sdd.generatePlan")} <ArrowRight size={14} />
+            </button>
+          )}
+        </footer>
       </div>
     </div>
   );

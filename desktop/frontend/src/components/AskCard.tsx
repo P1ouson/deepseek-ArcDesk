@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../lib/i18n";
 import type { QuestionAnswer, WireAsk, WireAskQuestion } from "../lib/types";
+import { MotionUnfold } from "./MotionUnfold";
 import { PromptAction, PromptBadge, PromptDetailToggle, PromptShelf } from "./PromptShelf";
+
+function truncateOneLine(text: string, max = 72): string {
+  const line = text.trim().split("\n").find((entry) => entry.trim())?.trim() ?? text.trim();
+  if (line.length <= max) return line;
+  return `${line.slice(0, max - 1)}…`;
+}
 
 // AskCard renders the `ask` tool as a compact prompt shelf near the composer. It
 // walks multi-question asks one at a time; single-select answers advance
@@ -157,7 +164,7 @@ export function AskCard({
           {hasMultipleQuestions && <PromptBadge>{t("ask.questionProgress", { progress })}</PromptBadge>}
         </>
       }
-      meta={q.prompt}
+      meta={truncateOneLine(q.prompt)}
       actions={
         <>
           {active > 0 && (
@@ -205,7 +212,7 @@ export function AskCard({
         )
       }
     >
-      {detailsOpen && (
+      <MotionUnfold open={detailsOpen}>
         <>
           <div className="ask-shelf__detail-list">
             {q.options.map((o) => (
@@ -243,7 +250,7 @@ export function AskCard({
             </div>
           </div>
         </>
-      )}
+      </MotionUnfold>
     </PromptShelf>
   );
 }

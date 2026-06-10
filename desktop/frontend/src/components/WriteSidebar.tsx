@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Check,
   ChevronDown,
@@ -20,9 +20,26 @@ import { getRecentWorkspacePaths, recordRecentWorkspace } from "../lib/workspace
 import { isNoWriteWorkspace, NO_WORKSPACE_VALUE } from "../lib/writeWorkspace";
 import { closeStudioSelect, openStudioSelect } from "../lib/studioSelectRegistry";
 import { AnchoredPopover } from "./AnchoredPopover";
+import { MotionUnfold } from "./MotionUnfold";
 import { Tooltip } from "./Tooltip";
 
 const PICK_WORKSPACE_VALUE = "__pick_workspace__";
+
+function WriteFileListPane({ browsePath, children }: { browsePath: string; children: ReactNode }) {
+  const [open, setOpen] = useState(true);
+
+  useEffect(() => {
+    setOpen(false);
+    const frame = requestAnimationFrame(() => setOpen(true));
+    return () => cancelAnimationFrame(frame);
+  }, [browsePath]);
+
+  return (
+    <MotionUnfold open={open} className="write-studio__file-list-unfold">
+      {children}
+    </MotionUnfold>
+  );
+}
 
 export interface WriteSidebarProps {
   workspaceRoot: string;
@@ -339,7 +356,8 @@ export function WriteSidebar({
         <span>{t("write.sidebar.newDraft")}</span>
       </button>
 
-      <div className="write-sidebar__list write-studio__file-list">
+      <WriteFileListPane browsePath={browsePath}>
+        <div className="write-sidebar__list write-studio__file-list">
         {visibleEntries.map((entry) =>
           entry.isDir ? (
             <button
@@ -403,7 +421,8 @@ export function WriteSidebar({
             ) : null}
           </div>
         ) : null}
-      </div>
+        </div>
+      </WriteFileListPane>
     </aside>
   );
 }

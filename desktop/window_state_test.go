@@ -15,6 +15,18 @@ func TestNormalizeWindowStateBumpsUndersizedGeometry(t *testing.T) {
 	}
 }
 
+func TestFitWindowSizeCapsToScreen(t *testing.T) {
+	width, height := fitWindowSize(1920, 1080, 1920, 1080)
+	maxW := 1651
+	maxH := 928
+	if width > maxW || height > maxH {
+		t.Fatalf("fitWindowSize = %dx%d, want <= %dx%d", width, height, maxW, maxH)
+	}
+	if width < MinWindowWidth || height < MinWindowHeight {
+		t.Fatalf("fitWindowSize below minimum: %dx%d", width, height)
+	}
+}
+
 func TestNormalizeWindowStateKeepsComfortableGeometry(t *testing.T) {
 	in := DesktopWindowState{Width: 1400, Height: 900, X: 0, Y: 0}
 	got := normalizeWindowState(in)

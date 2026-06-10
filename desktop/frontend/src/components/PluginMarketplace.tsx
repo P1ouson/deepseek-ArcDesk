@@ -17,6 +17,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { app, openExternal } from "../lib/bridge";
+import { MotionUnfold } from "./MotionUnfold";
 import { useT } from "../lib/i18n";
 import type { CapabilitiesView, MCPCatalogEntry, MCPServerInput, ServerView, SkillView } from "../lib/types";
 
@@ -79,6 +80,7 @@ export function PluginMarketplace() {
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
+  const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
   const [sourcesOpen, setSourcesOpen] = useState(false);
 
   const reload = useCallback(async () => {
@@ -228,6 +230,15 @@ export function PluginMarketplace() {
     });
   };
 
+  const toggleSkillExpanded = (name: string) => {
+    setExpandedSkills((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
   const navItems: { id: ExtensionsSection; label: string; count?: number; warn?: boolean }[] = [
     { id: "skills", label: t("extensions.nav.skills"), count: stats.enabledSkills },
     { id: "mcp-browse", label: t("extensions.nav.mcpBrowse"), count: stats.catalog },
@@ -344,51 +355,80 @@ export function PluginMarketplace() {
 
         {!loading && section === "skills" ? (
           <div className="extensions-studio__skills">
-            <section className="extensions-studio__sources">
-              <button type="button" className="extensions-studio__sources-toggle" onClick={() => setSourcesOpen((open) => !open)}>
-                {sourcesOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                <span>{t("plugins.skillSources")}</span>
-                <span className="extensions-studio__sources-count">{skillRoots.length}</span>
-              </button>
-              {sourcesOpen ? (
-                <div className="extensions-studio__sources-body">
-                  {skillRoots.map((root) => (
-                    <article key={`${root.scope}-${root.dir}`} className="extensions-studio__root">
-                      <div className="extensions-studio__root-copy">
-                        <strong>{skillScopeLabel(root.scope, t)}</strong>
-                        <code>{root.dir}</code>
-                        <span className="extensions-studio__chip">{t("plugins.rootSkills", { n: root.skills })}</span>
-                        {root.status !== "ok" ? <span className="extensions-studio__error">{root.status}</span> : null}
-                        {root.warning ? <span className="extensions-studio__error">{root.warning}</span> : null}
-                      </div>
-                      {root.scope === "custom" ? (
-                        <button type="button" className="extensions-studio__icon-danger" disabled={busy} onClick={() => void removeSkillPath(root.dir)} aria-label={t("plugins.remove")}>
-                          <Trash2 size={13} />
-                        </button>
-                      ) : null}
-                    </article>
-                  ))}
-                  {!skillRoots.length ? <p className="extensions-studio__empty-inline">{t("plugins.emptySkillRoots")}</p> : null}
-                </div>
-              ) : null}
-            </section>
+            {skillRoots.length > 0 ? (
+              <section className="extensions-studio__sources">
+                <button type="button" className="extensions-studio__sources-toggle" onClick={() => setSourcesOpen((open) => !open)}>
+                  <ChevronDown size={14} className={`extensions-studio__sources-chevron${sourcesOpen ? " extensions-studio__sources-chevron--open" : ""}`} />
+                  <span>{t("plugins.skillSources")}</span>
+                  <span className="extensions-studio__sources-count">{skillRoots.length}</span>
+                </button>
+                <MotionUnfold open={sourcesOpen}>
+                  <div className="extensions-studio__sources-body">
+                      {skillRoots.map((root) => (
+                        <article key={`${root.scope}-${root.dir}`} className="extensions-studio__root">
+                          <div className="extensions-studio__root-head">
+                            <strong>{skillScopeLabel(root.scope, t)}</strong>
+                            {root.scope === "custom" ? (
+                              <button type="button" className="extensions-studio__icon-danger" disabled={busy} onClick={() => void removeSkillPath(root.dir)} aria-label={t("plugins.remove")}>
+                                <Trash2 size={13} />
+                              </button>
+                            ) : null}
+                          </div>
+                          <code className="extensions-studio__root-path">{root.dir}</code>
+                          <div className="extensions-studio__root-meta">
+                            <span className="extensions-studio__chip">{t("plugins.rootSkills", { n: root.skills })}</span>
+                            {root.status !== "ok" ? <span className="extensions-studio__error">{root.status}</span> : null}
+                            {root.warning ? <span className="extensions-studio__error">{root.warning}</span> : null}
+                          </div>
+                        </article>
+                      ))}
+                  </div>
+                </MotionUnfold>
+              </section>
+            ) : null}
 
             <div className="extensions-studio__skill-list">
-              {filteredSkills.map((skill) => (
+              {filteredSkills.map((skill) => {
+                const skillExpanded = expandedSkills.has(skill.name);
+                const description = (skill.description ?? "").trim();
+                const canExpand = description.length > 48;
+                return (
                 <article key={skill.name} className={`extensions-studio__skill${skill.enabled ? "" : " extensions-studio__skill--disabled"}`}>
-                  <div className="extensions-studio__skill-copy">
-                    <div className="extensions-studio__skill-head">
-                      <strong>/{skill.name}</strong>
-                      <span className="extensions-studio__chip">{skillScopeLabel(skill.scope, t)}</span>
-                      <span className="extensions-studio__chip extensions-studio__chip--muted">{skill.runAs}</span>
+                  <div className="extensions-studio__skill-row">
+                    <div className="extensions-studio__skill-copy">
+                      <div className="extensions-studio__skill-head">
+                        <strong>/{skill.name}</strong>
+                        <span className="extensions-studio__chip">{skillScopeLabel(skill.scope, t)}</span>
+                        <span className="extensions-studio__chip extensions-studio__chip--muted">{skill.runAs}</span>
+                      </div>
+                      {!skillExpanded ? (
+                        <p className="extensions-studio__skill-desc-line">{description || "—"}</p>
+                      ) : null}
                     </div>
-                    <p>{skill.description}</p>
+                    <div className="extensions-studio__skill-aside">
+                      {canExpand ? (
+                        <button
+                          type="button"
+                          className={`extensions-studio__skill-chevron${skillExpanded ? " extensions-studio__skill-chevron--open" : ""}`}
+                          aria-expanded={skillExpanded}
+                          aria-label={skillExpanded ? t("common.collapse") : t("common.expand")}
+                          onClick={() => toggleSkillExpanded(skill.name)}
+                        >
+                          <ChevronDown size={14} />
+                        </button>
+                      ) : null}
+                      <button type="button" className="extensions-studio__skill-toggle" disabled={busy} onClick={() => void toggleSkill(skill)}>
+                        {skill.enabled ? t("plugins.disable") : t("plugins.enable")}
+                      </button>
+                    </div>
                   </div>
-                  <button type="button" className="extensions-studio__skill-toggle" disabled={busy} onClick={() => void toggleSkill(skill)}>
-                    {skill.enabled ? t("plugins.disable") : t("plugins.enable")}
-                  </button>
+                  {canExpand ? (
+                    <MotionUnfold open={skillExpanded}>
+                      <p className="extensions-studio__skill-desc-full">{description}</p>
+                    </MotionUnfold>
+                  ) : null}
                 </article>
-              ))}
+              )})}
               {!filteredSkills.length ? (
                 <div className="extensions-studio__empty">
                   <p>{t("plugins.emptySkills")}</p>
@@ -516,7 +556,7 @@ export function PluginMarketplace() {
                       ) : null}
                     </div>
                   </div>
-                  {expanded ? (
+                  <MotionUnfold open={expanded} className="extensions-studio__row-detail-wrap">
                     <div className="extensions-studio__row-detail">
                       {endpoint ? (
                         <div className="extensions-studio__detail-line">
@@ -541,7 +581,7 @@ export function PluginMarketplace() {
                         </div>
                       ) : null}
                     </div>
-                  ) : null}
+                  </MotionUnfold>
                 </article>
               );
             })}

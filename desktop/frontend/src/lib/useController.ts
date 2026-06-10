@@ -368,7 +368,7 @@ function reducer(s: State, a: Action): State {
       );
       return { ...s, items, seq: s.seq + visible.length };
     }
-    case "local_notice": return { ...s, running: false, turnActive: false, seq: s.seq + 1, items: [...s.items, { kind: "notice", id: `n${s.seq}`, level: a.level, text: a.text }] };
+    case "local_notice": return { ...s, seq: s.seq + 1, items: [...s.items, { kind: "notice", id: `n${s.seq}`, level: a.level, text: a.text }] };
     case "clearApproval": return { ...s, approval: undefined };
     case "clearAsk": return { ...s, ask: undefined };
     case "resolveAsk": {
@@ -626,8 +626,7 @@ export function useController() {
   }, [activeTabId, dispatchTo, reportFailure]);
 
   const setControllerMode = useCallback((mode: "plan" | "yolo" | "normal"): Promise<void> => {
-    if (!activeTabId) return Promise.resolve();
-    return app.SetModeForTab(activeTabId, mode).then(() => {
+    return app.SetModeForTab(activeTabId ?? "", mode).then(() => {
       if (mode === "yolo" && activeTabId) dispatchTo(activeTabId, { type: "clearApproval" });
     }).catch((err) => {
       reportFailure(err);
@@ -639,7 +638,7 @@ export function useController() {
       await app.NewSession();
     } catch (err) {
       reportFailure(err);
-      return;
+      throw err;
     }
     if (activeTabId) dispatchTo(activeTabId, { type: "reset" });
   }, [activeTabId, dispatchTo, reportFailure]);

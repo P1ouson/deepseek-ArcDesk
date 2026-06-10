@@ -27,7 +27,7 @@ export const THEME_STYLES = [
 export type ThemeStyle = (typeof THEME_STYLES)[number];
 
 const DEFAULT_THEME: Theme = "light";
-const DEFAULT_DARK_STYLE: ThemeStyle = "graphite";
+const DEFAULT_DARK_STYLE: ThemeStyle = "cobalt";
 const DEFAULT_LIGHT_STYLE: ThemeStyle = "glacier";
 const THEME_KEY = "arcdesk-theme";
 const STYLE_KEY = "arcdesk-theme-style";
@@ -130,6 +130,7 @@ export function stylesForTheme(theme: Theme): ThemeStyle[] {
 }
 
 export type ApplyThemeOptions = {
+  /** When true (default), cache theme in localStorage for the next cold start. */
   persist?: boolean;
   /** When true (default), align bg/fg presets with the resolved light/dark theme. */
   syncSurfaces?: boolean;
@@ -137,7 +138,7 @@ export type ApplyThemeOptions = {
 
 export function applyTheme(theme: Theme, style?: ThemeStyle, options: ApplyThemeOptions = {}): void {
   if (typeof document === "undefined") return;
-  const { syncSurfaces = true } = options;
+  const { persist = true, syncSurfaces = true } = options;
   const root = document.documentElement;
   const resolved = resolveTheme(theme);
   const nextStyle =
@@ -160,7 +161,18 @@ export function applyTheme(theme: Theme, style?: ThemeStyle, options: ApplyTheme
     else WindowSetBackgroundColour(16, 16, 16, 255);
   }
 
-  applyAppearancePrefs();
+  if (syncSurfaces) {
+    applyAppearancePrefs();
+  }
+
+  if (persist && typeof localStorage !== "undefined") {
+    try {
+      localStorage.setItem(THEME_KEY, JSON.stringify(theme));
+      localStorage.setItem(STYLE_KEY, nextStyle);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 export function readLegacyThemePreference(): { theme: Theme; style: ThemeStyle; hasValue: boolean } {
@@ -198,6 +210,11 @@ export function clearLegacyThemePreference(): void {
 }
 
 export function initTheme(): void {
-  applyTheme(getTheme(), getThemeStyle(), { syncSurfaces: false });
+  const stored = readLegacyThemePreference();
+  if (stored.hasValue) {
+    currentTheme = stored.theme;
+    currentStyle = stored.style;
+  }
+  applyTheme(currentTheme, currentStyle, { syncSurfaces: false, persist: false });
   installSystemThemeListener();
 }

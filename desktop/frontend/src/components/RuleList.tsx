@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { MotionUnfold } from "./MotionUnfold";
 import { ChevronDown, Trash2 } from "lucide-react";
 import { useT } from "../lib/i18n";
 import { Tooltip } from "./Tooltip";
@@ -100,7 +101,9 @@ export function RuleList({
           <ChevronDown size={13} aria-hidden="true" />
           <span className={`set-rules-fold__label${toneClass}`}>{label}</span>
         </button>
-        {open ? <div className="set-rules-fold__body">{body}</div> : null}
+        <MotionUnfold open={open}>
+          <div className="set-rules-fold__body">{body}</div>
+        </MotionUnfold>
       </div>
     );
   }

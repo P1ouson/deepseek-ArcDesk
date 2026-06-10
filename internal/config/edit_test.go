@@ -65,12 +65,12 @@ func TestUICloseBehaviorNormalizes(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"", "background"},
+		{"", "quit"},
 		{"QUIT", "quit"},
 		{"exit", "quit"},
 		{" background ", "background"},
-		{"hide", "background"},
-		{"unknown", "background"},
+		{"hide", "quit"},
+		{"unknown", "quit"},
 	} {
 		c.UI.CloseBehavior = tt.in
 		if got := c.UICloseBehavior(); got != tt.want {

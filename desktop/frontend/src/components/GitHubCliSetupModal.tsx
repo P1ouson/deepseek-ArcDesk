@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 import type { DictKey } from "../lib/i18n";
 import { useT } from "../lib/i18n";
 import type { GitHubCliProbeReason } from "../lib/gitHubCli";
@@ -27,17 +28,21 @@ export function GitHubCliSetupModal({
   const messageKey = setupMessageKey(reason, checkEnabled);
 
   return createPortal(
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+    <div className="modal-backdrop modal-backdrop--static" role="presentation">
       <div
-        className="modal"
+        className="modal modal--dismissible"
         role="dialog"
         aria-modal="true"
         aria-labelledby="github-cli-setup-title"
-        onClick={(event) => event.stopPropagation()}
       >
-        <h3 className="modal__title" id="github-cli-setup-title">
-          {t("git.ghSetupModalTitle")}
-        </h3>
+        <div className="modal__head">
+          <h3 className="modal__title" id="github-cli-setup-title">
+            {t("git.ghSetupModalTitle")}
+          </h3>
+          <button type="button" className="modal__close" onClick={onClose} aria-label={t("common.close")}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
         <p className="modal__body">{t(messageKey)}</p>
         <div className="modal__actions">
           <button type="button" className="btn" onClick={onClose}>

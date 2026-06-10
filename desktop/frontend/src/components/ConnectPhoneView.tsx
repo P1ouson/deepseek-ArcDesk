@@ -3,8 +3,9 @@ import {
   Check,
   Cloud,
   Copy,
+  Eye,
+  EyeOff,
   Globe,
-  Loader2,
   Power,
   QrCode,
   RefreshCw,
@@ -30,6 +31,8 @@ function modeMeta(mode: string | undefined, t: ReturnType<typeof useT>) {
       return { label: t("phone.modeRelay"), icon: Cloud, ok: true };
     case "lan":
       return { label: t("phone.modeLan"), icon: Wifi, ok: true };
+    case "lan_standby":
+      return { label: t("phone.modeLanStandby"), icon: Wifi, ok: false };
     default:
       return { label: t("phone.modeNone"), icon: Globe, ok: false };
   }
@@ -39,6 +42,58 @@ function basename(path: string): string {
   const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
   const parts = normalized.split("/").filter(Boolean);
   return parts[parts.length - 1] || path || "—";
+}
+
+function maskPairUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.host;
+    const maskedHost =
+      host.length <= 6 ? "••••••" : `${host.slice(0, 3)}••••${host.slice(-3)}`;
+    return `${parsed.protocol}//${maskedHost}${parsed.pathname}`;
+  } catch {
+    return "••••••••";
+  }
+}
+
+function ProtectedPairUrl({
+  url,
+  revealed,
+  onToggleReveal,
+  onCopy,
+  copied,
+  copyLabel,
+}: {
+  url: string;
+  revealed: boolean;
+  onToggleReveal: () => void;
+  onCopy: () => void;
+  copied: boolean;
+  copyLabel: string;
+}) {
+  return (
+    <div className="connect-compact__url-protected">
+      <code className="connect-compact__url">{revealed ? url : maskPairUrl(url)}</code>
+      <div className="connect-compact__url-actions">
+        <button
+          type="button"
+          className="connect-compact__url-action"
+          onClick={onToggleReveal}
+          aria-label={revealed ? "Hide URL" : "Show URL"}
+        >
+          {revealed ? <EyeOff size={12} /> : <Eye size={12} />}
+        </button>
+        <button
+          type="button"
+          className={`connect-compact__url-action${copied ? " connect-compact__url-action--ok" : ""}`}
+          onClick={onCopy}
+          aria-label={copyLabel}
+        >
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export interface ConnectPhoneViewProps {
@@ -72,6 +127,7 @@ export function ConnectPhoneView({
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingDecision, setPendingDecision] = useState<MobilePendingDecision | null>(null);
   const [copiedField, setCopiedField] = useState<"pair" | "tunnel" | null>(null);
+  const [pairUrlRevealed, setPairUrlRevealed] = useState(false);
   const copyTimerRef = useRef<number | null>(null);
 
   const reload = useCallback(async () => {
@@ -86,6 +142,7 @@ export function ConnectPhoneView({
     if (cfg) {
       setConfig({
         ...cfg,
+        allowLAN: Boolean(cfg.allowLAN),
         workspaceRoot,
         relayBaseURL: cfg.relayBaseURL ?? "",
       });
@@ -103,10 +160,10 @@ export function ConnectPhoneView({
   }, [reload]);
 
   useEffect(() => {
-    if (!tunnel.running || tunnel.url) return;
-    const timer = window.setInterval(() => void reload(), 2_000);
+    if (!tunnel.running || tunnel.url || tunnel.err) return;
+    const timer = window.setInterval(() => void reload(), tunnel.phase === "downloading" ? 500 : 2_000);
     return () => window.clearInterval(timer);
-  }, [tunnel.running, tunnel.url, reload]);
+  }, [tunnel.running, tunnel.url, tunnel.err, tunnel.phase, reload]);
 
   useEffect(() => {
     const off = window.runtime?.EventsOn?.("mobile:message", () => void reload());
@@ -116,8 +173,33 @@ export function ConnectPhoneView({
   const mode = useMemo(() => modeMeta(pairing?.connectMode, t), [pairing?.connectMode, t]);
   const ModeIcon = mode.icon;
   const tunnelReady = Boolean(tunnel.url || pairing?.tunnelUrl);
-  const tunnelUrl = tunnel.url || pairing?.tunnelUrl || "";
-  const lanAddress = pairing?.lanIp ? `${pairing.lanIp}:${pairing.port}` : "—";
+  const lanAddress = pairing?.lanIp ? `${pairing.lanIp}:${pairing.port}` : t("phone.lanNotDetected");
+  const isLanMode = pairing?.connectMode === "lan";
+  const activeConnectionCount = pairing?.activeCount ?? tunnel.activeCount ?? 0;
+  const qrHint = useMemo(() => {
+    if (pairing?.bridgeReady === false) return t("phone.bridgeUnavailable");
+    if (tunnelReady || pairing?.connectMode === "tunnel") return "";
+    if (config.allowLAN && pairing?.lanIp) return t("phone.qrUnavailable");
+    return t("phone.qrStartTunnel");
+  }, [config.allowLAN, pairing?.bridgeReady, pairing?.connectMode, pairing?.lanIp, t, tunnelReady]);
+
+  useEffect(() => {
+    if (tunnelReady) {
+      setNotice((prev) => (prev === t("phone.tunnelStarting") ? null : prev));
+    }
+  }, [tunnelReady, t]);
+
+  const tunnelPhaseHint = useMemo(() => {
+    if (tunnel.err || tunnel.phase === "downloading") return null;
+    if (!tunnel.running || tunnel.url) return null;
+    return t("phone.tunnelWaiting");
+  }, [tunnel.err, tunnel.phase, tunnel.running, tunnel.url, t]);
+  const downloadProgressLabel = useMemo(() => {
+    if (tunnel.phase !== "downloading") return "";
+    const pct = tunnel.downloadProgress;
+    if (pct != null && pct >= 0 && pct <= 100) return `${t("phone.tunnelDownloading")} ${pct}%`;
+    return t("phone.tunnelDownloading");
+  }, [t, tunnel.downloadProgress, tunnel.phase]);
   const displayWorkspace = workspaceName || basename(workspaceRoot) || workspaceRoot || "—";
   const displayTab = tabLabel?.trim() || "—";
 
@@ -158,7 +240,13 @@ export function ConnectPhoneView({
       await reload();
     } catch (e) {
       rollback?.();
-      setErr(String((e as Error)?.message ?? e));
+      const raw = String((e as Error)?.message ?? e);
+      const normalized = raw.trim().toLowerCase();
+      setErr(
+        normalized === "cancelled" || normalized.includes("cancelled")
+          ? t("phone.lanEnableFailed")
+          : raw,
+      );
     } finally {
       setBusy(false);
     }
@@ -262,7 +350,7 @@ export function ConnectPhoneView({
             <ModeIcon size={12} /> {mode.label}
           </span>
           <span className="connect-compact__chip connect-compact__chip--ok">
-            <Smartphone size={12} /> {t("phone.pairedDevices", { n: pairing?.pairedCount ?? sessions.length })}
+            <Smartphone size={12} /> {t("phone.activeDevices", { n: activeConnectionCount })}
           </span>
           <span className={`connect-compact__chip${tunnelReady ? " connect-compact__chip--ok" : ""}`}>
             <Cloud size={12} /> {tunnelReady ? t("phone.tunnelReadyShort") : tunnel.running ? t("phone.tunnelWaitingShort") : t("phone.tunnelIdle")}
@@ -318,23 +406,79 @@ export function ConnectPhoneView({
             {pairing?.qrDataUrl ? (
               <img className="connect-compact__qr" src={pairing.qrDataUrl} alt={t("phone.qrAlt")} />
             ) : (
-              <div className="connect-compact__qr-empty">{t("phone.qrUnavailable")}</div>
+              <div className="connect-compact__qr-empty">
+                <p>{qrHint}</p>
+                {!config.allowLAN && !tunnel.running ? (
+                  <button
+                    type="button"
+                    className="connect-compact__btn connect-compact__btn--primary"
+                    disabled={busy}
+                    onClick={() => void startTunnel()}
+                  >
+                    <Cloud size={13} />
+                    {t("phone.tunnelStart")}
+                  </button>
+                ) : null}
+                {config.allowLAN && pairing?.lanIp && !pairing?.qrDataUrl ? (
+                  <button
+                    type="button"
+                    className="connect-compact__btn connect-compact__btn--primary"
+                    disabled={busy}
+                    onClick={() => void refreshQR()}
+                  >
+                    <RefreshCw size={13} />
+                    {t("phone.refreshQr")}
+                  </button>
+                ) : null}
+              </div>
             )}
           </div>
-          {pairing?.pairUrl ? <code className="connect-compact__url">{pairing.pairUrl}</code> : null}
+          {pairing?.pairUrl ? (
+            <>
+              <ProtectedPairUrl
+                url={pairing.pairUrl}
+                revealed={pairUrlRevealed}
+                onToggleReveal={() => setPairUrlRevealed((v) => !v)}
+                onCopy={() => void copyText(pairing.pairUrl, "pair")}
+                copied={copiedField === "pair"}
+                copyLabel={copiedField === "pair" ? t("phone.copied") : t("common.copy")}
+              />
+              {isLanMode ? (
+                <p className="connect-compact__lan-hint">{t("phone.lanHttpHint")}</p>
+              ) : pairing.connectMode === "tunnel" ? (
+                <p className="connect-compact__lan-hint">{t("phone.tunnelScanHint")}</p>
+              ) : null}
+            </>
+          ) : null}
           <p className="connect-compact__tunnel-warning">{t("phone.tunnelSecurityWarning")}</p>
           <div className="connect-compact__tunnel">
+            {tunnel.phase === "downloading" ? (
+              <div className="connect-compact__download-progress">
+                <div className="connect-compact__download-progress-track">
+                  <div
+                    className={`connect-compact__download-progress-bar${tunnel.downloadProgress != null && tunnel.downloadProgress < 0 ? " connect-compact__download-progress-bar--indeterminate" : ""}`}
+                    style={
+                      tunnel.downloadProgress != null && tunnel.downloadProgress >= 0
+                        ? { width: `${Math.max(4, tunnel.downloadProgress)}%` }
+                        : undefined
+                    }
+                  />
+                </div>
+                <span>{downloadProgressLabel}</span>
+              </div>
+            ) : null}
             {tunnel.running ? (
               <button type="button" className="connect-compact__btn connect-compact__btn--danger" disabled={busy} onClick={() => void stopTunnel()}>
-                {busy ? <Loader2 size={13} className="spin" /> : <Power size={13} />}
+                <Power size={13} />
                 {t("phone.tunnelStop")}
               </button>
             ) : (
               <button type="button" className="connect-compact__btn connect-compact__btn--primary" disabled={busy} onClick={() => void startTunnel()}>
-                {busy ? <Loader2 size={13} className="spin" /> : <Cloud size={13} />}
+                <Cloud size={13} />
                 {t("phone.tunnelStart")}
               </button>
             )}
+            {tunnelPhaseHint ? <p className="connect-compact__lan-hint">{tunnelPhaseHint}</p> : null}
           </div>
         </section>
 
@@ -375,7 +519,7 @@ export function ConnectPhoneView({
             <label className="connect-compact__switch-row">
               <span className="connect-compact__switch-copy">
                 <strong>{t("phone.tunnelIdleShutdown")}</strong>
-                <small>{t("phone.tunnelIdleShutdownHint", { min: tunnel.tunnelIdleTimeoutMin ?? 30 })}</small>
+                <small>{t("phone.tunnelIdleShutdownHint", { min: tunnel.tunnelIdleTimeoutMin ?? 10 })}</small>
               </span>
               <input
                 type="checkbox"
@@ -400,54 +544,6 @@ export function ConnectPhoneView({
                   <span className="connect-compact__kv-label">{t("phone.lanAddress")}</span>
                   <span className="connect-compact__kv-value">{lanAddress}</span>
                 </div>
-                <div className="connect-compact__kv">
-                  <span className="connect-compact__kv-label">{t("phone.tunnelPairedCount")}</span>
-                  <span className="connect-compact__kv-value">{tunnel.pairedCount ?? pairing?.pairedCount ?? sessions.length}</span>
-                </div>
-                <div className="connect-compact__kv">
-                  <span className="connect-compact__kv-label">{t("phone.tunnelLanExposure")}</span>
-                  <span className="connect-compact__kv-value">
-                    {tunnel.allowLAN ?? config.allowLAN ? t("phone.lanEnabled") : t("phone.lanDisabled")}
-                  </span>
-                </div>
-                <div className="connect-compact__kv connect-compact__kv--full">
-                  <span className="connect-compact__kv-label">{t("phone.tunnelLocalTarget")}</span>
-                  <span className="connect-compact__kv-value">{tunnel.localTarget ?? "http://127.0.0.1:8787"}</span>
-                </div>
-                {pairing?.pairUrl ? (
-                  <div className="connect-compact__kv connect-compact__kv--full">
-                    <span className="connect-compact__kv-label">{t("phone.pairAddress")}</span>
-                    <div className="connect-compact__url-row">
-                      <code>{pairing.pairUrl}</code>
-                      <button
-                        type="button"
-                        className={`connect-compact__copy-btn${copiedField === "pair" ? " connect-compact__copy-btn--ok" : ""}`}
-                        onClick={() => void copyText(pairing.pairUrl, "pair")}
-                        title={copiedField === "pair" ? t("phone.copied") : t("common.copy")}
-                        aria-label={copiedField === "pair" ? t("phone.copied") : t("common.copy")}
-                      >
-                        {copiedField === "pair" ? <Check size={12} /> : <Copy size={12} />}
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-                {tunnelUrl ? (
-                  <div className="connect-compact__kv connect-compact__kv--full">
-                    <span className="connect-compact__kv-label">{t("phone.tunnelAddress")}</span>
-                    <div className="connect-compact__url-row">
-                      <code>{tunnelUrl}</code>
-                      <button
-                        type="button"
-                        className={`connect-compact__copy-btn${copiedField === "tunnel" ? " connect-compact__copy-btn--ok" : ""}`}
-                        onClick={() => void copyText(tunnelUrl, "tunnel")}
-                        title={copiedField === "tunnel" ? t("phone.copied") : t("common.copy")}
-                        aria-label={copiedField === "tunnel" ? t("phone.copied") : t("common.copy")}
-                      >
-                        {copiedField === "tunnel" ? <Check size={12} /> : <Copy size={12} />}
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
                 {pairing?.relayUrl ? (
                   <div className="connect-compact__kv connect-compact__kv--full">
                     <span className="connect-compact__kv-label">{t("phone.relayBaseURL")}</span>
@@ -491,19 +587,20 @@ export function ConnectPhoneView({
             <strong>{t("phone.devicesTitle")}</strong>
             <p>{t("phone.devicesHint")}</p>
           </div>
-          <ul>
+          <div className="connect-compact__devices-box">
             {sessions.length ? (
-              sessions.slice(0, 4).map((item) => (
-                <li key={item.id}>
-                  <span>{item.id.slice(0, 8)}…</span>
-                  <time>{new Date(item.lastSeen).toLocaleTimeString()}</time>
-                </li>
-              ))
+              <ul className="connect-compact__devices-list">
+                {sessions.slice(0, 6).map((item) => (
+                  <li key={item.id}>
+                    <span>{item.id.slice(0, 8)}…</span>
+                    <time>{new Date(item.lastSeen).toLocaleTimeString()}</time>
+                  </li>
+                ))}
+              </ul>
             ) : (
-              <li className="connect-compact__devices-empty">{t("phone.noDevices")}</li>
+              <p className="connect-compact__devices-empty">{t("phone.noDevices")}</p>
             )}
-          </ul>
-          <p>{t("phone.tunnelHint")}</p>
+          </div>
         </section>
       </div>
     </div>

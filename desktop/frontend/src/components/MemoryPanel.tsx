@@ -2,7 +2,9 @@ import { ChevronDown, ChevronRight, Search, Trash2 } from "lucide-react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useT } from "../lib/i18n";
 import type { MemoryFact, MemoryView } from "../lib/types";
+import { MotionUnfold } from "./MotionUnfold";
 import { ResizableDrawer } from "./ResizableDrawer";
+import { StudioCenterModal } from "./StudioCenterModal";
 import { StudioSelect } from "./StudioSelect";
 import { Tooltip } from "./Tooltip";
 
@@ -41,12 +43,14 @@ export function MemoryPanel({
   onRemember,
   onForget,
   onSaveDoc,
+  presentation = "drawer",
 }: {
   view: MemoryView | null;
   onClose: () => void;
   onRemember: (scope: string, note: string) => Promise<void> | void;
   onForget: (name: string) => Promise<void> | void;
   onSaveDoc: (path: string, body: string) => Promise<void> | void;
+  presentation?: "drawer" | "modal";
 }) {
   const t = useT();
   const [note, setNote] = useState("");
@@ -177,8 +181,11 @@ export function MemoryPanel({
     }
   };
 
-  return (
-    <ResizableDrawer onClose={onClose}>
+  const isModal = presentation === "modal";
+
+  const body = (
+    <>
+      {!isModal ? (
         <header className="drawer__head">
           <div>
             <div className="drawer__title">{t("memory.title")}</div>
@@ -194,11 +201,12 @@ export function MemoryPanel({
             </button>
           </Tooltip>
         </header>
+      ) : null}
 
-        {!view?.available ? (
-          <div className="empty">{t("memory.unavailable")}</div>
-        ) : (
-          <div className="drawer__body">
+      {!view?.available ? (
+        <div className="empty">{t("memory.unavailable")}</div>
+      ) : (
+        <div className={`drawer__body${isModal ? " drawer__body--modal" : ""}`}>
             {/* Saved auto-memories — the model owns these via remember/forget;
                 the panel can delete one and follow [[name]] cross-links. */}
             <section className="mem-section">
@@ -305,7 +313,7 @@ export function MemoryPanel({
                             )}
                           </div>
                         )}
-                        {isOpen && (
+                        <MotionUnfold open={isOpen}>
                           <div className="mem-fact__detail">
                             {f.body ? (
                               <div className="mem-fact__body">{renderWithLinks(f.body)}</div>
@@ -353,7 +361,7 @@ export function MemoryPanel({
                               )}
                             </div>
                           </div>
-                        )}
+                        </MotionUnfold>
                       </article>
                     );
                   })}
@@ -453,6 +461,16 @@ export function MemoryPanel({
             </section>
           </div>
         )}
-    </ResizableDrawer>
+    </>
   );
+
+  if (isModal) {
+    return (
+      <StudioCenterModal title={t("memory.title")} onClose={onClose} wide>
+        {body}
+      </StudioCenterModal>
+    );
+  }
+
+  return <ResizableDrawer onClose={onClose}>{body}</ResizableDrawer>;
 }

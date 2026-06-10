@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Info } from "lucide-react";
+import { MotionUnfold } from "./MotionUnfold";
 import { VList, type VListHandle } from "virtua";
 import { buildTimelineRows } from "../lib/actionStream";
 import type { TimelineRow as BuiltTimelineRow } from "../lib/actionStream";
@@ -9,7 +10,6 @@ import { ActionSegmentView, type ActionFileOpenRequest } from "./ActionStream";
 import { AskTimelineBlock } from "./AskTimelineBlock";
 import { AssistantMessage, UserMessage } from "./Message";
 import { Welcome } from "./Welcome";
-import { CopyButton } from "./CopyButton";
 import type { CheckpointMeta, BalanceInfo, WireUsage } from "../lib/types";
 
 type ToolItem = Extract<Item, { kind: "tool" }>;
@@ -60,7 +60,11 @@ function CompactionBlock({ item }: { item: Extract<Item, { kind: "compaction" }>
           {open ? t("compaction.hideSummary") : t("compaction.showSummary")}
         </button>
       ) : null}
-      {open && item.summary ? <pre className="msg-compaction__summary">{item.summary}</pre> : null}
+      {item.summary ? (
+        <MotionUnfold open={open}>
+          <pre className="msg-compaction__summary">{item.summary}</pre>
+        </MotionUnfold>
+      ) : null}
     </div>
   );
 }
@@ -69,6 +73,7 @@ function TimelineRow({
   item,
   live,
   userTurn,
+  assistantTurn,
   checkpointsByTurn,
   openTurn,
   onToggleRewind,
@@ -79,6 +84,7 @@ function TimelineRow({
   item: Item;
   live?: LiveStream;
   userTurn: Map<string, number>;
+  assistantTurn: Map<string, number>;
   checkpointsByTurn: Map<number, CheckpointMeta>;
   openTurn: number | null;
   onToggleRewind: (turn: number | null) => void;
@@ -94,6 +100,16 @@ function TimelineRow({
           text={item.text}
           turn={turn}
           anchorId={questionAnchorId(item.id)}
+        />
+      );
+    }
+    case "assistant": {
+      const shown = live && live.id === item.id ? { ...item, text: live.text, reasoning: live.reasoning, streaming: true } : item;
+      const turn = assistantTurn.get(item.id);
+      return (
+        <AssistantMessage
+          item={shown}
+          turn={turn}
           open={turn != null && openTurn === turn}
           onToggle={() => onToggleRewind(turn ?? null)}
           checkpoint={turn != null ? checkpointsByTurn.get(turn) : undefined}
@@ -104,15 +120,6 @@ function TimelineRow({
             onToggleRewind(null);
           }}
         />
-      );
-    }
-    case "assistant": {
-      const shown = live && live.id === item.id ? { ...item, text: live.text, reasoning: live.reasoning, streaming: true } : item;
-      return (
-        <div className="msg-assistant">
-          <CopyButton text={shown.text} className="msg-assistant__copy" />
-          <AssistantMessage item={shown} />
-        </div>
       );
     }
     case "phase":
@@ -190,6 +197,19 @@ export function MessageTimeline({
     }
     return map;
   }, [items]);
+
+  const assistantTurn = useMemo(() => {
+    const map = new Map<string, number>();
+    let lastTurn: number | undefined;
+    for (const it of items) {
+      if (it.kind === "user") {
+        lastTurn = userTurn.get(it.id);
+      } else if (it.kind === "assistant" && lastTurn != null) {
+        map.set(it.id, lastTurn);
+      }
+    }
+    return map;
+  }, [items, userTurn]);
 
   const checkpointsByTurn = useMemo(() => new Map(checkpoints.map((cp) => [cp.turn, cp])), [checkpoints]);
 
@@ -291,6 +311,7 @@ export function MessageTimeline({
                 item={row.item}
                 live={live}
                 userTurn={userTurn}
+                assistantTurn={assistantTurn}
                 checkpointsByTurn={checkpointsByTurn}
                 openTurn={openTurn}
                 onToggleRewind={(turn) => setOpenTurn((cur) => (cur === turn ? null : turn))}

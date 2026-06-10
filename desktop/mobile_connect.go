@@ -30,7 +30,8 @@ const (
 	mobileSessionMaxAge     = 7 * 24 * time.Hour
 	mobilePairTokenBytes    = 16
 	mobileSessionBytes      = 24
-	defaultTunnelIdleMin    = 30
+	defaultTunnelIdleMin    = 10
+	mobileSessionActiveWindow = 5 * time.Minute
 )
 
 // errMobileSessionUnauthorized is returned when a mutating mobile API call
@@ -40,7 +41,7 @@ var errMobileSessionUnauthorized = errors.New("session not found")
 // MobileConnectConfig is persisted mobile-remote settings.
 type MobileConnectConfig struct {
 	Enabled                    bool   `json:"enabled"`
-	AllowLAN                   bool   `json:"allowLAN,omitempty"`
+	AllowLAN                   bool   `json:"allowLAN"`
 	Model                      string `json:"model"`
 	Persona                    string `json:"persona"`
 	WorkspaceRoot              string `json:"workspaceRoot"`
@@ -61,6 +62,7 @@ type MobilePairingInfo struct {
 	Port           int    `json:"port"`
 	ExpiresAt      int64  `json:"expiresAt"`
 	PairedCount    int    `json:"pairedCount"`
+	ActiveCount    int    `json:"activeCount"`
 	Enabled        bool   `json:"enabled"`
 	QrDataURL      string `json:"qrDataUrl"`
 	RelayConnected bool   `json:"relayConnected"`
@@ -127,13 +129,22 @@ func (s *mobileConnectStore) loadConfig() {
 	if json.Unmarshal(raw, &cfg) == nil {
 		s.config = cfg
 	}
+	s.config.AllowLAN = false
 	if s.config.Model == "" {
 		s.config.Model = "deepseek-chat"
 	}
 }
 
 func (s *mobileConnectStore) saveConfig() error {
-	return saveSensitiveJSON(ARCDESKDesktopDataPath("mobile-connect.json"), s.config)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveConfigLocked()
+}
+
+func (s *mobileConnectStore) saveConfigLocked() error {
+	persist := s.config
+	persist.AllowLAN = false
+	return saveSensitiveJSON(ARCDESKDesktopDataPath("mobile-connect.json"), persist)
 }
 
 func (s *mobileConnectStore) loadSessions() {
@@ -200,7 +211,7 @@ func (s *mobileConnectStore) setConfig(cfg MobileConnectConfig) error {
 		cfg.Model = "deepseek-chat"
 	}
 	s.config = cfg
-	return s.saveConfig()
+	return s.saveConfigLocked()
 }
 
 func (s *mobileConnectStore) currentPairToken() (string, int64) {
@@ -212,11 +223,19 @@ func (s *mobileConnectStore) currentPairToken() (string, int64) {
 	return s.pairToken.Token, s.pairToken.ExpiresAt
 }
 
+func mobileQRPairURL(primary, lan, relay string, allowLAN bool) string {
+	if strings.TrimSpace(primary) != "" {
+		return primary
+	}
+	if allowLAN && strings.TrimSpace(lan) != "" {
+		return lan
+	}
+	return strings.TrimSpace(relay)
+}
+
 func buildMobilePairURLs(token string, port int, tunnelBase, relayBase string, relayOnline, allowLAN bool) (primary string, lan string, relay string, mode string) {
-	if allowLAN {
-		if lanIP := primaryLANIP(); lanIP != "" {
-			lan = fmt.Sprintf("http://%s:%d/mobile/p/%s", lanIP, port, token)
-		}
+	if lanIP := primaryLANIP(); lanIP != "" {
+		lan = fmt.Sprintf("http://%s:%d/mobile/p/%s", lanIP, port, token)
 	}
 	relay = ""
 	if base := strings.TrimRight(strings.TrimSpace(relayBase), "/"); base != "" {
@@ -228,8 +247,10 @@ func buildMobilePairURLs(token string, port int, tunnelBase, relayBase string, r
 	switch {
 	case relayOnline && relay != "":
 		return relay, lan, relay, "relay"
-	case lan != "":
+	case allowLAN && lan != "":
 		return lan, lan, relay, "lan"
+	case lan != "":
+		return "", lan, relay, "lan_standby"
 	default:
 		return "", lan, relay, "none"
 	}
@@ -243,17 +264,19 @@ func (s *mobileConnectStore) pairingInfo(port int, tunnelBase string, relayOnlin
 	}
 	tunnelBase = strings.TrimSpace(tunnelBase)
 	primary, lan, relay, mode := buildMobilePairURLs(s.pairToken.Token, port, tunnelBase, s.config.RelayBaseURL, relayOnline, s.config.AllowLAN)
+	now := time.Now().UnixMilli()
 	return MobilePairingInfo{
 		Token:          s.pairToken.Token,
 		PairURL:        primary,
 		LanPairURL:     lan,
 		RelayURL:       relay,
-		LanIP:          lanBindIP(s.config.AllowLAN),
+		LanIP:          lanBindIP(),
 		Port:           port,
 		ExpiresAt:      s.pairToken.ExpiresAt,
 		PairedCount:    len(s.sessions),
+		ActiveCount:    s.activeSessionCountLocked(now),
 		Enabled:        s.config.Enabled,
-		QrDataURL:      mobileQRDataURL(primary),
+		QrDataURL:      mobileQRDataURL(mobileQRPairURL(primary, lan, relay, s.config.AllowLAN)),
 		RelayConnected: relayOnline,
 		TunnelRunning:  tunnelBase != "",
 		TunnelURL:      tunnelBase,
@@ -271,17 +294,19 @@ func (s *mobileConnectStore) refreshPairing(port int, tunnelBase string, relayOn
 func (s *mobileConnectStore) pairingInfoLocked(port int, tunnelBase string, relayOnline bool) MobilePairingInfo {
 	tunnelBase = strings.TrimSpace(tunnelBase)
 	primary, lan, relay, mode := buildMobilePairURLs(s.pairToken.Token, port, tunnelBase, s.config.RelayBaseURL, relayOnline, s.config.AllowLAN)
+	now := time.Now().UnixMilli()
 	return MobilePairingInfo{
 		Token:          s.pairToken.Token,
 		PairURL:        primary,
 		LanPairURL:     lan,
 		RelayURL:       relay,
-		LanIP:          lanBindIP(s.config.AllowLAN),
+		LanIP:          lanBindIP(),
 		Port:           port,
 		ExpiresAt:      s.pairToken.ExpiresAt,
 		PairedCount:    len(s.sessions),
+		ActiveCount:    s.activeSessionCountLocked(now),
 		Enabled:        s.config.Enabled,
-		QrDataURL:      mobileQRDataURL(primary),
+		QrDataURL:      mobileQRDataURL(mobileQRPairURL(primary, lan, relay, s.config.AllowLAN)),
 		RelayConnected: relayOnline,
 		TunnelRunning:  tunnelBase != "",
 		TunnelURL:      tunnelBase,
@@ -319,6 +344,27 @@ func (s *mobileConnectStore) listSessions() []MobileSessionSummary {
 
 func (s *mobileConnectStore) pairedCount() int {
 	return len(s.listSessions())
+}
+
+func (s *mobileConnectStore) activeSessionCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.activeSessionCountLocked(time.Now().UnixMilli())
+}
+
+func (s *mobileConnectStore) activeSessionCountLocked(now int64) int {
+	window := mobileSessionActiveWindow.Milliseconds()
+	n := 0
+	for id, sess := range s.sessions {
+		if !mobileSessionStillValid(sess, now) {
+			delete(s.sessions, id)
+			continue
+		}
+		if now-sess.LastSeen <= window {
+			n++
+		}
+	}
+	return n
 }
 
 // requirePairedSession reports whether id names a session created by pair().
@@ -453,18 +499,24 @@ func (a *App) SaveMobileConnectConfig(cfg MobileConnectConfig) error {
 		return fmt.Errorf("mobile connect is not ready")
 	}
 	prev := a.clawBridge.mobile.getConfig()
-	if cfg.AllowLAN && !prev.AllowLAN {
-		if !a.confirmAllowLAN() {
-			return fmt.Errorf("cancelled")
-		}
+	if strings.TrimSpace(cfg.Model) == "" {
+		cfg.Model = prev.Model
+	}
+	if strings.TrimSpace(cfg.Persona) == "" {
+		cfg.Persona = prev.Persona
 	}
 	if err := a.clawBridge.mobile.setConfig(cfg); err != nil {
 		return err
 	}
 	if cfg.AllowLAN != prev.AllowLAN {
+		if cfg.AllowLAN {
+			ensureMobileLANFirewallRule(a.clawBridge.port)
+		}
 		if err := a.clawBridge.restartListener(); err != nil {
 			return fmt.Errorf("restart claw bridge: %w", err)
 		}
+	} else if cfg.AllowLAN {
+		ensureMobileLANFirewallRule(a.clawBridge.port)
 	}
 	a.clawBridge.stopRelayClient()
 	a.clawBridge.startRelayClient()
@@ -474,7 +526,13 @@ func (a *App) SaveMobileConnectConfig(cfg MobileConnectConfig) error {
 
 func (a *App) GetMobilePairingInfo() MobilePairingInfo {
 	if a == nil || a.clawBridge == nil || a.clawBridge.mobile == nil {
-		return MobilePairingInfo{Port: defaultClawBridgePort, Enabled: true}
+		return MobilePairingInfo{
+			Port:        defaultClawBridgePort,
+			Enabled:     true,
+			LanIP:       primaryLANIP(),
+			BridgeReady: false,
+			ConnectMode: "none",
+		}
 	}
 	return a.clawBridge.mobilePairingInfo()
 }
@@ -512,6 +570,15 @@ func (a *App) ListMobileSessions() []MobileSessionSummary {
 		return nil
 	}
 	return a.clawBridge.mobile.listSessions()
+}
+
+func (b *clawBridge) handleMobileHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_, _ = io.WriteString(w, `{"ok":true}`)
 }
 
 func (b *clawBridge) handleMobilePairPage(w http.ResponseWriter, r *http.Request) {
@@ -677,21 +744,83 @@ func writeMobileJSON(w http.ResponseWriter, status int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-// lanBindIP returns the LAN IP shown in pairing UI only when LAN exposure is enabled.
-func lanBindIP(allowLAN bool) string {
-	if !allowLAN {
-		return ""
-	}
+// lanBindIP returns the best-effort LAN IPv4 for the Connect UI (independent of AllowLAN toggle).
+func lanBindIP() string {
 	return primaryLANIP()
 }
 
+func isPrivateIPv4(ip net.IP) bool {
+	v4 := ip.To4()
+	if v4 == nil {
+		return false
+	}
+	switch {
+	case v4[0] == 10:
+		return true
+	case v4[0] == 172 && v4[1] >= 16 && v4[1] <= 31:
+		return true
+	case v4[0] == 192 && v4[1] == 168:
+		return true
+	default:
+		return false
+	}
+}
+
+func isLikelyVirtualInterface(name string) bool {
+	lower := strings.ToLower(name)
+	for _, token := range []string{
+		"loopback", "virtual", "vethernet", "vmware", "virtualbox", "vbox",
+		"hyper-v", "hyperv", "wsl", "docker", "vnic", "npcap", "tap", "tun",
+		"bluetooth", "isatap", "teredo", "pseudo", "miniport",
+	} {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func outboundLANIP() string {
+	for _, dest := range []string{"192.168.0.1:80", "192.168.1.1:80", "10.255.255.255:80", "8.8.8.8:80", "1.1.1.1:80"} {
+		conn, err := net.Dial("udp4", dest)
+		if err != nil {
+			continue
+		}
+		addr, ok := conn.LocalAddr().(*net.UDPAddr)
+		_ = conn.Close()
+		if !ok || addr == nil {
+			continue
+		}
+		ip := addr.IP.To4()
+		if ip == nil || ip.IsLoopback() || !isPrivateIPv4(ip) {
+			continue
+		}
+		if ip[0] == 169 && ip[1] == 254 {
+			continue
+		}
+		return ip.String()
+	}
+	return ""
+}
+
 func primaryLANIP() string {
+	if ip := outboundLANIP(); ip != "" {
+		return ip
+	}
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return ""
 	}
+	type candidate struct {
+		ip    string
+		score int
+	}
+	var best candidate
 	for _, iface := range ifaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		if isLikelyVirtualInterface(iface.Name) {
 			continue
 		}
 		addrs, err := iface.Addrs()
@@ -716,10 +845,26 @@ func primaryLANIP() string {
 			if v4[0] == 169 && v4[1] == 254 {
 				continue
 			}
-			return v4.String()
+			if !isPrivateIPv4(v4) {
+				continue
+			}
+			score := 10
+			name := strings.ToLower(iface.Name)
+			if strings.Contains(name, "wi-fi") || strings.Contains(name, "wifi") || strings.Contains(name, "wlan") {
+				score += 30
+			}
+			if strings.Contains(name, "ethernet") || strings.HasPrefix(name, "eth") {
+				score += 25
+			}
+			if v4[0] == 192 && v4[1] == 168 {
+				score += 15
+			}
+			if score > best.score {
+				best = candidate{ip: v4.String(), score: score}
+			}
 		}
 	}
-	return ""
+	return best.ip
 }
 
 func randomToken(n int) string {

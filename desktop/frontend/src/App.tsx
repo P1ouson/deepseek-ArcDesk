@@ -16,6 +16,9 @@ import { Sidebar } from "./components/Sidebar";
 import { Topbar } from "./components/Topbar";
 import { StudioToolRail } from "./components/StudioToolRail";
 import { RightDock } from "./components/RightDock";
+import type { RightDockTab } from "./components/Topbar";
+import { SettingsDockModal } from "./components/SettingsDockModal";
+import { SettingsWorkspaceDataModal, type SettingsDataModalState } from "./components/SettingsWorkspaceDataModal";
 import { FilePreviewPanel } from "./components/FilePreviewPanel";
 import { AgentDecisionLayer } from "./components/AgentDecisionLayer";
 import { clearAgentDecisionNotifications, notifyAgentDecision } from "./lib/agentNotifications";
@@ -144,7 +147,6 @@ export default function App() {
     approve,
     answerQuestion,
     setControllerMode,
-    newSession,
     listSessions,
     listTrashedSessions,
     resumeSession,
@@ -171,17 +173,19 @@ export default function App() {
   const { locale, setPref: setLocalePref } = useI18n();
   const t = useT();
   const [modesByTab, setModesByTab] = useState<Record<string, Mode>>({});
+  const [composerModePref, setComposerModePref] = useState<Mode>("normal");
   const { tabMetas, refreshTabMetas } = useTabMetas();
-  const { projectDrawerOpen, closeProjectDrawer, toggleProjectDrawer } = useProjectDrawer();
+  const { projectDrawerOpen, setProjectDrawerOpen, closeProjectDrawer, toggleProjectDrawer } = useProjectDrawer();
   // null until the mount probe resolves; true shows the overlay. Probed once —
   // clearing the key mid-session is the Settings panel's job, not the gate's.
   const [onboardingGate, setOnboardingGate] = useState<boolean | null>(null);
   const [onboardingManual, setOnboardingManual] = useState(false);
   const [onboardingSession, setOnboardingSession] = useState(0);
   const [sandboxSetup, setSandboxSetup] = useState<null | { reason: "yolo" | "manual" }>(null);
-  const pendingYoloRef = useRef(false);
   const [memView, setMemView] = useState<MemoryView | null>(null);
   const [histView, setHistView] = useState<HistoryViewState | null>(null);
+  const [settingsDockTab, setSettingsDockTab] = useState<RightDockTab | null>(null);
+  const [settingsDataModal, setSettingsDataModal] = useState<SettingsDataModalState | null>(null);
   const [projectRevision, setProjectRevision] = useState(0);
   const [composerInsertRequest, setComposerInsertRequest] = useState<ComposerInsertRequest | null>(null);
   const [appMode, setAppMode] = useState<AppMode>(() => getDefaultAppMode());
@@ -279,7 +283,12 @@ export default function App() {
       const legacyLanguage = readLegacyLangPref();
       const legacyTheme = readLegacyThemePreference();
       if (legacyLanguage || legacyTheme.hasValue) {
-        await app.MigrateDesktopPreferences(legacyLanguage, legacyTheme.theme, legacyTheme.style);
+        const migrateTheme = normalizeThemePreference(legacyTheme.theme);
+        let migrateStyle = normalizeThemeStyleForTheme(legacyTheme.style, migrateTheme);
+        if (migrateTheme !== "dark" && migrateStyle !== "glacier") {
+          migrateStyle = "glacier";
+        }
+        await app.MigrateDesktopPreferences(legacyLanguage, legacyTheme.theme, migrateStyle);
         clearLegacyLangPref();
         clearLegacyThemePreference();
       }
@@ -304,7 +313,7 @@ export default function App() {
       if (cancelled) return;
       const nextTheme = normalizeThemePreference(settings.desktopTheme);
       const nextStyle = normalizeThemeStyleForTheme(settings.desktopThemeStyle, nextTheme);
-      applyTheme(nextTheme, nextStyle, { syncSurfaces: false });
+      applyTheme(nextTheme, nextStyle, { syncSurfaces: false, persist: true });
       syncAppearanceFromSettings(settings.desktopAppearance);
       syncDesktopGitSettings(settings.desktopGit);
       syncCodeReviewSettings(settings.desktopCodeReview);
@@ -355,7 +364,7 @@ export default function App() {
     () => tabMetas.find((tab) => tab.id === activeTabId) ?? tabMetas.find((tab) => tab.active),
     [activeTabId, tabMetas],
   );
-  const mode = activeTabId ? modesByTab[activeTabId] ?? "normal" : "normal";
+  const mode = composerModePref;
   const setMode = useCallback(
     (next: Mode | ((prev: Mode) => Mode)) => {
       if (!activeTabId) return;
@@ -374,14 +383,17 @@ export default function App() {
     const ids = new Set(tabMetas.map((tab) => tab.id));
     setModesByTab((current) => {
       let changed = false;
-      const next: Record<string, Mode> = {};
+      const next = { ...current };
       for (const tab of tabMetas) {
-        const mode = normalizeModeValue(tab.mode);
-        next[tab.id] = mode;
-        if (current[tab.id] !== mode) changed = true;
+        if (tab.id in next) continue;
+        next[tab.id] = normalizeModeValue(tab.mode);
+        changed = true;
       }
-      for (const id of Object.keys(current)) {
-        if (!ids.has(id)) changed = true;
+      for (const id of Object.keys(next)) {
+        if (!ids.has(id)) {
+          delete next[id];
+          changed = true;
+        }
       }
       return changed ? next : current;
     });
@@ -406,29 +418,21 @@ export default function App() {
   // only; yolo = auto-approve every tool call). normal clears both.
   const applyMode = useCallback(
     (m: Mode) => {
-      if (m === "yolo") {
-        void app
-          .ProjectSandboxStatus()
-          .then((status) => {
-            if (!status.configured) {
-              pendingYoloRef.current = true;
-              setSandboxSetup({ reason: "yolo" });
-              return;
-            }
-            setMode(m);
-            void syncModeToController(m);
-          })
-          .catch(() => {
-            pendingYoloRef.current = true;
-            setSandboxSetup({ reason: "yolo" });
-          });
-        return;
-      }
-      setMode(m);
+      setComposerModePref(m);
+      if (activeTabId) setMode(m);
       void syncModeToController(m);
     },
-    [syncModeToController],
+    [activeTabId, setMode, syncModeToController],
   );
+
+  const lastModeTabRef = useRef<string | undefined>();
+  useEffect(() => {
+    if (!activeTabId || lastModeTabRef.current === activeTabId) return;
+    lastModeTabRef.current = activeTabId;
+    const tabMode = modesByTab[activeTabId] ?? normalizeModeValue(activeTab?.mode);
+    setComposerModePref(tabMode);
+    void syncModeToController(tabMode);
+  }, [activeTab?.mode, activeTabId, modesByTab, syncModeToController]);
   // Shift+Tab cycles auto(normal) → plan → yolo → auto.
   const cycleMode = useCallback(() => {
     applyMode(mode === "normal" ? "plan" : mode === "plan" ? "yolo" : "normal");
@@ -666,10 +670,6 @@ export default function App() {
     return () => observer.disconnect();
   }, [filePreviewComposerOpen, filePreviewExpanded, chatMode, appMode, terminalOpen, state.approval, state.ask, showWorkbenchFooter]);
 
-  const startNewSession = useCallback(async () => {
-    await newSession();
-  }, [newSession]);
-
   const toggleTerminal = useCallback(() => {
     togglePreviewTerminal();
   }, [togglePreviewTerminal]);
@@ -784,6 +784,7 @@ export default function App() {
   const onResumeSession = useCallback(
     async (session: SessionMeta) => {
       if (state.running) return;
+      setSettingsDataModal(null);
       setAppMode("code");
       setHistView(null);
       const scope = session.scope || (session.workspaceRoot ? "project" : "global");
@@ -813,6 +814,7 @@ export default function App() {
             ? { ...cur, sessions: cur.source === "scope" ? sessionsForScope(sessions, cur.filter) : sessions }
             : cur,
       );
+      setSettingsDataModal((cur) => (cur?.kind === "history" ? { kind: "history", sessions } : cur));
     },
     [state.running, deleteSession, listSessions],
   );
@@ -828,6 +830,7 @@ export default function App() {
             ? { ...cur, sessions: cur.source === "scope" ? sessionsForScope(sessions, cur.filter) : sessions }
             : cur,
       );
+      setSettingsDataModal((cur) => (cur?.kind === "history" ? { kind: "history", sessions } : cur));
     },
     [state.running, renameSession, listSessions],
   );
@@ -836,6 +839,7 @@ export default function App() {
       await restoreSession(path);
       const trashed = await listTrashedSessions();
       setHistView((cur) => (cur === null ? null : { kind: "trash", sessions: trashed }));
+      setSettingsDataModal((cur) => (cur?.kind === "trash" ? { kind: "trash", sessions: trashed } : cur));
     },
     [restoreSession, listTrashedSessions],
   );
@@ -844,6 +848,7 @@ export default function App() {
       await purgeTrashedSession(path);
       const trashed = await listTrashedSessions();
       setHistView((cur) => (cur === null ? null : { kind: "trash", sessions: trashed }));
+      setSettingsDataModal((cur) => (cur?.kind === "trash" ? { kind: "trash", sessions: trashed } : cur));
     },
     [purgeTrashedSession, listTrashedSessions],
   );
@@ -855,6 +860,7 @@ export default function App() {
       }
       const trashed = await listTrashedSessions();
       setHistView((cur) => (cur === null ? null : { kind: "trash", sessions: trashed }));
+      setSettingsDataModal((cur) => (cur?.kind === "trash" ? { kind: "trash", sessions: trashed } : cur));
     },
     [purgeTrashedSession, listTrashedSessions],
   );
@@ -873,6 +879,11 @@ export default function App() {
     }
     return picked;
   }, [pickWorkspace, switchWorkspace, refreshTabMetas]);
+
+  const openCodeWorkspace = useCallback(async () => {
+    setAppMode("code");
+    return switchFolder();
+  }, [switchFolder]);
 
   useEffect(() => {
     if (!state.meta?.ready) return;
@@ -896,6 +907,10 @@ export default function App() {
   useEffect(() => {
     const prev = prevAppModeRef.current;
     prevAppModeRef.current = appMode;
+    if (prev === "settings" && appMode !== "settings") {
+      setSettingsDockTab(null);
+      setSettingsDataModal(null);
+    }
     if (appMode === "write" && prev !== "write") {
       const stored = getStoredWriteWorkspaceRoot();
       if (isNoWriteWorkspace(stored)) {
@@ -945,6 +960,45 @@ export default function App() {
       await syncActiveTab(true);
     }
   }, [activeTabId, refreshTabMetas, syncActiveTab]);
+
+  const startNewSession = useCallback(async () => {
+    setAppMode("code");
+    let scope: "global" | "project" = activeTab?.scope === "global" ? "global" : "project";
+    let workspaceRoot = scope === "global" ? "" : (activeTab?.workspaceRoot?.trim() || getStoredCodeWorkspaceRoot() || "");
+    if (scope === "project" && !isUsableCodeWorkspaceRoot(workspaceRoot)) {
+      const picked = await switchFolder();
+      if (!picked) return;
+      workspaceRoot = picked;
+      scope = "project";
+      await refreshTabMetas();
+    }
+    if (state.meta?.ready !== true) {
+      notice(t("sidebar.newSessionNotReady"), "warn");
+      return;
+    }
+    if (state.running) cancel();
+    try {
+      const topic = await app.CreateTopic(scope, workspaceRoot, "");
+      setProjectDrawerOpen(true);
+      await refreshProjectsAndTabs();
+      await handleOpenTopic(scope, workspaceRoot, topic.id);
+    } catch {
+      notice(t("sidebar.newSessionNotReady"), "warn");
+    }
+  }, [
+    activeTab?.scope,
+    activeTab?.workspaceRoot,
+    cancel,
+    handleOpenTopic,
+    notice,
+    refreshProjectsAndTabs,
+    refreshTabMetas,
+    setProjectDrawerOpen,
+    state.meta?.ready,
+    state.running,
+    switchFolder,
+    t,
+  ]);
 
   const renameTopic = useCallback(async (topicId: string, title: string) => {
     const nextTitle = title.trim();
@@ -1026,8 +1080,10 @@ export default function App() {
   }, [state.approval, state.items]);
 
   const focusPendingDecision = useCallback(() => {
-    document.querySelector(".arc-decision-layer")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    document.querySelector(".workbench__composer-zone .arc-decision-layer")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, []);
+
+  const agentActive = state.running || state.turnActive || state.approval != null || state.ask != null;
 
   useEffect(() => {
     if (!decisionPending) {
@@ -1095,7 +1151,9 @@ export default function App() {
   const onRemember = useCallback(
     async (scope: string, note: string) => {
       await remember(scope, note);
-      setMemView(await fetchMemory());
+      const view = await fetchMemory();
+      setMemView(view);
+      setSettingsDataModal((cur) => (cur?.kind === "memory" ? { kind: "memory", view } : cur));
     },
     [remember, fetchMemory],
   );
@@ -1103,7 +1161,9 @@ export default function App() {
   const onForget = useCallback(
     async (name: string) => {
       await forget(name);
-      setMemView(await fetchMemory());
+      const view = await fetchMemory();
+      setMemView(view);
+      setSettingsDataModal((cur) => (cur?.kind === "memory" ? { kind: "memory", view } : cur));
     },
     [forget, fetchMemory],
   );
@@ -1111,7 +1171,9 @@ export default function App() {
   const onSaveDoc = useCallback(
     async (path: string, body: string) => {
       await saveDoc(path, body);
-      setMemView(await fetchMemory());
+      const view = await fetchMemory();
+      setMemView(view);
+      setSettingsDataModal((cur) => (cur?.kind === "memory" ? { kind: "memory", view } : cur));
     },
     [saveDoc, fetchMemory],
   );
@@ -1163,14 +1225,19 @@ export default function App() {
           onOpenTopic={(scope, workspaceRoot, topicId) => {
             void handleOpenTopic(scope, workspaceRoot, topicId);
           }}
+          onOpenWorkspace={() => {
+            void openCodeWorkspace();
+          }}
           onNewChat={() => {
-            if (state.running) cancel();
             void startNewSession();
           }}
           onModeChange={setAppMode}
-          onOpenSdd={() => setSddOpen(true)}
+          onOpenSdd={() => {
+            setAppMode("code");
+            setSddOpen(true);
+          }}
           onAddProject={async () => {
-            await switchFolder();
+            await openCodeWorkspace();
           }}
           onOpenProjectHistory={(scope, workspaceRoot) => {
             void openProjectHistory(scope, workspaceRoot);
@@ -1194,7 +1261,7 @@ export default function App() {
               onStartRename={startActiveTopicRename}
               onCommitRename={() => void commitActiveTopicRename()}
               onCancelRename={cancelActiveTopicRename}
-              running={state.running}
+              running={agentActive}
               goalLabel={goalLabel || undefined}
               sideConversationCount={sideConversationCount}
               onOpenSideConversation={() => {
@@ -1272,18 +1339,27 @@ export default function App() {
                     writeAgentRunning={state.running}
                     onSettingsChanged={() => void refreshMeta()}
                     onOpenHistory={() => {
-                      setAppMode("code");
+                      if (appMode === "settings") {
+                        void listSessions().then((sessions) => setSettingsDataModal({ kind: "history", sessions }));
+                        return;
+                      }
                       void openAllHistory();
                     }}
                     onOpenMemory={() => {
-                      setAppMode("code");
+                      if (appMode === "settings") {
+                        void fetchMemory().then((view) => setSettingsDataModal({ kind: "memory", view }));
+                        return;
+                      }
                       void openMemory();
                     }}
                     onOpenCapabilities={() => {
                       setAppMode("plugins");
                     }}
                     onOpenTrash={() => {
-                      setAppMode("code");
+                      if (appMode === "settings") {
+                        void listTrashedSessions().then((sessions) => setSettingsDataModal({ kind: "trash", sessions }));
+                        return;
+                      }
                       void openTrash();
                     }}
                     onConfigureProjectSandbox={() => setSandboxSetup({ reason: "manual" })}
@@ -1291,6 +1367,10 @@ export default function App() {
                       setAppMode(mode);
                     }}
                     onOpenDockTab={(tab) => {
+                      if (appMode === "settings") {
+                        setSettingsDockTab(tab);
+                        return;
+                      }
                       setAppMode("code");
                       openDockTab(tab, { toggle: false });
                     }}
@@ -1313,6 +1393,30 @@ export default function App() {
                       {showConnectionRecovery ? (
                         <ConnectionRecoveryBanner onOpenSetup={openOnboardingManual} />
                       ) : null}
+                      <AgentDecisionLayer
+                        approval={state.approval}
+                        ask={state.ask}
+                        surface={appMode === "write" ? "write" : "code"}
+                        planToolCount={planToolCount}
+                        onApprove={(allow, session, persist) => {
+                          clearAgentDecisionNotifications();
+                          if (state.approval?.tool === "exit_plan_mode" && allow) applyMode("normal");
+                          if (state.approval) approve(state.approval.id, allow, session, persist);
+                        }}
+                        onRevisePlan={(text) => {
+                          setPendingPlanRevision(text);
+                          if (state.approval) approve(state.approval.id, false, false, false);
+                        }}
+                        onExitPlan={() => {
+                          applyMode("normal");
+                          if (state.approval) approve(state.approval.id, false, false, false);
+                        }}
+                        onAnswerAsk={handleAnswerQuestion}
+                        onDismissAsk={() => {
+                          const askId = state.ask?.id;
+                          if (askId) handleAnswerQuestion(askId, []);
+                        }}
+                      />
                       <FloatingComposer
                         key={appMode === "write" ? "write" : "code"}
                         composerSurface={appMode === "write" ? "write" : "code"}
@@ -1458,6 +1562,7 @@ export default function App() {
         <Suspense fallback={null}>
           <LazyMemoryPanel
             view={memView}
+            presentation="drawer"
             onClose={closeMemory}
             onRemember={onRemember}
             onForget={onForget}
@@ -1469,6 +1574,7 @@ export default function App() {
       {histView !== null && (
         <Suspense fallback={null}>
           <HistoryPanel
+            presentation="drawer"
             kind={histView.kind}
             sessions={histView.sessions}
             running={state.running}
@@ -1484,6 +1590,33 @@ export default function App() {
         </Suspense>
       )}
 
+      {settingsDockTab !== null ? (
+        <SettingsDockModal
+          tab={settingsDockTab}
+          cwd={state.meta?.cwd}
+          refreshKey={projectRevision}
+          onClose={() => setSettingsDockTab(null)}
+        />
+      ) : null}
+
+      {settingsDataModal !== null ? (
+        <SettingsWorkspaceDataModal
+          state={settingsDataModal}
+          running={state.running}
+          onClose={() => setSettingsDataModal(null)}
+          onResume={onResumeSession}
+          onPreview={previewSession}
+          onDelete={onDeleteSession}
+          onRename={onRenameSession}
+          onRestore={onRestoreTrashedSession}
+          onPurge={onPurgeTrashedSession}
+          onPurgeAll={onPurgeAllTrashedSessions}
+          onRemember={onRemember}
+          onForget={onForget}
+          onSaveDoc={onSaveDoc}
+        />
+      ) : null}
+
       {(onboardingManual || onboardingGate === true) && (
         <OnboardingOverlay
           key={onboardingSession}
@@ -1497,18 +1630,8 @@ export default function App() {
       {sandboxSetup && (
         <SandboxSetupOverlay
           reason={sandboxSetup.reason}
-          onCancel={() => {
-            pendingYoloRef.current = false;
-            setSandboxSetup(null);
-          }}
-          onComplete={() => {
-            setSandboxSetup(null);
-            if (pendingYoloRef.current) {
-              pendingYoloRef.current = false;
-              setMode("yolo");
-              void syncModeToController("yolo");
-            }
-          }}
+          onCancel={() => setSandboxSetup(null)}
+          onComplete={() => setSandboxSetup(null)}
         />
       )}
       {sddOpen && (
@@ -1518,30 +1641,6 @@ export default function App() {
           onAiAssist={(stepText) => handleSend(t("sdd.aiAssistPrompt", { text: stepText }))}
         />
       )}
-      <AgentDecisionLayer
-        approval={state.approval}
-        ask={state.ask}
-        mode={mode}
-        planToolCount={planToolCount}
-        onApprove={(allow, session, persist) => {
-          clearAgentDecisionNotifications();
-          if (state.approval?.tool === "exit_plan_mode" && allow) applyMode("normal");
-          if (state.approval) approve(state.approval.id, allow, session, persist);
-        }}
-        onRevisePlan={(text) => {
-          setPendingPlanRevision(text);
-          if (state.approval) approve(state.approval.id, false, false, false);
-        }}
-        onExitPlan={() => {
-          applyMode("normal");
-          if (state.approval) approve(state.approval.id, false, false, false);
-        }}
-        onAnswerAsk={handleAnswerQuestion}
-        onDismissAsk={() => {
-          const askId = state.ask?.id;
-          if (askId) handleAnswerQuestion(askId, []);
-        }}
-      />
       <SideConversation
         mainTitle={topicTitle(activeTab)}
         messages={sideMessages}

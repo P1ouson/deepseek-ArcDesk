@@ -17,6 +17,7 @@ import type { DirEntry } from "../lib/types";
 import { formatWorkspaceReference, WORKSPACE_REF_DRAG_TYPE } from "../lib/workspaceDrag";
 import { useDismissOnClickOutside } from "../lib/useDismissOnClickOutside";
 import { ContextMenu, contextMenuPointFromEvent, type ContextMenuItem, type ContextMenuPoint } from "./ContextMenu";
+import { MotionUnfold } from "./MotionUnfold";
 import { FloatingMenu, FloatingMenuItems } from "./FloatingMenu";
 import { Tooltip } from "./Tooltip";
 
@@ -236,7 +237,11 @@ export function FilesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddT
                 <FileTypeIcon name={entry.name} isDir={entry.isDir} isOpen={isOpen} />
                 <span className="files-panel__label">{entry.name}</span>
               </button>
-              {entry.isDir && isOpen ? renderBranch(path) : null}
+              {entry.isDir ? (
+                <MotionUnfold open={isOpen}>
+                  {renderBranch(path)}
+                </MotionUnfold>
+              ) : null}
             </li>
           );
         })}

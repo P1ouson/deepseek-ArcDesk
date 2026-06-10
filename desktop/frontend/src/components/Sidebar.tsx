@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   Code2,
   FileText,
+  FolderOpen,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -27,6 +28,7 @@ export interface SidebarProps {
   activeTab?: TabMeta;
   projectRevision: number;
   onOpenTopic: (scope: string, workspaceRoot: string, topicId: string) => void;
+  onOpenWorkspace: () => void;
   onNewChat: () => void;
   onModeChange: (mode: AppMode) => void;
   onOpenSdd: () => void;
@@ -89,6 +91,7 @@ export function Sidebar({
   activeTab,
   projectRevision,
   onOpenTopic,
+  onOpenWorkspace,
   onNewChat,
   onModeChange,
   onOpenSdd,
@@ -107,17 +110,6 @@ export function Sidebar({
         <img src={logo} className="studio-rail__logo" alt="ArcDesk" />
 
         <LabeledRailButton
-          icon={drawerOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
-          label={drawerOpen ? t("sidebar.collapseDrawer") : t("sidebar.expandDrawer")}
-          active={drawerOpen}
-          onClick={onToggleDrawer}
-        />
-
-        <LabeledRailButton icon={<Plus size={17} />} label={t("sidebar.rail.newChat")} onClick={onNewChat} />
-
-        <span className="studio-rail__divider" aria-hidden="true" />
-
-        <LabeledRailButton
           icon={<Code2 size={17} />}
           label={t("modes.code")}
           active={!writeMode && appMode === "code"}
@@ -128,6 +120,20 @@ export function Sidebar({
           label={t("modes.write")}
           active={writeMode}
           onClick={() => onModeChange("write")}
+        />
+
+        <span className="studio-rail__divider" aria-hidden="true" />
+
+        <LabeledRailButton
+          icon={drawerOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
+          label={drawerOpen ? t("sidebar.collapseDrawer") : t("sidebar.expandDrawer")}
+          active={drawerOpen}
+          onClick={onToggleDrawer}
+        />
+        <LabeledRailButton
+          icon={<FolderOpen size={17} />}
+          label={t("sidebar.importWorkspace")}
+          onClick={onOpenWorkspace}
         />
 
         <span className="studio-rail__spacer" />
@@ -169,7 +175,8 @@ export function Sidebar({
           </div>
 
           <div className="studio-drawer__actions">
-            <DrawerAction icon={<Plus size={15} />} label={t("topbar.newSession")} onClick={onNewChat} />
+            <DrawerAction icon={<FolderOpen size={15} />} label={t("sidebar.importWorkspace")} onClick={onOpenWorkspace} />
+            <DrawerAction icon={<Plus size={15} />} label={t("sidebar.newSession")} onClick={onNewChat} />
             {!writeMode ? (
               <DrawerAction icon={<Sparkles size={15} />} label={t("sidebar.newRequirement")} onClick={onOpenSdd} />
             ) : null}

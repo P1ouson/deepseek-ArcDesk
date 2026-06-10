@@ -44,22 +44,25 @@ func TestCloudflaredTunnelTargetLocalhost(t *testing.T) {
 
 func TestBuildMobilePairURLsWithoutLAN(t *testing.T) {
 	primary, lan, _, mode := buildMobilePairURLs("tok", defaultClawBridgePort, "", "", false, false)
-	if lan != "" {
-		t.Fatalf("lan URL = %q, want empty when LAN disabled", lan)
+	if ip := primaryLANIP(); ip == "" {
+		if lan != "" || primary != "" || mode != "none" {
+			t.Fatalf("without LAN IP: primary=%q lan=%q mode=%q", primary, lan, mode)
+		}
+		return
+	}
+	if lan == "" {
+		t.Fatal("expected lan pair URL when LAN IP is available")
 	}
 	if primary != "" {
-		t.Fatalf("primary = %q, want empty without tunnel/relay/lan", primary)
+		t.Fatalf("primary = %q, want empty until LAN exposure is enabled", primary)
 	}
-	if mode != "none" {
-		t.Fatalf("mode = %q, want none", mode)
+	if mode != "lan_standby" {
+		t.Fatalf("mode = %q, want lan_standby", mode)
 	}
 }
 
 func TestBuildMobilePairURLsTunnelIgnoresLANDisabled(t *testing.T) {
-	primary, lan, _, mode := buildMobilePairURLs("tok", defaultClawBridgePort, "https://x.trycloudflare.com", "", false, false)
-	if lan != "" {
-		t.Fatalf("lan URL = %q, want empty when LAN disabled", lan)
-	}
+	primary, _, _, mode := buildMobilePairURLs("tok", defaultClawBridgePort, "https://x.trycloudflare.com", "", false, false)
 	if primary != "https://x.trycloudflare.com/mobile/p/tok" {
 		t.Fatalf("primary = %q", primary)
 	}
@@ -86,13 +89,10 @@ func TestBuildMobilePairURLsWithLANUsesLanMode(t *testing.T) {
 	}
 }
 
-func TestLanBindIPRespectsAllowLAN(t *testing.T) {
-	if lanBindIP(false) != "" {
-		t.Fatal("lanBindIP(false) should be empty")
-	}
-	got := lanBindIP(true)
+func TestLanBindIPDetectsPrimaryLAN(t *testing.T) {
+	got := lanBindIP()
 	want := primaryLANIP()
 	if got != want {
-		t.Fatalf("lanBindIP(true) = %q, want %q", got, want)
+		t.Fatalf("lanBindIP() = %q, want %q", got, want)
 	}
 }

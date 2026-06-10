@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { MotionUnfold } from "./MotionUnfold";
 
 function summarizeValues(values: string[], maxLen = 42): string {
   const text = values.join(", ");
@@ -52,27 +53,27 @@ export function CollapsibleCommaField({
         <span className="set-rules-fold__label">{title}</span>
         {!open && summary ? <span className="set-rules-fold__summary">{summary}</span> : null}
       </button>
-      {open ? (
+      <MotionUnfold open={open}>
         <div className="set-rules-fold__body set-rules-fold__body--field">
-          <input
-            className="mem-input settings-block__input"
-            value={draft}
-            disabled={busy}
-            placeholder={placeholder}
-            spellCheck={false}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                commit();
-                (e.currentTarget as HTMLInputElement).blur();
-              }
-            }}
-          />
-          <p className="settings-block__note settings-block__note--inline">{hint}</p>
+            <input
+              className="mem-input settings-block__input"
+              value={draft}
+              disabled={busy}
+              placeholder={placeholder}
+              spellCheck={false}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commit();
+                  (e.currentTarget as HTMLInputElement).blur();
+                }
+              }}
+            />
+            <p className="settings-block__note settings-block__note--inline">{hint}</p>
         </div>
-      ) : null}
+      </MotionUnfold>
     </div>
   );
 }

@@ -21,34 +21,58 @@ import (
 
 const (
 	cloudflaredDownloadTimeout = 3 * time.Minute
-	defaultTunnelIdleTimeout   = 30 * time.Minute
+	defaultTunnelIdleTimeout   = 10 * time.Minute
+	tunnelStartupTimeout       = 90 * time.Second
 	// cloudflaredPinnedVersion is the only release auto-downloaded by the desktop app.
 	// Bump together with cloudflaredReleaseSHA256 when upgrading.
 	cloudflaredPinnedVersion = "2025.2.1"
 )
 
-var cloudflaredURLPattern = regexp.MustCompile(`https://[a-zA-Z0-9-]+\.trycloudflare\.com`)
+var cloudflaredURLPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`https://[a-zA-Z0-9-]+\.trycloudflare\.com`),
+	regexp.MustCompile(`https://[a-zA-Z0-9-]+\.cfargotunnel\.com`),
+}
 
-// MobileTunnelStatus reports cloudflared quick-tunnel state.
+// MobileTunnelStatus reports Cloudflare quick-tunnel state.
 type MobileTunnelStatus struct {
 	Running                bool   `json:"running"`
 	URL                    string `json:"url"`
 	Err                    string `json:"err,omitempty"`
+	Phase                  string `json:"phase,omitempty"`
+	DownloadProgress       int    `json:"downloadProgress,omitempty"`
 	PairedCount            int    `json:"pairedCount"`
+	ActiveCount            int    `json:"activeCount"`
 	AllowLAN               bool   `json:"allowLAN"`
 	LocalTarget            string `json:"localTarget"`
 	TunnelIdleAutoShutdown bool   `json:"tunnelIdleAutoShutdown"`
 	TunnelIdleTimeoutMin   int    `json:"tunnelIdleTimeoutMin"`
 }
 
-type cloudflaredTunnel struct {
-	mu           sync.Mutex
-	cmd          *exec.Cmd
-	cancel       context.CancelFunc
-	idleCancel   context.CancelFunc
-	url          string
-	errMsg       string
-	lastActivity time.Time
+type mobileTunnelRunner struct {
+	mu               sync.Mutex
+	phase            string
+	cmd              *exec.Cmd
+	cancel           context.CancelFunc
+	idleCancel       context.CancelFunc
+	url              string
+	errMsg           string
+	downloadProgress int
+	lastActivity     time.Time
+}
+
+func (t *mobileTunnelRunner) active() bool {
+	if t == nil {
+		return false
+	}
+	if t.cmd != nil {
+		return true
+	}
+	switch t.phase {
+	case "downloading", "starting":
+		return true
+	default:
+		return false
+	}
 }
 
 func (b *clawBridge) tunnelStatus() MobileTunnelStatus {
@@ -60,9 +84,11 @@ func (b *clawBridge) tunnelStatus() MobileTunnelStatus {
 	}
 	b.tunnel.mu.Lock()
 	st := MobileTunnelStatus{
-		Running: b.tunnel.cmd != nil,
-		URL:     b.tunnel.url,
-		Err:     b.tunnel.errMsg,
+		Running:          b.tunnel.active(),
+		URL:              b.tunnel.url,
+		Err:              b.tunnel.errMsg,
+		Phase:            b.tunnel.phase,
+		DownloadProgress: b.tunnel.downloadProgress,
 	}
 	b.tunnel.mu.Unlock()
 	return b.enrichedTunnelStatus(st)
@@ -77,7 +103,11 @@ func (b *clawBridge) enrichedTunnelStatus(st MobileTunnelStatus) MobileTunnelSta
 	st.TunnelIdleTimeoutMin = b.tunnelIdleTimeoutMinutes()
 	if b.mobile != nil {
 		st.PairedCount = b.mobile.pairedCount()
+		st.ActiveCount = b.mobile.activeSessionCount()
 		st.AllowLAN = b.mobile.getConfig().AllowLAN
+	}
+	if st.Running && st.URL != "" && st.Phase == "" {
+		st.Phase = "ready"
 	}
 	return st
 }
@@ -102,11 +132,6 @@ func (a *App) StartMobileTunnel() MobileTunnelStatus {
 	if a == nil || a.clawBridge == nil {
 		return MobileTunnelStatus{Err: "mobile connect is not ready"}
 	}
-	if !a.confirmStartMobileTunnel() {
-		st := a.clawBridge.tunnelStatus()
-		st.Err = "tunnel start cancelled"
-		return st
-	}
 	return a.clawBridge.startCloudflaredTunnel()
 }
 
@@ -114,7 +139,7 @@ func (a *App) StopMobileTunnel() MobileTunnelStatus {
 	if a == nil || a.clawBridge == nil {
 		return MobileTunnelStatus{}
 	}
-	a.clawBridge.stopCloudflaredTunnel()
+	a.clawBridge.stopMobileTunnel()
 	return a.clawBridge.tunnelStatus()
 }
 
@@ -124,21 +149,48 @@ func (b *clawBridge) startCloudflaredTunnel() MobileTunnelStatus {
 	}
 	b.mu.Lock()
 	if b.tunnel == nil {
-		b.tunnel = &cloudflaredTunnel{}
+		b.tunnel = &mobileTunnelRunner{}
 	}
 	b.mu.Unlock()
 
 	b.tunnel.mu.Lock()
-	if b.tunnel.cmd != nil {
-		st := MobileTunnelStatus{Running: true, URL: b.tunnel.url, Err: b.tunnel.errMsg}
+	if b.tunnel.active() {
+		st := MobileTunnelStatus{
+			Running:          true,
+			URL:              b.tunnel.url,
+			Err:              b.tunnel.errMsg,
+			Phase:            b.tunnel.phase,
+			DownloadProgress: b.tunnel.downloadProgress,
+		}
 		b.tunnel.mu.Unlock()
-		return st
+		return b.enrichedTunnelStatus(st)
 	}
+	b.tunnel.phase = "downloading"
+	b.tunnel.url = ""
+	b.tunnel.errMsg = ""
+	b.tunnel.downloadProgress = -1
 	b.tunnel.mu.Unlock()
 
-	bin, err := ensureCloudflaredBinary()
+	go b.startCloudflaredTunnelAsync()
+	return b.enrichedTunnelStatus(MobileTunnelStatus{Running: true, Phase: "downloading", DownloadProgress: -1})
+}
+
+func (b *clawBridge) startCloudflaredTunnelAsync() {
+	progress := func(pct int) {
+		if b == nil || b.tunnel == nil {
+			return
+		}
+		b.tunnel.mu.Lock()
+		b.tunnel.downloadProgress = pct
+		b.tunnel.mu.Unlock()
+	}
+	bin, err := ensureCloudflaredBinary(progress)
 	if err != nil {
-		return MobileTunnelStatus{Err: err.Error()}
+		b.tunnel.mu.Lock()
+		b.tunnel.phase = "error"
+		b.tunnel.errMsg = err.Error()
+		b.tunnel.mu.Unlock()
+		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -150,23 +202,26 @@ func (b *clawBridge) startCloudflaredTunnel() MobileTunnelStatus {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
-		return MobileTunnelStatus{Err: err.Error()}
+		b.setTunnelError(err.Error())
+		return
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		cancel()
-		return MobileTunnelStatus{Err: err.Error()}
+		b.setTunnelError(err.Error())
+		return
 	}
 	if err := cmd.Start(); err != nil {
 		cancel()
-		return MobileTunnelStatus{Err: err.Error()}
+		b.setTunnelError(err.Error())
+		return
 	}
 
 	b.tunnel.mu.Lock()
 	b.tunnel.cmd = cmd
 	b.tunnel.cancel = cancel
-	b.tunnel.url = ""
-	b.tunnel.errMsg = ""
+	b.tunnel.phase = "starting"
+	b.tunnel.downloadProgress = 0
 	b.tunnel.lastActivity = time.Now()
 	idleCtx, idleCancel := context.WithCancel(context.Background())
 	b.tunnel.idleCancel = idleCancel
@@ -174,14 +229,24 @@ func (b *clawBridge) startCloudflaredTunnel() MobileTunnelStatus {
 
 	go b.watchCloudflaredOutput(stdout)
 	go b.watchCloudflaredOutput(stderr)
-	go b.waitCloudflaredExit(cmd)
+	go b.waitTunnelProcessExit(cmd)
 	go b.watchTunnelIdle(idleCtx)
+	go b.watchTunnelStartupTimeout(cmd)
 
 	slog.Info("cloudflared tunnel starting", "target", target)
-	return MobileTunnelStatus{Running: true}
 }
 
-func (b *clawBridge) stopCloudflaredTunnel() {
+func (b *clawBridge) setTunnelError(msg string) {
+	if b == nil || b.tunnel == nil {
+		return
+	}
+	b.tunnel.mu.Lock()
+	b.tunnel.phase = "error"
+	b.tunnel.errMsg = msg
+	b.tunnel.mu.Unlock()
+}
+
+func (b *clawBridge) stopMobileTunnel() {
 	if b == nil || b.tunnel == nil {
 		return
 	}
@@ -194,6 +259,8 @@ func (b *clawBridge) stopCloudflaredTunnel() {
 	b.tunnel.idleCancel = nil
 	b.tunnel.url = ""
 	b.tunnel.errMsg = ""
+	b.tunnel.phase = ""
+	b.tunnel.downloadProgress = 0
 	b.tunnel.mu.Unlock()
 	if idleCancel != nil {
 		idleCancel()
@@ -263,11 +330,40 @@ func (b *clawBridge) watchTunnelIdle(ctx context.Context) {
 				return
 			}
 			if time.Since(last) >= b.tunnelIdleTimeout() {
-				slog.Info("cloudflared tunnel stopped after idle timeout")
-				b.stopCloudflaredTunnel()
+				slog.Info("mobile tunnel stopped after idle timeout")
+				b.stopMobileTunnel()
 				return
 			}
 		}
+	}
+}
+
+func (b *clawBridge) watchTunnelStartupTimeout(cmd *exec.Cmd) {
+	time.Sleep(tunnelStartupTimeout)
+	if b == nil || b.tunnel == nil {
+		return
+	}
+	b.tunnel.mu.Lock()
+	if b.tunnel.cmd != cmd || b.tunnel.url != "" {
+		b.tunnel.mu.Unlock()
+		return
+	}
+	b.tunnel.phase = "error"
+	b.tunnel.errMsg = "Cloudflare 穿透超时（国内网络可能无法连接 GitHub/Cloudflare）。请稍后重试。"
+	cancel := b.tunnel.cancel
+	idleCancel := b.tunnel.idleCancel
+	b.tunnel.cmd = nil
+	b.tunnel.cancel = nil
+	b.tunnel.idleCancel = nil
+	b.tunnel.mu.Unlock()
+	if idleCancel != nil {
+		idleCancel()
+	}
+	if cancel != nil {
+		cancel()
+	}
+	if cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
 	}
 }
 
@@ -276,19 +372,22 @@ func (b *clawBridge) watchCloudflaredOutput(r io.Reader) {
 		return
 	}
 	scanner := bufio.NewScanner(r)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if url := extractCloudflaredURL(line); url != "" {
+		if u := extractCloudflaredURL(line); u != "" {
 			b.tunnel.mu.Lock()
-			b.tunnel.url = url
+			b.tunnel.url = u
 			b.tunnel.errMsg = ""
+			b.tunnel.phase = "ready"
 			b.tunnel.mu.Unlock()
-			slog.Info("cloudflared tunnel ready", "url", redactURLQuery(url))
+			slog.Info("cloudflared tunnel ready", "url", redactURLQuery(u))
 		}
 	}
 }
 
-func (b *clawBridge) waitCloudflaredExit(cmd *exec.Cmd) {
+func (b *clawBridge) waitTunnelProcessExit(cmd *exec.Cmd) {
 	if cmd == nil {
 		return
 	}
@@ -300,28 +399,36 @@ func (b *clawBridge) waitCloudflaredExit(cmd *exec.Cmd) {
 	}
 	b.tunnel.cmd = nil
 	b.tunnel.cancel = nil
-	if err != nil && b.tunnel.errMsg == "" {
+	if err != nil && b.tunnel.errMsg == "" && b.tunnel.url == "" {
+		b.tunnel.phase = "error"
 		b.tunnel.errMsg = err.Error()
 	}
 }
 
 func extractCloudflaredURL(line string) string {
-	match := cloudflaredURLPattern.FindString(line)
-	return strings.TrimSpace(match)
+	for _, pattern := range cloudflaredURLPatterns {
+		if match := pattern.FindString(line); match != "" {
+			return strings.TrimSpace(match)
+		}
+	}
+	return ""
 }
 
-func ensureCloudflaredBinary() (string, error) {
+func ensureCloudflaredBinary(onProgress func(int)) (string, error) {
 	if path, err := exec.LookPath("cloudflared"); err == nil {
 		return path, nil
 	}
 	cached := cloudflaredCachedPath()
 	if info, err := os.Stat(cached); err == nil && info.Size() > 0 {
 		if err := verifyCloudflaredFile(cached); err == nil {
+			if onProgress != nil {
+				onProgress(100)
+			}
 			return cached, nil
 		}
 		_ = os.Remove(cached)
 	}
-	if err := downloadCloudflaredBinary(cached); err != nil {
+	if err := downloadCloudflaredBinary(cached, onProgress); err != nil {
 		return "", err
 	}
 	return cached, nil
@@ -406,7 +513,7 @@ func verifyFileSHA256(path, want string) error {
 	return nil
 }
 
-func downloadCloudflaredBinary(dest string) error {
+func downloadCloudflaredBinary(dest string, onProgress func(int)) error {
 	artifact, err := cloudflaredArtifactForPlatform()
 	if err != nil {
 		return err
@@ -430,10 +537,45 @@ func downloadCloudflaredBinary(dest string) error {
 		return err
 	}
 	h := sha256.New()
-	if _, err := io.Copy(out, io.TeeReader(resp.Body, h)); err != nil {
-		out.Close()
-		_ = os.Remove(tmp)
-		return err
+	total := resp.ContentLength
+	if onProgress != nil {
+		if total > 0 {
+			onProgress(0)
+		} else {
+			onProgress(-1)
+		}
+	}
+	var downloaded int64
+	src := io.TeeReader(resp.Body, h)
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := src.Read(buf)
+		if n > 0 {
+			if _, err := out.Write(buf[:n]); err != nil {
+				out.Close()
+				_ = os.Remove(tmp)
+				return err
+			}
+			downloaded += int64(n)
+			if onProgress != nil && total > 0 {
+				pct := int(downloaded * 100 / total)
+				if pct > 100 {
+					pct = 100
+				}
+				onProgress(pct)
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			out.Close()
+			_ = os.Remove(tmp)
+			return readErr
+		}
+	}
+	if onProgress != nil && total > 0 {
+		onProgress(100)
 	}
 	if err := out.Close(); err != nil {
 		_ = os.Remove(tmp)

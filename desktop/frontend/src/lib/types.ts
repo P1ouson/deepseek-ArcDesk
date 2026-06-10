@@ -597,6 +597,19 @@ export interface MobilePendingDecision {
   questions?: MobileAskQuestion[];
 }
 
+export interface MobileConnectDiagnostics {
+  report: string;
+  bridgeReady: boolean;
+  allowLAN: boolean;
+  bindAddress: string;
+  lanIp: string;
+  port: number;
+  connectMode: string;
+  pairUrl: string;
+  localHealth: string;
+  lanHealth: string;
+}
+
 export interface MobilePairingInfo {
   token: string;
   pairUrl: string;
@@ -606,6 +619,7 @@ export interface MobilePairingInfo {
   port: number;
   expiresAt: number;
   pairedCount: number;
+  activeCount?: number;
   enabled: boolean;
   qrDataUrl: string;
   relayConnected: boolean;
@@ -619,7 +633,10 @@ export interface MobileTunnelStatus {
   running: boolean;
   url: string;
   err?: string;
+  phase?: string;
+  downloadProgress?: number;
   pairedCount?: number;
+  activeCount?: number;
   allowLAN?: boolean;
   localTarget?: string;
   tunnelIdleAutoShutdown?: boolean;

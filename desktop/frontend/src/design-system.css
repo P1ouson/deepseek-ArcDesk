@@ -155,20 +155,32 @@
 }
 
 .mem-input:focus,
+.mem-input:focus-visible,
 .mem-select:focus,
+.mem-select:focus-visible,
 .mem-textarea:focus,
+.mem-textarea:focus-visible,
 .set-input:focus,
+.set-input:focus-visible,
 .onboarding__input:focus,
+.onboarding__input:focus-visible,
 .sandbox-setup__field input:focus,
+.sandbox-setup__field input:focus-visible,
 .sandbox-setup__field select:focus,
+.sandbox-setup__field select:focus-visible,
 .drawer input:focus,
+.drawer input:focus-visible,
 .drawer select:focus,
+.drawer select:focus-visible,
 .drawer textarea:focus,
+.drawer textarea:focus-visible,
 .right-dock__browser-url:focus,
-.history-search input:focus {
+.right-dock__browser-url:focus-visible,
+.history-search input:focus,
+.history-search input:focus-visible {
   outline: none;
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  box-shadow: var(--focus-ring);
+  box-shadow: none;
+  border-color: var(--border);
 }
 
 .mem-input:disabled,

@@ -26,6 +26,7 @@ import type {
   ClawCallbackInfo,
   ClawMessage,
   MobileConnectConfig,
+  MobileConnectDiagnostics,
   MobilePairingInfo,
   MobilePendingDecision,
   MobileTunnelStatus,
@@ -268,6 +269,7 @@ export interface AppBindings {
   GetClawCallbackInfo(channelID: string): Promise<ClawCallbackInfo>;
   TestClawWeComChannel(channel: ClawChannel): Promise<string>;
   GetMobilePairingInfo(): Promise<MobilePairingInfo>;
+  GetMobileConnectDiagnostics(): Promise<MobileConnectDiagnostics>;
   RefreshMobilePairing(): Promise<MobilePairingInfo>;
   GetMobileConnectConfig(): Promise<MobileConnectConfig>;
   SaveMobileConnectConfig(config: MobileConnectConfig): Promise<void>;
@@ -792,7 +794,7 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
       defaultScope: "all",
       securityByDefault: false,
     },
-    closeBehavior: "background",
+    closeBehavior: "quit",
     configPath: "~/projects/arcdesk/arcdesk.toml",
     providerKinds: ["openai"],
     bypass: false,
@@ -2262,6 +2264,20 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
         tunnelUrl: "",
         connectMode: "lan",
         bridgeReady: true,
+      };
+    },
+    async GetMobileConnectDiagnostics() {
+      return {
+        report: "=== ArcDesk mobile diagnostics (dev mock) ===",
+        bridgeReady: true,
+        allowLAN: true,
+        bindAddress: "127.0.0.1:8787",
+        lanIp: "127.0.0.1",
+        port: 8787,
+        connectMode: "lan",
+        pairUrl: "http://127.0.0.1:8787/mobile/p/dev-token",
+        localHealth: "ok",
+        lanHealth: "ok",
       };
     },
     async RefreshMobilePairing() {

@@ -35,8 +35,8 @@ import (
 // fallback. Mirrors the v1 desktop's two-endpoint scheme.
 const (
 	manifestPrimary     = "https://pub-147fb53b9c1e4bbf891a257968619ea7.r2.dev/latest/latest.json"
-	manifestFallback    = "https://github.com/esengine/arcdesk/releases/latest/download/latest.json"
-	defaultDownloadPage = "https://github.com/esengine/arcdesk/releases/latest"
+	manifestFallback    = "https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/latest.json"
+	defaultDownloadPage = "https://github.com/P1ouson/deepseek-ArcDesk/releases/latest"
 	httpTimeout         = 15 * time.Second
 )
 

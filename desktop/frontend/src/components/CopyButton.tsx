@@ -10,10 +10,13 @@ export function CopyButton({
   text,
   className,
   label,
+  variant = "default",
 }: {
   text: string;
   className?: string;
   label?: string;
+  /** `tool` matches message action chips (copy / rewind). */
+  variant?: "default" | "tool";
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -26,16 +29,21 @@ export function CopyButton({
       /* clipboard unavailable */
     }
   };
+  const iconSize = variant === "tool" ? 15 : 13;
+  const btnClass = variant === "tool" ? "msg-tool-btn motion-surface" : "copybtn";
+
   return (
-    <Tooltip label={t("msg.copy")}>
+    <Tooltip label={copied ? t("msg.copied") : t("msg.copy")}>
       <button
-        className={`copybtn ${className ?? ""}`}
+        className={`${btnClass} ${className ?? ""}`.trim()}
         onClick={copy}
         aria-label={t("msg.copy")}
         type="button"
       >
-        {copied ? <Check size={13} /> : <Copy size={13} />}
-        {label && <span className="copybtn__label">{copied ? t("msg.copied") : label}</span>}
+        {copied ? <Check size={iconSize} /> : <Copy size={iconSize} />}
+        {label && variant !== "tool" ? (
+          <span className="copybtn__label">{copied ? t("msg.copied") : label}</span>
+        ) : null}
       </button>
     </Tooltip>
   );

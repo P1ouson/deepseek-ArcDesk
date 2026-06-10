@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useT } from "../lib/i18n";
-import { suggestPermissionRule } from "../lib/permissionSuggest";
 import type { WireApproval } from "../lib/types";
+import { MotionUnfold } from "./MotionUnfold";
 import { PromptAction, PromptDetailToggle, PromptShelf } from "./PromptShelf";
+
+function truncateOneLine(text: string, max = 72): string {
+  const line = text.trim().split("\n").find((entry) => entry.trim())?.trim() ?? "";
+  if (line.length <= max) return line;
+  return `${line.slice(0, max - 1)}…`;
+}
 
 export function ApprovalModal({
   approval,
@@ -25,8 +31,7 @@ export function ApprovalModal({
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const isPlanApproval = approval.tool === "exit_plan_mode";
   const subject = approval.subject.trim();
-  const subjectSummary = subject.split("\n").find((line) => line.trim())?.trim() ?? "";
-  const ruleSuggest = useMemo(() => suggestPermissionRule(approval.tool, subject), [approval.tool, subject]);
+  const subjectSummary = subject ? truncateOneLine(subject) : "";
 
   const choosePlanAction = (key: string) => {
     if (key === "1") setRevisionOpen((open) => !open);
@@ -100,7 +105,7 @@ export function ApprovalModal({
           </>
         }
       >
-        {revisionOpen && (
+        <MotionUnfold open={revisionOpen}>
           <div className="plan-revision">
             <textarea
               ref={inputRef}
@@ -123,7 +128,7 @@ export function ApprovalModal({
               </button>
             </div>
           </div>
-        )}
+        </MotionUnfold>
       </PromptShelf>
     );
   }
@@ -157,13 +162,10 @@ export function ApprovalModal({
         </>
       }
     >
-      {detailsOpen && subject && (
-        <pre className="approval-subject">{subject}</pre>
-      )}
-      {ruleSuggest ? (
-        <p className="arc-decision__rule-hint">
-          {t("approval.ruleSuggest", { rule: ruleSuggest })}
-        </p>
+      {subject ? (
+        <MotionUnfold open={detailsOpen}>
+          <pre className="approval-subject">{subject}</pre>
+        </MotionUnfold>
       ) : null}
     </PromptShelf>
   );

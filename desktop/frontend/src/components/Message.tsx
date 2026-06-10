@@ -1,4 +1,5 @@
 import { memo, useState } from "react";
+import { MotionUnfold } from "./MotionUnfold";
 import { ChevronRight, MoreHorizontal } from "lucide-react";
 import { Markdown } from "./Markdown";
 import { CopyButton } from "./CopyButton";
@@ -9,10 +10,8 @@ import type { CheckpointMeta } from "../lib/types";
 
 type AssistantItem = Extract<Item, { kind: "assistant" }>;
 
-export function UserMessage({
-  text,
+function MessageRewindMenu({
   turn,
-  anchorId,
   open,
   onToggle,
   onRewind,
@@ -20,10 +19,8 @@ export function UserMessage({
   actionPending = false,
   rewindDisabled = false,
 }: {
-  text: string;
-  turn?: number;
-  anchorId?: string;
-  open?: boolean; // whether this message's rewind menu is the open one (lifted to Transcript)
+  turn: number;
+  open?: boolean;
   onToggle?: () => void;
   onRewind?: (turn: number, scope: string) => void;
   checkpoint?: CheckpointMeta;
@@ -32,7 +29,7 @@ export function UserMessage({
 }) {
   const t = useT();
   const [confirmScope, setConfirmScope] = useState<string | null>(null);
-  const canRewind = onRewind != null && turn != null;
+
   const actionDisabledReason = (scope: string): string => {
     if (rewindDisabled || actionPending) return t("rewind.disabledRunning");
     if (!checkpoint) return t("rewind.disabledNoCheckpoint");
@@ -41,7 +38,7 @@ export function UserMessage({
     }
     if (scope === "summ-upto") {
       if (!checkpoint.canConversation) return t("rewind.disabledNoBoundary");
-      if ((turn ?? 0) <= 0) return t("rewind.disabledNoEarlier");
+      if (turn <= 0) return t("rewind.disabledNoEarlier");
     }
     if (scope === "code" && !checkpoint.canCode) return t("rewind.disabledNoCode");
     if (scope === "both") {
@@ -50,6 +47,7 @@ export function UserMessage({
     }
     return "";
   };
+
   const actionLabel = (scope: string): string => {
     if (confirmScope !== scope) {
       switch (scope) {
@@ -82,16 +80,19 @@ export function UserMessage({
         return t("rewind.confirmBoth");
     }
   };
+
   const actionMeta = (scope: string): string => {
     if ((scope === "code" || scope === "both") && checkpoint?.files?.length) {
       return t("rewind.filesChanged", { count: checkpoint.files.length });
     }
     return "";
   };
+
   const runAction = (scope: string) => {
     setConfirmScope(null);
-    onRewind?.(turn as number, scope);
+    onRewind?.(turn, scope);
   };
+
   const selectRewind = (scope: string) => {
     if (actionDisabledReason(scope)) return;
     if (confirmScope !== scope) {
@@ -100,6 +101,7 @@ export function UserMessage({
     }
     runAction(scope);
   };
+
   const renderAction = (scope: string, danger = false) => {
     const disabledReason = actionDisabledReason(scope);
     const meta = actionMeta(scope);
@@ -109,7 +111,9 @@ export function UserMessage({
           "rewind__menu-item",
           danger ? "rewind__menu-danger" : "",
           confirmScope === scope ? "rewind__menu-confirm" : "",
-        ].filter(Boolean).join(" ")}
+        ]
+          .filter(Boolean)
+          .join(" ")}
         type="button"
         disabled={Boolean(disabledReason)}
         title={disabledReason || undefined}
@@ -120,67 +124,98 @@ export function UserMessage({
       </button>
     );
   };
-  const displayText = text.replace(/@\.ARCDESK\/attachments\/[^\s]+/g, "[image]");
+
+  if (!onRewind) return null;
+
   return (
-    <div className="msg msg--user" id={anchorId} data-question-anchor={anchorId} data-turn={turn}>
-      <span className="msg__caret">›</span>
-      <div className="msg__text">{displayText}</div>
-      {canRewind && (
-        <div className={`rewind${open ? " rewind--open" : ""}`}>
-          <Tooltip label={t("rewind.label")}>
-            <button
-              className="rewind__btn"
-              type="button"
-              aria-label={t("rewind.label")}
-              aria-expanded={Boolean(open)}
-              onClick={() => {
-                setConfirmScope(null);
-                onToggle?.();
-              }}
-            >
-              <MoreHorizontal size={15} />
-            </button>
-          </Tooltip>
-          {open && (
-            <div className="rewind__menu">
-              {rewindDisabled && <div className="rewind__menu-hint">{t("rewind.disabledRunning")}</div>}
-              {!rewindDisabled && !checkpoint && <div className="rewind__menu-hint">{t("rewind.disabledNoCheckpoint")}</div>}
-              {renderAction("conversation")}
-              {renderAction("code")}
-              {renderAction("both", true)}
-            </div>
-          )}
+    <div className={`rewind rewind--footer${open ? " rewind--open" : ""}`}>
+      <Tooltip label={t("rewind.label")}>
+        <button
+          className="msg-tool-btn motion-surface rewind__btn"
+          type="button"
+          aria-label={t("rewind.label")}
+          aria-expanded={Boolean(open)}
+          onClick={() => {
+            setConfirmScope(null);
+            onToggle?.();
+          }}
+        >
+          <MoreHorizontal size={15} />
+        </button>
+      </Tooltip>
+      {open && (
+        <div className="rewind__menu rewind__menu--up">
+          {rewindDisabled && <div className="rewind__menu-hint">{t("rewind.disabledRunning")}</div>}
+          {!rewindDisabled && !checkpoint && <div className="rewind__menu-hint">{t("rewind.disabledNoCheckpoint")}</div>}
+          {renderAction("conversation")}
+          {renderAction("code")}
+          {renderAction("both", true)}
         </div>
       )}
     </div>
   );
 }
 
-// memo: an unchanged message keeps a stable `item` ref across a streaming turn's
-// per-token re-renders, so only the live bubble re-parses markdown, not the whole
-// backlog.
-export const AssistantMessage = memo(function AssistantMessage({ item }: { item: AssistantItem }) {
+export function UserMessage({
+  text,
+  turn,
+  anchorId,
+}: {
+  text: string;
+  turn?: number;
+  anchorId?: string;
+}) {
+  const displayText = text.replace(/@\.ARCDESK\/attachments\/[^\s]+/g, "[image]");
+  return (
+    <div className="msg msg--user" id={anchorId} data-question-anchor={anchorId} data-turn={turn}>
+      <span className="msg__caret">›</span>
+      <div className="msg__text">{displayText}</div>
+    </div>
+  );
+}
+
+export const AssistantMessage = memo(function AssistantMessage({
+  item,
+  turn,
+  open,
+  onToggle,
+  onRewind,
+  checkpoint,
+  actionPending = false,
+  rewindDisabled = false,
+}: {
+  item: AssistantItem;
+  turn?: number;
+  open?: boolean;
+  onToggle?: () => void;
+  onRewind?: (turn: number, scope: string) => void;
+  checkpoint?: CheckpointMeta;
+  actionPending?: boolean;
+  rewindDisabled?: boolean;
+}) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [reasoningOpen, setReasoningOpen] = useState(false);
+  const showActions = !item.streaming && Boolean(item.text);
+  const canRewind = onRewind != null && turn != null;
+
   return (
     <div className="msg msg--assistant">
       {item.reasoning && (
         <div className="reasoning">
-          <button className="reasoning__toggle" onClick={() => setOpen((v) => !v)}>
+          <button className="reasoning__toggle" onClick={() => setReasoningOpen((v) => !v)}>
             <ChevronRight
-              className={`reasoning__chevron ${open ? "reasoning__chevron--open" : ""}`}
+              className={`reasoning__chevron ${reasoningOpen ? "reasoning__chevron--open" : ""}`}
               size={12}
             />
             {t("msg.thinking")}
           </button>
-          {open && <div className="reasoning__body">{item.reasoning}</div>}
+          <MotionUnfold open={reasoningOpen}>
+            <div className="reasoning__body">{item.reasoning}</div>
+          </MotionUnfold>
         </div>
       )}
       <div className="msg__body">
         {item.streaming ? (
-          // While streaming, render raw text (stable, monospace-free) instead of
-          // re-parsing markdown on every token — partial markdown reflows the
-          // layout and makes the view jitter. Markdown renders once, on completion.
           <div className="msg__stream">
             {item.text}
             <span className="cursor" />
@@ -189,11 +224,23 @@ export const AssistantMessage = memo(function AssistantMessage({ item }: { item:
           <Markdown text={item.text} />
         )}
       </div>
-      {!item.streaming && item.text && (
+      {showActions ? (
         <div className="msg__actions">
-          <CopyButton text={item.text} label={t("msg.copy")} />
+          <CopyButton text={item.text} variant="tool" />
+          <span className="msg__actions-spacer" aria-hidden="true" />
+          {canRewind ? (
+            <MessageRewindMenu
+              turn={turn}
+              open={open}
+              onToggle={onToggle}
+              onRewind={onRewind}
+              checkpoint={checkpoint}
+              actionPending={actionPending}
+              rewindDisabled={rewindDisabled}
+            />
+          ) : null}
         </div>
-      )}
+      ) : null}
     </div>
   );
 });

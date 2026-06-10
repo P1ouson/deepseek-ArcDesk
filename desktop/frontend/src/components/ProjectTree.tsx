@@ -4,14 +4,15 @@
 // new topic.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
-import { Archive, ChevronRight, ChevronDown, Pencil, Plus, Folder, FolderPlus, Search, BriefcaseBusiness, Copy, FolderOpen, XCircle, History, Check } from "lucide-react";
+import { Archive, ChevronRight, ChevronDown, Pencil, Plus, Folder, FolderPlus, Search, BriefcaseBusiness, Trash2, XCircle } from "lucide-react";
 import { asArray } from "../lib/array";
 import { app } from "../lib/bridge";
-import { logBridgeError } from "../lib/logBridgeError";
 import type { ProjectNode } from "../lib/types";
 import { getLocale, useT, type Translator } from "../lib/i18n";
-import { PROJECT_COLOR_OPTIONS, projectColorValue } from "../lib/projectColors";
+import { projectColorValue } from "../lib/projectColors";
 import { ContextMenu, contextMenuPointFromEvent, type ContextMenuItem, type ContextMenuPoint } from "./ContextMenu";
+import { MotionUnfold } from "./MotionUnfold";
+import { ProjectSearchDialog } from "./ProjectSearchDialog";
 import { Tooltip } from "./Tooltip";
 
 interface ProjectTreeProps {
@@ -102,48 +103,12 @@ function projectAccentStyle(color?: string): CSSProperties | undefined {
   return { "--project-accent": value } as CSSProperties;
 }
 
-function colorMenuLabel(label: string, color?: string, active = false) {
-  const value = projectColorValue(color);
-  return (
-    <span className="project-tree__color-option">
-      <span
-        className="project-tree__color-swatch"
-        style={value ? ({ "--project-accent": value } as CSSProperties) : undefined}
-        aria-hidden="true"
-      />
-      <span>{label}</span>
-      {active && <Check className="project-tree__color-check" size={12} />}
-    </span>
-  );
-}
-
-function revealLabelKey(platform: string): "projectTree.revealInFinder" | "projectTree.revealInExplorer" | "projectTree.revealInFileManager" {
-  if (platform === "darwin") return "projectTree.revealInFinder";
-  if (platform === "windows") return "projectTree.revealInExplorer";
-  return "projectTree.revealInFileManager";
-}
-
-function projectColorLabel(t: Translator, color?: string): string {
-  switch (color) {
-    case "red": return t("projectTree.colorRed");
-    case "orange": return t("projectTree.colorOrange");
-    case "amber": return t("projectTree.colorAmber");
-    case "green": return t("projectTree.colorGreen");
-    case "teal": return t("projectTree.colorTeal");
-    case "blue": return t("projectTree.colorBlue");
-    case "purple": return t("projectTree.colorPurple");
-    case "pink": return t("projectTree.colorPink");
-    default: return t("projectTree.colorDefault");
-  }
-}
-
 export function ProjectTree({
   variant = "default",
   activeScope,
   activeWorkspaceRoot,
   activeTopicId,
   onOpenTopic,
-  onOpenProjectHistory,
   onAddProject,
   onRenameTopic,
   onTopicsChanged,
@@ -156,7 +121,8 @@ export function ProjectTree({
   const [manuallyCollapsed, setManuallyCollapsed] = useState<Set<string>>(new Set());
   const [creatingProject, setCreatingProject] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  const [dialogQuery, setDialogQuery] = useState("");
   const [sectionCollapsed, setSectionCollapsed] = useState(false);
   const [editingTopic, setEditingTopic] = useState<string | null>(null);
   const [topicDraft, setTopicDraft] = useState("");
@@ -170,7 +136,6 @@ export function ProjectTree({
   const [confirmRemoveProject, setConfirmRemoveProject] = useState<string | null>(null);
   const [dragProjectRoot, setDragProjectRoot] = useState<string | null>(null);
   const [dropProject, setDropProject] = useState<{ root: string; position: ProjectDropPosition } | null>(null);
-  const [platform, setPlatform] = useState("");
   const creatingRef = useRef(false);
 
   const closeMenu = useCallback(() => {
@@ -201,16 +166,6 @@ export function ProjectTree({
   useEffect(() => {
     void refresh();
   }, [refresh, refreshSignal]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void app.Platform().then((value) => {
-      if (!cancelled) setPlatform(value);
-    }).catch((err) => logBridgeError("Platform", err));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const toggleExpand = (key: string) => {
     const willCollapse = expanded.has(key);
@@ -326,15 +281,6 @@ export function ProjectTree({
     }
   };
 
-  const copyProjectPath = async (path: string) => {
-    if (!path) return;
-    try {
-      await navigator.clipboard?.writeText(path);
-    } catch {
-      /* ignore */
-    }
-  };
-
   const removeProject = async (path: string) => {
     if (!path) return;
     try {
@@ -348,20 +294,8 @@ export function ProjectTree({
     }
   };
 
-  const setProjectColor = async (path: string, color: string) => {
-    try {
-      await app.SetProjectColor(path, color);
-      setMenuProject(null);
-      setMenuPoint(null);
-      await refresh();
-      await onTopicsChanged?.();
-    } catch {
-      /* ignore */
-    }
-  };
-
   const visibleTree = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = (sidebar ? "" : query).trim().toLowerCase();
     if (!q) return tree;
     const matches = (node: ProjectNode) =>
       [node.label, node.root, node.topicId].some((value) => (value ?? "").toLowerCase().includes(q));
@@ -375,9 +309,9 @@ export function ProjectTree({
     return tree
       .map(filterNode)
       .filter((node): node is ProjectNode => node !== null);
-  }, [query, tree]);
+  }, [query, sidebar, tree]);
 
-  const projectDragEnabled = query.trim() === "";
+  const projectDragEnabled = (sidebar ? "" : query).trim() === "";
 
   const commitProjectReorder = useCallback(async (draggedRoot: string, targetRoot: string, position: ProjectDropPosition) => {
     const nextRoots = reorderedProjectRoots(tree, draggedRoot, targetRoot, position);
@@ -432,7 +366,7 @@ export function ProjectTree({
     if (!node) return null;
     const key = projectNodeKey(node, depth);
     const children = asArray(node.children);
-    const isExpanded = query.trim() ? true : expanded.has(key);
+    const isExpanded = !sidebar && query.trim() ? true : expanded.has(key);
     const hasChildren = children.length > 0;
 
     if (node.kind === "topic" || node.kind === "global_topic") {
@@ -511,11 +445,31 @@ export function ProjectTree({
           >
             <span className="project-tree__topic-copy">
               <span className="project-tree__topic-label">{label}</span>
-              {sidebar && node.lastActivityAt ? (
-                <span className="project-tree__topic-time">{topicActivityLabel(node.lastActivityAt)}</span>
-              ) : null}
             </span>
           </button>
+          <div className="project-tree__row-actions">
+            <Tooltip
+              label={
+                confirmAction?.topicId === topicId && confirmAction.action === "trash"
+                  ? t("history.confirmMoveToTrash")
+                  : t("history.moveToTrash")
+              }
+              className="project-tree__action-slot"
+            >
+              <button
+                type="button"
+                className={`project-tree__delete-topic${confirmAction?.topicId === topicId && confirmAction.action === "trash" ? " project-tree__delete-topic--confirm" : ""}`}
+                aria-label={t("history.moveToTrash")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (confirmAction?.topicId === topicId && confirmAction.action === "trash") void trashTopic(topicId);
+                  else setConfirmAction({ topicId, action: "trash" });
+                }}
+              >
+                <Trash2 size={12} />
+              </button>
+            </Tooltip>
+          </div>
           <ContextMenu
             open={topicMenuOpen}
             point={menuPoint}
@@ -531,7 +485,6 @@ export function ProjectTree({
     const scope = node.kind === "global_folder" ? "global" : "project";
     const projectRoot = scope === "global" ? "" : node.root ?? "";
     const projectPath = node.root ?? "";
-    const colorTargetRoot = scope === "global" ? "" : projectPath;
     const projectLabel = node.label || (scope === "global" ? "Global" : "Untitled");
     const projectActive = activeScope === scope && (scope === "global" || activeWorkspaceRoot === node.root);
     const draggableProject = projectDragEnabled && scope === "project" && depth === 0 && Boolean(projectRoot) && editingProject?.key !== key;
@@ -585,53 +538,11 @@ export function ProjectTree({
           void handleCreateTopic(scope, projectRoot, key);
         },
       },
-      ...(scope === "project"
-        ? [
-            {
-              key: "project-history",
-              icon: <History size={13} />,
-              label: t("projectTree.projectHistory"),
-              onSelect: () => {
-                closeMenu();
-                void onOpenProjectHistory(scope, projectRoot);
-              },
-            },
-          ]
-        : []),
       {
         key: "rename",
         icon: <Pencil size={13} />,
         label: t("projectTree.renameProject"),
         onSelect: () => startRenameProject(key, projectRoot, projectLabel),
-      },
-      { type: "separator" as const, key: "color-separator" },
-      ...PROJECT_COLOR_OPTIONS.map((option): ContextMenuItem => ({
-        key: `color-${option.key || "default"}`,
-        label: colorMenuLabel(projectColorLabel(t, option.key), option.key, (node.projectColor || "") === option.key),
-        onSelect: () => {
-          void setProjectColor(colorTargetRoot, option.key);
-        },
-      })),
-      { type: "separator" as const, key: "path-separator" },
-      {
-        key: "reveal",
-        icon: <FolderOpen size={13} />,
-        label: t(revealLabelKey(platform)),
-        disabled: !projectPath,
-        onSelect: () => {
-          void app.RevealPath(projectPath);
-          closeMenu();
-        },
-      },
-      {
-        key: "copy-path",
-        icon: <Copy size={13} />,
-        label: t("projectTree.copyPath"),
-        disabled: !projectPath,
-        onSelect: () => {
-          void copyProjectPath(projectPath);
-          closeMenu();
-        },
       },
       ...(scope === "project"
         ? [
@@ -669,11 +580,13 @@ export function ProjectTree({
               onBlur={() => void commitRenameProject(projectRoot)}
             />
           </div>
-          {isExpanded && hasChildren && (
-            <div className="project-tree__children">
-              {children.map((child) => renderNode(child, depth + 1))}
-            </div>
-          )}
+          {hasChildren ? (
+            <MotionUnfold open={isExpanded}>
+              <div className="project-tree__children">
+                {children.map((child) => renderNode(child, depth + 1))}
+              </div>
+            </MotionUnfold>
+          ) : null}
         </div>
       );
     }
@@ -720,19 +633,40 @@ export function ProjectTree({
               <span className="project-tree__folder-hint">{projectRootHint(projectPath)}</span>
             ) : null}
           </button>
-          <Tooltip label={t("projectTree.newTopicTooltip")} className="project-tree__action-slot">
-            <button
-              type="button"
-              className={`project-tree__new-topic${creatingProject === key ? " project-tree__new-topic--active" : ""}`}
-              disabled={creatingProject !== null}
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleCreateTopic(scope, projectRoot, key);
-              }}
-            >
-              <Plus size={12} />
-            </button>
-          </Tooltip>
+          <div className="project-tree__row-actions">
+            {scope === "project" && projectPath ? (
+              <Tooltip
+                label={confirmRemoveProject === key ? t("projectTree.confirmRemoveProject") : t("projectTree.removeProject")}
+                className="project-tree__action-slot"
+              >
+                <button
+                  type="button"
+                  className={`project-tree__remove-project${confirmRemoveProject === key ? " project-tree__remove-project--confirm" : ""}`}
+                  aria-label={t("projectTree.removeProject")}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (confirmRemoveProject === key) void removeProject(projectPath);
+                    else setConfirmRemoveProject(key);
+                  }}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </Tooltip>
+            ) : null}
+            <Tooltip label={t("projectTree.newTopicTooltip")} className="project-tree__action-slot">
+              <button
+                type="button"
+                className={`project-tree__new-topic${creatingProject === key ? " project-tree__new-topic--active" : ""}`}
+                disabled={creatingProject !== null}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleCreateTopic(scope, projectRoot, key);
+                }}
+              >
+                <Plus size={12} />
+              </button>
+            </Tooltip>
+          </div>
           <ContextMenu
             open={menuProject?.key === key}
             point={menuPoint}
@@ -742,11 +676,13 @@ export function ProjectTree({
             onClose={closeMenu}
           />
         </div>
-        {isExpanded && hasChildren && (
-          <div className="project-tree__children">
-            {children.map((child) => renderNode(child, depth + 1))}
-          </div>
-        )}
+        {hasChildren ? (
+          <MotionUnfold open={isExpanded}>
+            <div className="project-tree__children">
+              {children.map((child) => renderNode(child, depth + 1))}
+            </div>
+          </MotionUnfold>
+        ) : null}
       </div>
     );
   };
@@ -767,21 +703,34 @@ export function ProjectTree({
         <button
           type="button"
           className="project-tree__header-title"
-          onClick={() => setSectionCollapsed((open) => !open)}
+          onClick={() => setSectionCollapsed((collapsed) => !collapsed)}
           aria-expanded={!sectionCollapsed}
+          aria-label={sidebar ? t("sidebar.projects") : undefined}
         >
-          {sidebar ? <ChevronDown size={13} className={sectionCollapsed ? "project-tree__chevron--collapsed" : ""} /> : <BriefcaseBusiness size={13} />}
-          {sidebar ? t("sidebar.projects") : t("projectTree.workspaceTitle")}
+          {sidebar ? (
+            <>
+              <ChevronDown size={13} className={sectionCollapsed ? "project-tree__chevron--collapsed" : ""} />
+              {t("sidebar.projects")}
+            </>
+          ) : (
+            <>
+              <BriefcaseBusiness size={13} />
+              {t("projectTree.workspaceTitle")}
+            </>
+          )}
         </button>
         <div className="project-tree__header-actions">
           {sidebar ? (
-            <Tooltip label={t("history.searchPlaceholder")} className="project-tree__action-slot">
+            <Tooltip label={t("projectTree.searchTooltip")} className="project-tree__action-slot">
               <button
                 type="button"
-                className={`project-tree__header-btn${searchOpen ? " project-tree__header-btn--active" : ""}`}
-                aria-label={t("history.searchPlaceholder")}
-                aria-pressed={searchOpen}
-                onClick={() => setSearchOpen((open) => !open)}
+                className={`project-tree__header-btn${searchDialogOpen ? " project-tree__header-btn--active" : ""}`}
+                aria-label={t("projectTree.searchTooltip")}
+                aria-pressed={searchDialogOpen}
+                onClick={() => {
+                  setDialogQuery("");
+                  setSearchDialogOpen(true);
+                }}
               >
                 <Search size={13} />
               </button>
@@ -800,20 +749,23 @@ export function ProjectTree({
           </Tooltip>
         </div>
       </div>
-      {sidebar && searchOpen ? (
-        <label className="project-tree__search project-tree__search--inline">
-          <Search size={14} />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t("projectTree.searchPlaceholder")}
-            autoFocus
-          />
-        </label>
+      {sidebar ? (
+        <ProjectSearchDialog
+          open={searchDialogOpen}
+          query={dialogQuery}
+          tree={tree}
+          activeScope={activeScope}
+          activeWorkspaceRoot={activeWorkspaceRoot}
+          activeTopicId={activeTopicId}
+          onQueryChange={setDialogQuery}
+          onClose={() => setSearchDialogOpen(false)}
+          onOpenTopic={onOpenTopic}
+        />
       ) : null}
-      <div className={`project-tree__list${sectionCollapsed ? " project-tree__list--collapsed" : ""}`}>
+      <MotionUnfold open={!sectionCollapsed} className="project-tree__list-unfold">
+        <div className="project-tree__list">
         {visibleTree.length === 0 ? (
-          query.trim() ? (
+          !sidebar && query.trim() ? (
             <div className="project-tree__empty">{t("projectTree.emptyNoMatch")}</div>
           ) : (
             <div className="project-tree__empty-state">
@@ -830,7 +782,8 @@ export function ProjectTree({
         ) : (
           visibleTree.map((node) => renderNode(node, 0))
         )}
-      </div>
+        </div>
+      </MotionUnfold>
     </div>
   );
 }

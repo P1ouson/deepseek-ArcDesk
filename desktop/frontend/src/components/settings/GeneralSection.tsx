@@ -42,7 +42,7 @@ function NetworkSettingsBlock({
 
   return (
     <SettingsBlock title={t("settings.network")} hint={t("settings.proxyUrlHint")}>
-      <div className="settings-block__form">
+      <div className="settings-block__form network-settings-form">
         <div className="set-seg set-seg--compact set-seg--wrap">
           {PROXY_MODES.map((mode) => (
             <button
@@ -194,22 +194,6 @@ export function GeneralSection({
               onClick={() => setLanguage(pref)}
             >
               {pref === "" ? t("settings.langAuto") : pref === "zh" ? "中文" : "English"}
-            </button>
-          ))}
-        </div>
-      </SettingsBlock>
-
-      <SettingsBlock title={t("settings.closeBehavior")}>
-        <div className="set-seg set-seg--compact">
-          {(["background", "quit"] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              className={`set-seg__btn${s.closeBehavior === mode ? " set-seg__btn--on" : ""}`}
-              disabled={busy}
-              onClick={() => void apply(() => app.SetCloseBehavior(mode))}
-            >
-              {t(mode === "background" ? "settings.closeBehavior.background" : "settings.closeBehavior.quit")}
             </button>
           ))}
         </div>

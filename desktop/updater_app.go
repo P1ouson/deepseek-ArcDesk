@@ -25,6 +25,14 @@ func (a *App) Version() string { return version }
 // build is available for this platform. Safe to call on startup: a network error
 // surfaces in UpdateInfo.Err rather than failing, so the UI can stay quiet.
 func (a *App) CheckUpdate() (*UpdateInfo, error) {
+	// Dev and prerelease local builds skip the network check entirely.
+	if _, ok := normalizeVersion(version); !ok {
+		return &UpdateInfo{
+			Current:       version,
+			CanSelfUpdate: canSelfUpdate(),
+			DownloadURL:   defaultDownloadPage,
+		}, nil
+	}
 	c, err := httpClient()
 	if err != nil {
 		return &UpdateInfo{

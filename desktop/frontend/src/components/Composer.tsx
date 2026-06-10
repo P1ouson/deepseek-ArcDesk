@@ -1130,7 +1130,6 @@ export function Composer({
               className={`composer-modebar__item composer-modebar__item--${option.id}${mode === option.id ? " composer-modebar__item--active" : ""}`}
               onClick={() => onSetMode(option.id)}
               aria-pressed={mode === option.id}
-              disabled={disabled || running}
             >
               {option.icon}
               <span>{option.label}</span>
@@ -1355,8 +1354,6 @@ export function Composer({
               <ComposerModeBar
                 mode={mode}
                 onSetMode={onSetMode}
-                disabled={disabled}
-                running={running}
                 inline
               />
             </div>

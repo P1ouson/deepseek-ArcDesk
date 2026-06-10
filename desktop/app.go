@@ -122,22 +122,11 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) beforeClose(ctx context.Context) bool {
-	if a.forceQuit.Swap(false) || consumeSystemQuitRequested() {
-		return false
+	_ = ctx
+	if !a.forceQuit.Swap(false) {
+		consumeSystemQuitRequested()
 	}
-	cfg, _, err := a.loadDesktopUserConfigForEdit()
-	if err != nil {
-		cfg = config.LoadForEdit(config.UserConfigPath())
-	}
-	if cfg.DesktopCloseBehavior() == "background" {
-		a.saveWindowStateSync()
-		a.snapshotAllTabs()
-		// Hide the application, not just the window, so macOS can restore it
-		// from the Dock/menu using the normal app activation path. On tray-capable
-		// platforms, the tray menu provides an additional Open/Quit entry point.
-		runtime.Hide(ctx)
-		return true
-	}
+	// Always quit on window close; do not hide to tray.
 	return false
 }
 
@@ -279,6 +268,18 @@ func (a *App) shutdown(context.Context) {
 // size/position flash.
 func (a *App) domReady(_ context.Context) {
 	state, ok := loadWindowState()
+	width, height := defaultWindowSize()
+	if ok && !state.Maximised && state.Width > 0 && state.Height > 0 {
+		width, height = state.Width, state.Height
+	}
+
+	screens, screenErr := runtime.ScreenGetAll(a.ctx)
+	screenW, screenH := 0, 0
+	if screenErr == nil && len(screens) > 0 {
+		screenW, screenH = primaryScreenSize(screens)
+	}
+	width, height = fitWindowSize(width, height, screenW, screenH)
+
 	if ok {
 		// Validate saved position against current screens. Wails v2 doesn't
 		// expose per-screen origin (x,y offsets) so we can only do a basic
@@ -286,21 +287,9 @@ func (a *App) domReady(_ context.Context) {
 		// estimate of the screen area. If the user unplugged an external
 		// display, negative or out-of-bounds coordinates are caught here.
 		valid := state.X >= 0 && state.Y >= 0
-		if valid {
-			screens, err := runtime.ScreenGetAll(a.ctx)
-			if err == nil && len(screens) > 0 {
-				maxW, maxH := 0, 0
-				for _, sc := range screens {
-					if sc.Size.Width > maxW {
-						maxW = sc.Size.Width
-					}
-					if sc.Size.Height > maxH {
-						maxH = sc.Size.Height
-					}
-				}
-				if state.X > maxW*2 || state.Y > maxH*2 {
-					valid = false
-				}
+		if valid && screenW > 0 && screenH > 0 {
+			if state.X > screenW*2 || state.Y > screenH*2 {
+				valid = false
 			}
 		}
 		if valid {
@@ -308,16 +297,11 @@ func (a *App) domReady(_ context.Context) {
 		} else {
 			runtime.WindowCenter(a.ctx)
 		}
-		if !state.Maximised && state.Width > 0 && state.Height > 0 {
-			runtime.WindowSetSize(a.ctx, state.Width, state.Height)
-		}
 	} else {
 		runtime.WindowCenter(a.ctx)
 	}
 
-	if ok && state.Maximised {
-		runtime.WindowMaximise(a.ctx)
-	}
+	runtime.WindowSetSize(a.ctx, width, height)
 
 	runtime.WindowShow(a.ctx)
 }
@@ -493,15 +477,6 @@ func (a *App) SetMode(mode string) {
 
 func (a *App) SetModeForTab(tabID, mode string) {
 	normalized := normalizeTabMode(mode)
-	if normalized == "yolo" {
-		if !a.confirmYOLO(true) {
-			return
-		}
-		root := a.activeWorkspaceRoot()
-		if !a.projectSandboxConfigured(root) {
-			return
-		}
-	}
 	a.mu.Lock()
 	tab := a.tabByIDLocked(tabID)
 	if tab == nil {
@@ -602,7 +577,7 @@ func (a *App) NewSession() error {
 	ctrl := a.activeCtrlLocked()
 	a.mu.RUnlock()
 	if ctrl == nil {
-		return nil
+		return errControllerNotReady
 	}
 	return ctrl.NewSession()
 }

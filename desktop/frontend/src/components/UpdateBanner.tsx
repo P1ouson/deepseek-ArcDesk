@@ -13,7 +13,7 @@ const mb = (n: number) => (n / MB).toFixed(1);
 // is where a manual check shows errors.
 export function UpdateBanner() {
   const t = useT();
-  const { status, check, apply } = useUpdater();
+  const { status, check, apply } = useUpdater({ quietCheck: true });
   const [dismissed, setDismissed] = useState<string | null>(null);
 
   useEffect(() => {

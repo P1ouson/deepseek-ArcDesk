@@ -88,7 +88,9 @@ export function Topbar({
               {workspacePath}
             </span>
           ) : null}
-          {running && <span className="studio-header__pill studio-header__pill--running">{t("status.running")}</span>}
+          {running ? (
+            <span className="studio-header__status-dot" role="status" aria-label={t("status.running")} title={t("status.running")} />
+          ) : null}
           {goalLabel ? (
             <span className="studio-header__pill" title={goalLabel}>
               {goalLabel.length > 28 ? `${goalLabel.slice(0, 28)}…` : goalLabel}

@@ -131,10 +131,12 @@ func normalizeThemeStyle(style string) string {
 
 func normalizeCloseBehavior(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "background":
+		return "background"
 	case "quit", "exit":
 		return "quit"
 	default:
-		return "background"
+		return "quit"
 	}
 }
 

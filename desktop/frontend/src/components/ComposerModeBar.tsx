@@ -18,14 +18,10 @@ const MODE_SEGMENT_INDEX: Record<Mode, number> = {
 export function ComposerModeBar({
   mode,
   onSetMode,
-  disabled,
-  running,
   inline = false,
 }: {
   mode: Mode;
   onSetMode: (mode: Mode) => void;
-  disabled?: boolean;
-  running: boolean;
   inline?: boolean;
 }) {
   const t = useT();
@@ -48,7 +44,6 @@ export function ComposerModeBar({
           className={`composer-modebar__item composer-modebar__item--${option.id}${mode === option.id ? " composer-modebar__item--active" : ""}`}
           onClick={() => onSetMode(option.id)}
           aria-pressed={mode === option.id}
-          disabled={disabled || running}
         >
           {option.icon}
           <span>{option.label}</span>
@@ -68,5 +63,5 @@ export function ComposerModeToggle({
   mode: Mode;
   onSetMode: (mode: Mode) => void;
 }) {
-  return <ComposerModeBar mode={mode} onSetMode={onSetMode} disabled={false} running={false} />;
+  return <ComposerModeBar mode={mode} onSetMode={onSetMode} />;
 }

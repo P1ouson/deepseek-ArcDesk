@@ -31,7 +31,13 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-export function useUpdater(): Updater {
+export interface UseUpdaterOptions {
+  /** Startup banner: manifest/network failures stay silent. */
+  quietCheck?: boolean;
+}
+
+export function useUpdater(options: UseUpdaterOptions = {}): Updater {
+  const { quietCheck = false } = options;
   const [status, setStatus] = useState<UpdateStatus>({ kind: "idle" });
 
   // A single long-lived subscription advances the state machine through the apply
@@ -68,6 +74,10 @@ export function useUpdater(): Updater {
         return;
       }
       if (info.err) {
+        if (quietCheck) {
+          setStatus({ kind: "upToDate", current: info.current });
+          return;
+        }
         setStatus({ kind: "error", message: info.err });
         return;
       }
@@ -75,7 +85,7 @@ export function useUpdater(): Updater {
     } catch (e) {
       setStatus({ kind: "error", message: errMsg(e) });
     }
-  }, []);
+  }, [quietCheck]);
 
   // apply takes the already-fetched info (rather than reading state) so there's no
   // side effect inside a state updater. macOS can't self-update → open the page.
