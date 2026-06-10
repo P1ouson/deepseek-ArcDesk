@@ -23,7 +23,10 @@ RELEASE_PREFIX="arcdesk-desktop"
 
 cd "$ROOT/desktop"
 
-numver="${VERSION#v}"; numver="${numver%%-*}"
+# desktop-v0.1.2 / v0.1.2 -> 0.1.2 (NSIS needs X.X.X.X via wails productVersion)
+numver="${VERSION#desktop-}"
+numver="${numver#v}"
+numver="${numver%%-*}"
 node -e 'const fs=require("fs"),f="wails.json",j=JSON.parse(fs.readFileSync(f,"utf8"));j.info.productVersion=process.argv[1];fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n")' "$numver"
 
 build_args=(-clean -platform "$PLATFORM" -ldflags "-X main.version=$VERSION")
