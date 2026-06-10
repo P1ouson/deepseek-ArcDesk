@@ -1,15 +1,48 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="920" height="520" viewBox="0 0 920 520" role="img" aria-label="ArcDesk desktop preview placeholder">
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="520" viewBox="0 0 920 520" role="img" aria-label="ArcDesk 桌面工作台预览">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0d1117"/>
-      <stop offset="100%" stop-color="#161b22"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a1d24"/>
+      <stop offset="100%" stop-color="#12141a"/>
     </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
   </defs>
-  <rect width="920" height="520" rx="12" fill="url(#bg)" stroke="#30363d" stroke-width="1"/>
-  <rect x="24" y="24" width="200" height="472" rx="8" fill="#21262d" stroke="#30363d"/>
-  <rect x="240" y="24" width="656" height="360" rx="8" fill="#21262d" stroke="#30363d"/>
-  <rect x="240" y="400" width="656" height="96" rx="8" fill="#21262d" stroke="#30363d"/>
-  <text x="460" y="200" text-anchor="middle" fill="#8b949e" font-family="system-ui,Segoe UI,sans-serif" font-size="22" font-weight="600">ArcDesk desktop</text>
-  <text x="460" y="232" text-anchor="middle" fill="#6e7681" font-family="system-ui,Segoe UI,sans-serif" font-size="14">Replace docs/screenshots/desktop-hero.svg with a workbench capture</text>
-  <text x="460" y="258" text-anchor="middle" fill="#484f58" font-family="ui-monospace,Consolas,monospace" font-size="12">chat � tool cards � inline diffs � MCP</text>
+  <rect width="920" height="520" rx="16" fill="url(#bg)"/>
+  <rect x="1" y="1" width="918" height="518" rx="15" fill="none" stroke="#2d333b" stroke-width="2"/>
+  <!-- window chrome -->
+  <rect x="24" y="24" width="872" height="472" rx="12" fill="#0f1117" stroke="#30363d" filter="url(#shadow)"/>
+  <rect x="24" y="24" width="872" height="36" rx="12" fill="#161b22"/>
+  <rect x="24" y="48" width="872" height="12" fill="#161b22"/>
+  <circle cx="48" cy="42" r="5" fill="#ff5f57"/>
+  <circle cx="66" cy="42" r="5" fill="#febc2e"/>
+  <circle cx="84" cy="42" r="5" fill="#28c840"/>
+  <text x="460" y="46" text-anchor="middle" fill="#8b949e" font-family="Segoe UI, system-ui, sans-serif" font-size="13">ArcDesk</text>
+  <!-- sidebar rail -->
+  <rect x="24" y="60" width="76" height="444" fill="#111318"/>
+  <rect x="100" y="60" width="220" height="444" fill="#141820" stroke="#21262d"/>
+  <rect x="112" y="78" width="88" height="10" rx="5" fill="#0153e5" opacity="0.9"/>
+  <rect x="112" y="108" width="180" height="8" rx="4" fill="#30363d"/>
+  <rect x="112" y="128" width="150" height="8" rx="4" fill="#21262d"/>
+  <rect x="112" y="152" width="170" height="8" rx="4" fill="#21262d"/>
+  <rect x="112" y="172" width="130" height="8" rx="4" fill="#21262d"/>
+  <rect x="112" y="212" width="188" height="56" rx="8" fill="#1c2128" stroke="#30363d"/>
+  <rect x="112" y="268" width="188" height="56" rx="8" fill="#1c2128" stroke="#30363d"/>
+  <!-- main chat -->
+  <rect x="320" y="60" width="580" height="444" fill="#0d1117"/>
+  <rect x="348" y="92" width="320" height="72" rx="12" fill="#161b22" stroke="#30363d"/>
+  <rect x="364" y="108" width="200" height="8" rx="4" fill="#484f58"/>
+  <rect x="364" y="124" width="260" height="8" rx="4" fill="#30363d"/>
+  <rect x="364" y="140" width="180" height="8" rx="4" fill="#30363d"/>
+  <rect x="548" y="200" width="280" height="88" rx="12" fill="#0153e5" opacity="0.15" stroke="#0153e5" stroke-opacity="0.45"/>
+  <rect x="564" y="216" width="220" height="8" rx="4" fill="#58a6ff" opacity="0.8"/>
+  <rect x="564" y="232" width="180" height="8" rx="4" fill="#58a6ff" opacity="0.45"/>
+  <rect x="348" y="380" width="524" height="96" rx="14" fill="#161b22" stroke="#30363d"/>
+  <rect x="364" y="404" width="360" height="10" rx="5" fill="#484f58"/>
+  <rect x="780" y="432" width="36" height="36" rx="18" fill="#0153e5"/>
+  <!-- app icon badge -->
+  <rect x="780" y="88" width="48" height="48" rx="12" fill="#0153e5"/>
+  <path d="M792 118C796 98 802 94 808 94s12 4 16 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="808" cy="122" r="2.5" fill="#fff"/>
+  <text x="460" y="500" text-anchor="middle" fill="#6e7681" font-family="Segoe UI, system-ui, sans-serif" font-size="12">Studio 工作台 · 项目侧栏 · 对话与工具卡片</text>
 </svg>
