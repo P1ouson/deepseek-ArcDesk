@@ -1,0 +1,105 @@
+name: release-desktop
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows/amd64
+            arch: amd64
+          - os: macos-14
+            platform: darwin/universal
+            arch: universal
+          - os: ubuntu-24.04
+            platform: linux/amd64
+            arch: amd64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: |
+            go.sum
+            desktop/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pnpm
+        run: npm i -g pnpm
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Linux deps (WebKitGTK 4.1)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: macOS deps (create-dmg)
+        if: runner.os == 'macOS'
+        run: brew install create-dmg
+
+      - name: Windows deps (NSIS)
+        if: runner.os == 'Windows'
+        run: choco install nsis -y
+
+      - name: App icon
+        run: python desktop/scripts/generate-appicon.py
+
+      - name: Frontend dist
+        working-directory: desktop/frontend
+        run: |
+          pnpm install --no-frozen-lockfile
+          pnpm build
+
+      - name: Build desktop package
+        shell: bash
+        run: bash scripts/desktop-build.sh "${{ matrix.platform }}" "${{ github.ref_name }}"
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List release files
+        run: ls -la dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ArcDesk Desktop ${{ github.ref_name }}
+          body_path: .github/release-notes/${{ github.ref_name }}.md
+          files: dist/*
+          fail_on_unmatched_files: false
