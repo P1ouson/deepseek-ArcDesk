@@ -58,7 +58,14 @@ jobs:
 
       - name: Windows deps (NSIS)
         if: runner.os == 'Windows'
-        run: choco install nsis -y
+        shell: pwsh
+        run: |
+          choco install nsis -y
+          $nsis = Join-Path ${env:ProgramFiles(x86)} 'NSIS'
+          if (-not (Test-Path $nsis)) { $nsis = Join-Path $env:ProgramFiles 'NSIS' }
+          if (-not (Test-Path $nsis)) { throw "NSIS not found after choco install" }
+          "$nsis" >> $env:GITHUB_PATH
+          Write-Host "NSIS added to PATH: $nsis"
 
       - uses: actions/setup-python@v5
         with:
