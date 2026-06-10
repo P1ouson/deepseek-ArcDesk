@@ -60,8 +60,14 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install nsis -y
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: App icon
-        run: python desktop/scripts/generate-appicon.py
+        run: |
+          python -m pip install pillow
+          python desktop/scripts/generate-appicon.py
 
       - name: Frontend dist
         working-directory: desktop/frontend
