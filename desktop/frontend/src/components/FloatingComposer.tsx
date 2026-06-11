@@ -3,8 +3,13 @@ import { Composer, type ComposerSendState } from "./Composer";
 import { ComposerModeBar, ComposerModeToggle } from "./ComposerModeBar";
 import { ComposerDockFooter, type ComposerDockFooterProps } from "./ComposerDockFooter";
 import { ComposerSendButton } from "./ComposerSendButton";
+import { TurnProgressLine } from "./TurnProgressLine";
+import type { Item } from "../lib/useController";
 
-export type FloatingComposerProps = ComponentProps<typeof Composer> & ComposerDockFooterProps;
+export type FloatingComposerProps = ComponentProps<typeof Composer> &
+  ComposerDockFooterProps & {
+    agentItems?: Item[];
+  };
 
 export { ComposerModeBar, ComposerModeToggle };
 
@@ -15,6 +20,7 @@ export function FloatingComposer({
   sessionCost,
   sessionCurrency,
   terminalCount,
+  agentItems = [],
   ...composerProps
 }: FloatingComposerProps) {
   const planActive = composerProps.mode === "plan";
@@ -40,6 +46,13 @@ export function FloatingComposer({
           />
         ) : null}
       </div>
+      {composerProps.running ? (
+        <TurnProgressLine
+          running={composerProps.running}
+          turnStartAt={composerProps.turnStartAt ?? 0}
+          items={agentItems}
+        />
+      ) : null}
       <ComposerDockFooter
         context={context}
         usage={usage}

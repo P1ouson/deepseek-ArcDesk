@@ -1,0 +1,50 @@
+{
+  "label": "coding",
+  "variant": "tuned31",
+  "projectRoot": "D:\\arcdesk\\DeepSeek-ARCDESK\\benchmarks\\e2e\\tasks\\fix-add-bug\\workdir",
+  "prompt": "The file calc.py has a bug: add(a, b) returns the wrong result. Fix add so it returns the sum of a and b. Keep the other functions unchanged.",
+  "startedAt": "2026-06-11T18:15:17.5006839+08:00",
+  "finishedAt": "2026-06-11T18:15:23.3626839+08:00",
+  "projectSize": {
+    "files": 1,
+    "loc": 6
+  },
+  "timings": {
+    "projectOpenMs": 130,
+    "firstToolMs": 1749,
+    "firstReadMs": 1749,
+    "firstReasoningMs": 1171,
+    "firstAssistantTokenMs": 2859,
+    "firstActionMs": 3526,
+    "taskCompletedMs": 5862
+  },
+  "toolUsage": {
+    "totalToolCalls": 3,
+    "readFileCalls": 2,
+    "repeatedReadFileCalls": 1,
+    "avgReadFileLines": 6,
+    "truncatedReads": 0
+  },
+  "readPatterns": {
+    "offsetPagingChains": 0,
+    "maxPagingDepth": 0,
+    "duplicateReads": 1
+  },
+  "cache": {
+    "avgHitRate": 0.8501473541010799,
+    "lowestStepHitRate": 0.45512729341487695,
+    "highestStepHitRate": 0.9859943977591037,
+    "prefixChangedCount": 0
+  },
+  "fanout": {
+    "avgConcurrency": 0,
+    "maxConcurrency": 0,
+    "throttledRounds": 0
+  },
+  "api": {
+    "totalAgentTurns": 4,
+    "totalPromptTokens": 28934,
+    "totalCompletionTokens": 311,
+    "estimatedCost": 0.0053460800000000004
+  }
+}

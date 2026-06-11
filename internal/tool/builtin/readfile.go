@@ -21,6 +21,8 @@ import (
 const (
 	readFileBinaryPeek   = 8 * 1024   // bytes scanned for NUL before reading further
 	readFileDetectSample = 256 * 1024 // bytes sampled for encoding detection before streaming
+	// readFileDefaultLimit is the small-repo first page; larger repos use adaptive limits.
+	readFileDefaultLimit = readFileLimitSmall
 )
 
 func init() { tool.RegisterBuiltin(readFile{}) }
@@ -34,14 +36,10 @@ type readFile struct {
 	roots   []string
 }
 
-const (
-	readFileDefaultLimit = 2000 // lines returned when limit is unset
-)
-
 func (readFile) Name() string { return "read_file" }
 
-func (readFile) Description() string {
-	return "Read a text file with optional line offset/limit. Output prefixes each line with its 1-based number (e.g. `   42→...`) so subsequent edit_file calls can target exact lines. Use `offset` and `limit` to page through large files; the tool reports total length and pagination hints in a trailer."
+func (r readFile) Description() string {
+	return readFileDescription(r.workDir)
 }
 
 func (readFile) Schema() json.RawMessage {
@@ -50,7 +48,7 @@ func (readFile) Schema() json.RawMessage {
 "properties":{
   "path":{"type":"string","description":"File path"},
   "offset":{"type":"integer","description":"0-based line offset to start reading from (default 0)","minimum":0},
-  "limit":{"type":"integer","description":"Maximum lines to return (default 2000)","minimum":1}
+  "limit":{"type":"integer","description":"Maximum lines to return (default adapts to repo size and file type — page large files with offset/limit instead of raising this)","minimum":1}
 },
 "required":["path"]
 }`)
@@ -78,7 +76,7 @@ func (r readFile) Execute(ctx context.Context, args json.RawMessage) (string, er
 		p.Offset = 0
 	}
 	if p.Limit <= 0 {
-		p.Limit = readFileDefaultLimit
+		p.Limit = effectiveReadLimit(r.workDir, p.Path, p.Offset, 0)
 	}
 
 	// A directory can be os.Open'd but not read as text — catch it up front with

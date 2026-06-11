@@ -1603,6 +1603,47 @@ button:disabled:active,
   align-self: center;
 }
 
+.turn-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 0;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+.turn-progress__label {
+  color: var(--fg);
+  font-weight: 500;
+}
+.turn-progress__detail,
+.turn-progress__slow {
+  color: var(--fg-faint);
+}
+.turn-progress__slow {
+  font-style: italic;
+}
+.composer-dock__footer-prefix-warn {
+  padding: 4px 12px 0;
+  font-size: 11px;
+  color: var(--warn-fg, #b45309);
+}
+.composer-dock__footer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.composer-dock__footer-cache {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+.composer-dock__footer-cache-primary {
+  font-weight: 500;
+}
+.composer-dock__footer-cache-secondary {
+  color: var(--fg-faint);
+}
 .composer-dock__footer {
   padding: 4px 0 0;
   font-size: 11px;

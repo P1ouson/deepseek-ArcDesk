@@ -67,6 +67,27 @@ func TestReadFileOffsetPastEOF(t *testing.T) {
 	}
 }
 
+func TestReadFileDefaultLimitIsProgressive(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "paged.txt")
+	var b strings.Builder
+	for i := 1; i <= 400; i++ {
+		fmt.Fprintf(&b, "line %d\n", i)
+	}
+	os.WriteFile(f, []byte(b.String()), 0o644)
+
+	out := runTool(t, readFile{}, map[string]any{"path": f})
+	if strings.Contains(out, "251→") {
+		t.Errorf("default read should stop near 250 lines, got tail line 251: %s", out)
+	}
+	if !strings.Contains(out, "250→line 250") {
+		t.Errorf("expected line 250 in default page: %s", out)
+	}
+	if !strings.Contains(out, "offset=250") {
+		t.Errorf("pagination hint should point at next offset: %s", out)
+	}
+}
+
 func TestReadFileInvalidArgs(t *testing.T) {
 	_, err := readFile{}.Execute(context.Background(), json.RawMessage(`{invalid`))
 	if err == nil {

@@ -1,0 +1,50 @@
+{
+  "label": "small",
+  "variant": "before",
+  "projectRoot": "D:\\arcdesk\\DeepSeek-ARCDESK\\internal\\agent",
+  "prompt": "快速探索此项目：找出主入口、核心模块和测试布局。先读最小必要文件，不要一次读整文件。",
+  "startedAt": "2026-06-11T17:59:43.5462367+08:00",
+  "finishedAt": "2026-06-11T18:00:59.5762367+08:00",
+  "projectSize": {
+    "files": 50,
+    "loc": 8765
+  },
+  "timings": {
+    "projectOpenMs": 141,
+    "firstToolMs": 1989,
+    "firstReadMs": 9350,
+    "firstReasoningMs": 923,
+    "firstAssistantTokenMs": 64601,
+    "firstActionMs": 9350,
+    "taskCompletedMs": 76030
+  },
+  "toolUsage": {
+    "totalToolCalls": 33,
+    "readFileCalls": 3,
+    "repeatedReadFileCalls": 0,
+    "avgReadFileLines": 21.666666666666668,
+    "truncatedReads": 0
+  },
+  "readPatterns": {
+    "offsetPagingChains": 0,
+    "maxPagingDepth": 0,
+    "duplicateReads": 0
+  },
+  "cache": {
+    "avgHitRate": 0.92829931813885,
+    "lowestStepHitRate": 0.813163924182462,
+    "highestStepHitRate": 0.9905417024935511,
+    "prefixChangedCount": 0
+  },
+  "fanout": {
+    "avgConcurrency": 8,
+    "maxConcurrency": 8,
+    "throttledRounds": 0
+  },
+  "api": {
+    "totalAgentTurns": 12,
+    "totalPromptTokens": 161986,
+    "totalCompletionTokens": 4211,
+    "estimatedCost": 0.023141440000000003
+  }
+}

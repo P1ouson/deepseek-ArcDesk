@@ -25,7 +25,7 @@ func TestTextSinkReproducesInlineOutput(t *testing.T) {
 	s.Emit(event.Event{Kind: event.ToolDispatch, Tool: event.Tool{Name: "read_file", Args: `{"path":"a"}`}})
 	s.Emit(event.Event{Kind: event.ToolResult, Tool: event.Tool{Name: "read_file", Output: "contents"}})
 	s.Emit(event.Event{Kind: event.ToolResult, Tool: event.Tool{Name: "bash", Err: "blocked by permission policy"}})
-	s.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: "tool output truncated: 5 of 100 bytes elided"})
+	s.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: "tool output truncated: 5 of 100 bytes elided — paging with offset/limit"})
 	s.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: "response truncated: hit max output tokens"})
 
 	want := "\x1b[2m  ▎ thinking\x1b[0m\n" + // reasoning header
@@ -35,7 +35,7 @@ func TestTextSinkReproducesInlineOutput(t *testing.T) {
 		"  -> read_file {\"path\":\"a\"}\n" + // tool dispatch
 		// successful read_file result is silent
 		"  ⊘ bash blocked by permission policy\n" + // blocked result
-		"  · tool output truncated: 5 of 100 bytes elided\n" + // info notice
+		"  · tool output truncated: 5 of 100 bytes elided — paging with offset/limit\n" + // info notice
 		"  ! response truncated: hit max output tokens\n" // warn notice
 
 	if got := b.String(); got != want {

@@ -1,0 +1,50 @@
+{
+  "label": "medium",
+  "variant": "before",
+  "projectRoot": "D:\\arcdesk\\DeepSeek-ARCDESK\\desktop\\frontend\\src",
+  "prompt": "探索这个前端项目：说明路由/页面结构、状态管理和与 desktop 后端的集成点。优先 grep/glob，再按需 read_file。",
+  "startedAt": "2026-06-11T18:01:49.9521343+08:00",
+  "finishedAt": "2026-06-11T18:02:45.0911343+08:00",
+  "projectSize": {
+    "files": 200,
+    "loc": 49617
+  },
+  "timings": {
+    "projectOpenMs": 537,
+    "firstToolMs": 2254,
+    "firstReadMs": 7186,
+    "firstReasoningMs": 1159,
+    "firstAssistantTokenMs": 15255,
+    "firstActionMs": 4033,
+    "taskCompletedMs": 55139
+  },
+  "toolUsage": {
+    "totalToolCalls": 34,
+    "readFileCalls": 22,
+    "repeatedReadFileCalls": 0,
+    "avgReadFileLines": 141.5,
+    "truncatedReads": 3
+  },
+  "readPatterns": {
+    "offsetPagingChains": 0,
+    "maxPagingDepth": 0,
+    "duplicateReads": 0
+  },
+  "cache": {
+    "avgHitRate": 0.8588106265045341,
+    "lowestStepHitRate": 0.48806142842116335,
+    "highestStepHitRate": 0.9979452712433989,
+    "prefixChangedCount": 1
+  },
+  "fanout": {
+    "avgConcurrency": 8,
+    "maxConcurrency": 8,
+    "throttledRounds": 0
+  },
+  "api": {
+    "totalAgentTurns": 13,
+    "totalPromptTokens": 423232,
+    "totalCompletionTokens": 4383,
+    "estimatedCost": 0.06270263999999999
+  }
+}

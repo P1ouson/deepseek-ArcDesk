@@ -45,6 +45,18 @@ export interface WireTool {
   fileDiff?: WireFileDiff;
 }
 
+export interface WireCacheDiagnostics {
+  prefixHash: string;
+  prefixChanged: boolean;
+  prefixChangeReasons?: string[];
+  systemHash?: string;
+  toolsHash?: string;
+  logRewriteVersion?: number;
+  toolSchemaTokens?: number;
+  cacheMissTokens?: number;
+  cacheHitTokens?: number;
+}
+
 export interface WireUsage {
   promptTokens: number;
   completionTokens: number;
@@ -52,6 +64,7 @@ export interface WireUsage {
   cacheHitTokens: number;
   cacheMissTokens: number;
   reasoningTokens?: number;
+  cacheDiagnostics?: WireCacheDiagnostics;
   // Session-cumulative cache tokens — the status bar shows the aggregate
   // hit-rate (Σhit/Σ(hit+miss)), steadier than the single-turn cacheHitTokens.
   sessionCacheHitTokens: number;

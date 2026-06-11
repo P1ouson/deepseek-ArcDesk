@@ -1628,6 +1628,7 @@ export default function App() {
                         balance={state.balance}
                         sessionCost={state.sessionCost}
                         sessionCurrency={state.sessionCurrency}
+                        agentItems={state.items}
                       />
                     </div>
                     {terminalPanelShown && !filePreviewComposerOpen && terminalTabs.length > 0 && resolvedActiveTerminalId && (

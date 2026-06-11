@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { MotionUnfold } from "./MotionUnfold";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { AnchoredPopover } from "./AnchoredPopover";
@@ -8,13 +8,16 @@ import {
   type ActionFileRef,
   type ActionSegment,
   type SegmentEntry,
+  type ThinkingBlock,
   filesForTool,
   isWriteTool,
   subjectLabel,
+  thinkingBlockIsActive,
   verbForThinking,
   verbForTool,
 } from "../lib/actionStream";
 import type { ToolItem } from "../lib/actionStream";
+import type { LiveStream } from "../lib/useController";
 import type { ToolFileDiff } from "../lib/tools";
 import { useT } from "../lib/i18n";
 import { prettyJson } from "../lib/prettyJson";
@@ -183,7 +186,11 @@ const ActionToolRow = memo(function ActionToolRow({
             ) : null}
             {!item.isShell && item.output ? <CodeViewer flat value={item.output} maxHeight={220} /> : null}
             {!item.output && item.args ? <CodeViewer flat value={prettyJson(item.args)} language="json" maxHeight={160} /> : null}
-            {item.truncated ? <div className="action-row__note">{t("tool.truncated")}</div> : null}
+            {item.truncated ? (
+              <div className="action-row__note">
+                {running ? t("tool.segmentedRead") : t("tool.truncated")}
+              </div>
+            ) : null}
           </div>
         </MotionUnfold>
       ) : null}
@@ -236,6 +243,106 @@ function ThinkingRow({
   );
 }
 
+function renderSegmentEntry(
+  entry: SegmentEntry,
+  workspaceRoot: string,
+  onOpenFile?: (req: ActionFileOpenRequest) => void,
+  options?: {
+    showCollapseToggle?: boolean;
+    collapsed?: boolean;
+    onToggleCollapse?: () => void;
+  },
+) {
+  if (entry.kind === "thinking") {
+    return (
+      <ThinkingRow
+        key={entry.id}
+        status={entry}
+        showCollapseToggle={options?.showCollapseToggle}
+        collapsed={options?.collapsed}
+        onToggleCollapse={options?.onToggleCollapse}
+      />
+    );
+  }
+  const rows = [
+    <ActionToolRow
+      key={entry.item.id}
+      item={entry.item}
+      workspaceRoot={workspaceRoot}
+      showCollapseToggle={options?.showCollapseToggle}
+      collapsed={options?.collapsed}
+      onToggleCollapse={options?.onToggleCollapse}
+      onOpenFile={onOpenFile}
+    />,
+  ];
+  for (const sub of entry.subcalls ?? []) {
+    rows.push(
+      <ActionToolRow key={sub.id} item={sub} workspaceRoot={workspaceRoot} onOpenFile={onOpenFile} />,
+    );
+  }
+  return rows;
+}
+
+export const ThinkingBlockView = memo(function ThinkingBlockView({
+  block,
+  workspaceRoot,
+  onOpenFile,
+  live,
+}: {
+  block: ThinkingBlock;
+  workspaceRoot: string;
+  onOpenFile?: (req: ActionFileOpenRequest) => void;
+  live?: LiveStream;
+}) {
+  const t = useT();
+  const active = thinkingBlockIsActive(block);
+  const liveAttached = live != null && (live.id === block.id || block.streaming);
+  const displayReasoning =
+    liveAttached && live.reasoning.trim()
+      ? block.reasoning.trim() && !block.reasoning.includes(live.reasoning.trim())
+        ? `${block.reasoning.trim()}\n\n${live.reasoning}`
+        : live.reasoning || block.reasoning
+      : block.reasoning;
+  const hasReasoning = displayReasoning.trim().length > 0;
+  const hasTools = block.entries.length > 0;
+  const [open, setOpen] = useState(active);
+
+  useEffect(() => {
+    if (active) {
+      setOpen(true);
+      return;
+    }
+    setOpen(false);
+  }, [active, block.complete, block.streaming]);
+
+  if (!hasReasoning && !hasTools) return null;
+
+  return (
+    <div className={`reasoning thinking-block${active ? " thinking-block--active" : ""}`}>
+      <button type="button" className="reasoning__toggle" onClick={() => setOpen((v) => !v)}>
+        <ChevronRight className={`reasoning__chevron ${open ? "reasoning__chevron--open" : ""}`} size={12} />
+        {t("msg.thinking")}
+        {active && !hasReasoning && hasTools ? <Loader2 className="thinking-block__spin" size={12} /> : null}
+      </button>
+      <MotionUnfold open={open}>
+        <div className="reasoning__body">
+          {hasReasoning ? (
+            <>
+              {displayReasoning}
+              {active && block.streaming ? <span className="cursor" /> : null}
+            </>
+          ) : null}
+          {hasTools ? (
+            <div className={`thinking-block__tools${hasReasoning ? "" : " thinking-block__tools--only"}`}>
+              {block.entries.flatMap((entry) => renderSegmentEntry(entry, workspaceRoot, onOpenFile))}
+            </div>
+          ) : null}
+        </div>
+      </MotionUnfold>
+    </div>
+  );
+});
+
 export const ActionSegmentView = memo(function ActionSegmentView({
   segment,
   workspaceRoot,
@@ -252,42 +359,12 @@ export const ActionSegmentView = memo(function ActionSegmentView({
   const first = segment.entries[0]!;
   const hiddenEntries = collapsed ? segment.entries.slice(1) : segment.entries.slice(1);
 
-  const renderEntry = (entry: SegmentEntry, index: number) => {
-    const showCollapseToggle = index === 0;
-    if (entry.kind === "thinking") {
-      return (
-        <ThinkingRow
-          key={entry.id}
-          status={entry}
-          showCollapseToggle={showCollapseToggle}
-          collapsed={collapsed}
-          onToggleCollapse={() => setCollapsed((v) => !v)}
-        />
-      );
-    }
-    const rows = [
-      <ActionToolRow
-        key={entry.item.id}
-        item={entry.item}
-        workspaceRoot={workspaceRoot}
-        showCollapseToggle={showCollapseToggle}
-        collapsed={collapsed}
-        onToggleCollapse={() => setCollapsed((v) => !v)}
-        onOpenFile={onOpenFile}
-      />,
-    ];
-    for (const sub of entry.subcalls ?? []) {
-      rows.push(
-        <ActionToolRow
-          key={sub.id}
-          item={sub}
-          workspaceRoot={workspaceRoot}
-          onOpenFile={onOpenFile}
-        />,
-      );
-    }
-    return rows;
-  };
+  const renderEntry = (entry: SegmentEntry, index: number) =>
+    renderSegmentEntry(entry, workspaceRoot, onOpenFile, {
+      showCollapseToggle: index === 0,
+      collapsed,
+      onToggleCollapse: () => setCollapsed((v) => !v),
+    });
 
   return (
     <div className={`action-segment${collapsed ? " action-segment--collapsed" : ""}${segment.complete ? " action-segment--complete" : ""}`}>

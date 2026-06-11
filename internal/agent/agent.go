@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"unicode/utf8"
 
+	"arcdesk/internal/benchagent"
 	"arcdesk/internal/diff"
 	"arcdesk/internal/event"
 	"arcdesk/internal/evidence"
@@ -725,7 +726,9 @@ func (a *Agent) executeBatch(ctx context.Context, calls []provider.ToolCall) []s
 
 	for _, batch := range partitionToolCalls(a.tools, calls) {
 		if batch.parallel && batch.end-batch.start > 1 {
-			runParallel(batch.start, batch.end, run)
+			par := a.exploreParallelism()
+			benchagent.RecordParallelBatch(par, batch.end-batch.start)
+			runParallel(batch.start, batch.end, par, run)
 			continue
 		}
 		for i := batch.start; i < batch.end; i++ {
@@ -791,9 +794,26 @@ func parallelisable(r *tool.Registry, name string) bool {
 	return ok && t.ReadOnly()
 }
 
-func runParallel(start, end int, run func(int)) {
-	const maxParallel = 8
-	sem := make(chan struct{}, maxParallel)
+// exploreParallelism caps concurrent read-only tool calls during exploration.
+// Fewer concurrent reads per wave reduces IO spikes and prompt growth bursts
+// when the model fans out many read_file calls in one turn.
+func (a *Agent) exploreParallelism() int {
+	if u := a.lastUsage.Load(); u != nil {
+		switch {
+		case u.PromptTokens >= 100_000:
+			return 2
+		case u.PromptTokens >= 50_000:
+			return 3
+		}
+	}
+	return 4
+}
+
+func runParallel(start, end int, concurrency int, run func(int)) {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 	for i := start; i < end; i++ {
 		i := i
@@ -1186,8 +1206,8 @@ func truncateToolOutput(s string) (string, string) {
 	head := snapToRuneBoundary(s, 0, keep)
 	tail := snapToRuneBoundary(s, len(s)-keep, len(s))
 	omitted := len(s) - len(head) - len(tail)
-	notice := fmt.Sprintf("tool output truncated: %d of %d bytes elided", omitted, len(s))
-	body := head + fmt.Sprintf("\n\n…[truncated %d of %d bytes — rerun with narrower args to see the middle]…\n\n", omitted, len(s)) + tail
+	notice := fmt.Sprintf("tool output truncated: %d of %d bytes elided — paging with offset/limit", omitted, len(s))
+	body := head + fmt.Sprintf("\n\n…[truncated %d of %d bytes — use read_file offset/limit to continue]…\n\n", omitted, len(s)) + tail
 	return body, notice
 }
 

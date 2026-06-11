@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef, useState, memo } from "react";
 import { ChevronDown, Info } from "lucide-react";
 import { MotionUnfold } from "./MotionUnfold";
 import { VList, type VListHandle } from "virtua";
-import { buildTimelineRows } from "../lib/actionStream";
+import { buildTimelineRows, isShellTimelineTool } from "../lib/actionStream";
 import type { TimelineRow as BuiltTimelineRow } from "../lib/actionStream";
 import type { Item, LiveStream } from "../lib/useController";
 import { useT } from "../lib/i18n";
-import { ActionSegmentView, type ActionFileOpenRequest } from "./ActionStream";
+import { ActionSegmentView, ThinkingBlockView, type ActionFileOpenRequest } from "./ActionStream";
 import { AskTimelineBlock } from "./AskTimelineBlock";
 import { AssistantMessage, UserMessage } from "./Message";
+import { ShellCommandCard } from "./ShellCommandCard";
 import { Welcome } from "./Welcome";
 import type { CheckpointMeta, BalanceInfo, WireUsage } from "../lib/types";
 
@@ -148,6 +149,11 @@ const TimelineRow = memo(function TimelineRow({
           pending={item.pending}
         />
       );
+    case "tool":
+      if (isShellTimelineTool(item)) {
+        return <ShellCommandCard item={item} />;
+      }
+      return null;
     default:
       return null;
   }
@@ -261,7 +267,11 @@ export function MessageTimeline({
   );
   const empty = items.length === 0 && !pendingUser;
 
-  const rowKey = (row: BuiltTimelineRow) => (row.kind === "action-segment" ? row.segment.id : row.item.id);
+  const rowKey = (row: BuiltTimelineRow) => {
+    if (row.kind === "thinking-block") return row.block.id;
+    if (row.kind === "action-segment") return row.segment.id;
+    return row.item.id;
+  };
   const pendingRowCount = pendingUser ? 1 : 0;
   const totalRows = rows.length + pendingRowCount;
   const useVirtualList = totalRows > VIRTUAL_ROW_THRESHOLD;
@@ -307,7 +317,14 @@ export function MessageTimeline({
 
   const renderRow = (row: BuiltTimelineRow) => (
     <div key={rowKey(row)} className="timeline__turn">
-      {row.kind === "action-segment" ? (
+      {row.kind === "thinking-block" ? (
+        <ThinkingBlockView
+          block={row.block}
+          workspaceRoot={workspaceRoot}
+          onOpenFile={onOpenActionFile}
+          live={pinnedToBottom ? live : undefined}
+        />
+      ) : row.kind === "action-segment" ? (
         <ActionSegmentView
           segment={row.segment}
           workspaceRoot={workspaceRoot}

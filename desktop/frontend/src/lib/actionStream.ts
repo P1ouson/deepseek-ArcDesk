@@ -22,8 +22,17 @@ export interface ActionSegment {
   complete: boolean;
 }
 
+export interface ThinkingBlock {
+  id: string;
+  reasoning: string;
+  entries: SegmentEntry[];
+  streaming: boolean;
+  complete: boolean;
+}
+
 export type TimelineRow =
   | { kind: "single"; item: Item }
+  | { kind: "thinking-block"; block: ThinkingBlock }
   | { kind: "action-segment"; segment: ActionSegment };
 
 const WRITE_TOOLS = new Set(["edit_file", "write_file", "multi_edit"]);
@@ -173,47 +182,173 @@ export function segmentIsRunning(segment: ActionSegment): boolean {
   });
 }
 
+export function thinkingBlockIsActive(block: ThinkingBlock): boolean {
+  if (block.streaming) return true;
+  if (!block.complete) return true;
+  return block.entries.some((entry) => entry.kind === "tool" && entry.item.status === "running");
+}
+
+/** Shell/bash runs get their own timeline card instead of living inside 思考过程. */
+export function isShellTimelineTool(item: ToolItem): boolean {
+  return item.name === "bash" || item.isShell === true;
+}
+
 const SKIPPED_TOOLS = new Set(["todo_write", "exit_plan_mode"]);
 
 function isRootTool(item: Item): item is ToolItem {
   return item.kind === "tool" && !item.parentId && !SKIPPED_TOOLS.has(item.name);
 }
 
-/** Interleave assistant narration and tool rows in timeline order (Cursor-style). */
+function toolEntries(tools: ToolItem[], subcallsByParent: Map<string, ToolItem[]>): SegmentEntry[] {
+  return tools.map((item) => ({
+    kind: "tool" as const,
+    item,
+    subcalls: subcallsByParent.get(item.id),
+  }));
+}
+
+function entriesAreComplete(entries: SegmentEntry[]): boolean {
+  return !entries.some((entry) => entry.kind === "tool" && entry.item.status === "running");
+}
+
+type ThinkingDraft = {
+  reasoningParts: string[];
+  tools: ToolItem[];
+  streaming: boolean;
+  anchorId: string;
+  absorbedIds: string[];
+};
+
+/** True when more assistant/tool work follows before the next user turn. */
+function hasMoreAgentWork(items: Item[], fromIndex: number): boolean {
+  for (let i = fromIndex + 1; i < items.length; i++) {
+    const it = items[i]!;
+    if (it.kind === "user") return false;
+    if (it.kind === "tool" && isRootTool(it)) return true;
+    if (it.kind === "assistant") return true;
+  }
+  return false;
+}
+
+/** Mid-turn narration (reasoning + short status text) should fold, not split per API round. */
+function isInterimAssistant(items: Item[], index: number, live?: LiveStream): boolean {
+  const item = items[index];
+  if (item.kind !== "assistant") return false;
+  if (live?.id === item.id) return true;
+  return hasMoreAgentWork(items, index);
+}
+
+/** Remove a turn's opening line when the model repeats it on the final answer. */
+function stripTurnPreface(preamble: string | null, text: string): string {
+  if (!preamble) return text;
+  const body = text.trim();
+  const preface = preamble.trim();
+  if (!body || !preface) return text;
+  if (body === preface) return "";
+  if (!body.startsWith(preface)) return text;
+  const rest = body.slice(preface.length).replace(/^[\s，,。:：\-–—]+/, "").trim();
+  return rest || text;
+}
+
+/** Interleave assistant narration and fold tool work into collapsible thinking blocks. */
 export function buildTimelineRows(
   items: Item[],
   subcallsByParent: Map<string, ToolItem[]>,
   live?: LiveStream,
 ): TimelineRow[] {
   const rows: TimelineRow[] = [];
-  let toolBuffer: ToolItem[] = [];
+  let thinking: ThinkingDraft | null = null;
+  let turnPreface: string | null = null;
+  const deferredNotices: Item[] = [];
 
-  const flushTools = () => {
-    if (toolBuffer.length === 0) return;
-    const entries: SegmentEntry[] = toolBuffer.map((item) => ({
-      kind: "tool",
-      item,
-      subcalls: subcallsByParent.get(item.id),
-    }));
-    const complete = !entries.some((entry) => entry.kind === "tool" && entry.item.status === "running");
-    rows.push({
-      kind: "action-segment",
-      segment: {
-        id: `seg-${toolBuffer[0]!.id}`,
-        entries,
-        complete,
-      },
-    });
-    toolBuffer = [];
+  const resetThinking = () => {
+    thinking = null;
   };
 
-  for (const item of items) {
-    if (isRootTool(item)) {
-      toolBuffer.push(item);
+  const ensureThinking = (): ThinkingDraft => {
+    if (!thinking) {
+      thinking = { reasoningParts: [], tools: [], streaming: false, anchorId: "", absorbedIds: [] };
+    }
+    return thinking;
+  };
+
+  const appendReasoning = (assistant: AssistantItem, isLive: boolean) => {
+    const trimmed = assistant.reasoning.trim();
+    if (!trimmed) return;
+    const draft = ensureThinking();
+    if (!draft.anchorId) draft.anchorId = isLive && live ? live.id : assistant.id;
+    else if (isLive && live) draft.anchorId = live.id;
+    if (!draft.absorbedIds.includes(assistant.id)) draft.absorbedIds.push(assistant.id);
+    draft.reasoningParts.push(isLive && live ? live.reasoning : assistant.reasoning);
+    draft.streaming = draft.streaming || assistant.streaming || isLive;
+  };
+
+  const flushThinking = () => {
+    if (!thinking) return;
+    const draft = thinking;
+    const reasoning = draft.reasoningParts
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join("\n\n");
+    const entries = toolEntries(draft.tools, subcallsByParent);
+    if (!reasoning && entries.length === 0) {
+      resetThinking();
+      return;
+    }
+
+    const liveAttached = live != null && draft.absorbedIds.includes(live.id);
+    const liveReasoning = liveAttached ? live.reasoning.trim() : "";
+    const mergedReasoning =
+      liveReasoning && !draft.reasoningParts.some((part) => part.trim() === liveReasoning)
+        ? [reasoning, liveReasoning].filter(Boolean).join("\n\n")
+        : reasoning;
+
+    rows.push({
+      kind: "thinking-block",
+      block: {
+        id: liveAttached ? live.id : draft.anchorId || `think-${draft.tools[0]?.id ?? "reasoning"}`,
+        reasoning: mergedReasoning,
+        entries,
+        streaming: draft.streaming || liveAttached,
+        complete: !draft.streaming && !liveAttached && entriesAreComplete(entries),
+      },
+    });
+    for (const notice of deferredNotices) {
+      rows.push({ kind: "single", item: notice });
+    }
+    deferredNotices.length = 0;
+    resetThinking();
+  };
+
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index]!;
+    if (item.kind === "user") {
+      flushThinking();
+      turnPreface = null;
+      rows.push({ kind: "single", item });
       continue;
     }
 
-    flushTools();
+    if (item.kind === "notice" || item.kind === "phase") {
+      if (thinking) {
+        deferredNotices.push(item);
+      } else {
+        rows.push({ kind: "single", item });
+      }
+      continue;
+    }
+
+    if (isRootTool(item)) {
+      if (isShellTimelineTool(item)) {
+        flushThinking();
+        rows.push({ kind: "single", item });
+        continue;
+      }
+      const draft = ensureThinking();
+      if (!draft.anchorId) draft.anchorId = `think-${item.id}`;
+      draft.tools.push(item);
+      continue;
+    }
 
     if (item.kind === "assistant") {
       const isLive = live?.id === item.id;
@@ -222,129 +357,71 @@ export function buildTimelineRows(
       const hasText = text.trim().length > 0;
       const hasReasoning = reasoning.trim().length > 0;
       const streaming = item.streaming || isLive === true;
+      const interim = isInterimAssistant(items, index, live);
 
-      if (hasText || hasReasoning || streaming) {
+      if (!hasText && hasReasoning) {
+        appendReasoning({ ...item, reasoning, streaming }, isLive);
+        continue;
+      }
+
+      if (interim && hasText) {
+        if (hasReasoning) {
+          appendReasoning({ ...item, reasoning, streaming }, isLive);
+        }
+        const trimmed = text.trim();
+        if (trimmed && !turnPreface) {
+          turnPreface = trimmed;
+          rows.push({
+            kind: "single",
+            item: {
+              ...item,
+              text,
+              reasoning: "",
+              streaming,
+            },
+          });
+        }
+        continue;
+      }
+
+      if (hasText) {
+        if (hasReasoning) {
+          appendReasoning({ ...item, reasoning, streaming }, isLive);
+        }
+        flushThinking();
+        const finalText = stripTurnPreface(turnPreface, text);
+        if (!finalText.trim()) continue;
+        rows.push({
+          kind: "single",
+          item: {
+            ...item,
+            text: finalText,
+            reasoning: "",
+            streaming,
+          },
+        });
+        continue;
+      }
+
+      if (streaming) {
+        flushThinking();
         rows.push({
           kind: "single",
           item: {
             ...item,
             text,
-            reasoning,
-            streaming: item.streaming || isLive === true,
+            reasoning: "",
+            streaming,
           },
         });
       }
       continue;
     }
 
+    flushThinking();
     rows.push({ kind: "single", item });
   }
 
-  flushTools();
-  return coalesceReasoningAcrossTools(rows, live);
-}
-
-/** Merge reasoning-only assistant rows in a turn into one block (tools stay in between). */
-function coalesceReasoningAcrossTools(rows: TimelineRow[], live?: LiveStream): TimelineRow[] {
-  const result: TimelineRow[] = [];
-  const reasoningParts: string[] = [];
-  let reasoningStreaming = false;
-  let anchorId = "";
-  let insertAt = -1;
-  let mergedInserted = false;
-  const absorbedIds: string[] = [];
-
-  const resetReasoning = () => {
-    reasoningParts.length = 0;
-    reasoningStreaming = false;
-    anchorId = "";
-    insertAt = -1;
-    mergedInserted = false;
-    absorbedIds.length = 0;
-  };
-
-  const insertMergedReasoning = () => {
-    if (reasoningParts.length === 0 || mergedInserted) return;
-    const mergedId = live && absorbedIds.includes(live.id) ? live.id : anchorId || "merged-reasoning";
-    const mergedRow: TimelineRow = {
-      kind: "single",
-      item: {
-        kind: "assistant",
-        id: mergedId,
-        text: "",
-        reasoning: reasoningParts.join("\n\n"),
-        streaming: reasoningStreaming,
-      },
-    };
-    if (insertAt >= 0 && insertAt <= result.length) {
-      result.splice(insertAt, 0, mergedRow);
-    } else {
-      result.push(mergedRow);
-    }
-    mergedInserted = true;
-    reasoningParts.length = 0;
-    reasoningStreaming = false;
-    anchorId = "";
-    insertAt = -1;
-    absorbedIds.length = 0;
-  };
-
-  for (const row of rows) {
-    if (row.kind === "single" && row.item.kind === "user") {
-      insertMergedReasoning();
-      resetReasoning();
-      result.push(row);
-      continue;
-    }
-
-    if (row.kind === "single" && row.item.kind === "assistant") {
-      const a = row.item;
-      const isLive = live?.id === a.id;
-      const hasText = a.text.trim().length > 0;
-      const hasReasoning = a.reasoning.trim().length > 0;
-
-      if (!hasText && hasReasoning) {
-        if (reasoningParts.length === 0) {
-          insertAt = result.length;
-          anchorId = isLive && live ? live.id : a.id;
-        } else if (isLive && live) {
-          anchorId = live.id;
-        }
-        absorbedIds.push(a.id);
-        reasoningParts.push(a.reasoning);
-        reasoningStreaming = reasoningStreaming || a.streaming || isLive;
-        continue;
-      }
-
-      if (hasText) {
-        if (hasReasoning) {
-          if (reasoningParts.length === 0) {
-            insertAt = result.length;
-            anchorId = isLive && live ? live.id : a.id;
-          } else if (isLive && live) {
-            anchorId = live.id;
-          }
-          absorbedIds.push(a.id);
-          reasoningParts.push(a.reasoning);
-          reasoningStreaming = reasoningStreaming || a.streaming || isLive;
-        }
-        insertMergedReasoning();
-        result.push({ kind: "single", item: { ...a, reasoning: "" } });
-        continue;
-      }
-
-      if (a.streaming) {
-        insertMergedReasoning();
-        result.push(row);
-        continue;
-      }
-
-      continue;
-    }
-
-    result.push(row);
-  }
-
-  insertMergedReasoning();
-  return result;
+  flushThinking();
+  return rows;
 }

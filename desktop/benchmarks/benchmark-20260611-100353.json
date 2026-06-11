@@ -1,0 +1,50 @@
+{
+  "label": "large",
+  "variant": "before",
+  "projectRoot": "D:\\arcdesk\\DeepSeek-ARCDESK",
+  "prompt": "首次打开此 monorepo：给出架构鸟瞰（desktop/agent/provider/tools），指出首次探索应优先读的 5 个文件。不要试图读完所有代码。",
+  "startedAt": "2026-06-11T18:03:53.7128156+08:00",
+  "finishedAt": "2026-06-11T18:04:23.5478156+08:00",
+  "projectSize": {
+    "files": 864,
+    "loc": 195814
+  },
+  "timings": {
+    "projectOpenMs": 822,
+    "firstToolMs": 2895,
+    "firstReadMs": 11304,
+    "firstReasoningMs": 1968,
+    "firstAssistantTokenMs": 17090,
+    "firstActionMs": 0,
+    "taskCompletedMs": 29835
+  },
+  "toolUsage": {
+    "totalToolCalls": 22,
+    "readFileCalls": 8,
+    "repeatedReadFileCalls": 0,
+    "avgReadFileLines": 56.25,
+    "truncatedReads": 0
+  },
+  "readPatterns": {
+    "offsetPagingChains": 0,
+    "maxPagingDepth": 0,
+    "duplicateReads": 0
+  },
+  "cache": {
+    "avgHitRate": 0.6410136198209606,
+    "lowestStepHitRate": 0.030791436131825837,
+    "highestStepHitRate": 0.9500623478415771,
+    "prefixChangedCount": 1
+  },
+  "fanout": {
+    "avgConcurrency": 8,
+    "maxConcurrency": 8,
+    "throttledRounds": 0
+  },
+  "api": {
+    "totalAgentTurns": 7,
+    "totalPromptTokens": 83570,
+    "totalCompletionTokens": 2256,
+    "estimatedCost": 0.028247119999999997
+  }
+}

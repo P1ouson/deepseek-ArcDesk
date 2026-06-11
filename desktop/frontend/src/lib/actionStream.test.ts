@@ -6,20 +6,41 @@ function assistant(id: string, text = "", reasoning = "", streaming = false): It
   return { kind: "assistant", id, text, reasoning, streaming };
 }
 
-function tool(id: string): ToolItem {
+function tool(id: string, status: ToolItem["status"] = "done"): ToolItem {
   return {
     kind: "tool",
     id,
     name: "grep",
     args: "{}",
     readOnly: true,
-    status: "done",
+    status,
     output: "src/foo.ts:1:match",
   };
 }
 
-describe("buildTimelineRows reasoning coalesce", () => {
-  it("merges reasoning-only assistants separated by tool segments", () => {
+function rowKinds(rows: ReturnType<typeof buildTimelineRows>): string[] {
+  return rows.map((r) => {
+    if (r.kind === "thinking-block") return "thinking";
+    if (r.kind === "action-segment") return "tools";
+    return r.item.kind;
+  });
+}
+
+function bashTool(id: string, command: string, status: ToolItem["status"] = "done", output = ""): ToolItem {
+  return {
+    kind: "tool",
+    id,
+    name: "bash",
+    args: JSON.stringify({ command }),
+    readOnly: false,
+    status,
+    output,
+    isShell: true,
+  };
+}
+
+describe("buildTimelineRows thinking blocks", () => {
+  it("folds reasoning and tools into one thinking block before the answer", () => {
     const items: Item[] = [
       { kind: "user", id: "u1", text: "hi" },
       assistant("a1", "", "first thought"),
@@ -30,23 +51,23 @@ describe("buildTimelineRows reasoning coalesce", () => {
     ];
 
     const rows = buildTimelineRows(items, new Map());
+    expect(rowKinds(rows)).toEqual(["user", "thinking", "assistant"]);
 
-    const assistants = rows.filter((r) => r.kind === "single" && r.item.kind === "assistant");
-    expect(assistants).toHaveLength(2);
+    const block = rows[1];
+    expect(block?.kind).toBe("thinking-block");
+    if (block?.kind !== "thinking-block") throw new Error("expected thinking block");
+    expect(block.block.reasoning).toBe("first thought\n\nsecond thought\n\nfinal thought");
+    expect(block.block.entries).toHaveLength(2);
+    expect(block.block.complete).toBe(true);
 
-    const merged = assistants[0]!;
-    expect(merged.kind).toBe("single");
-    if (merged.kind !== "single" || merged.item.kind !== "assistant") throw new Error("expected assistant");
-    expect(merged.item.text).toBe("");
-    expect(merged.item.reasoning).toBe("first thought\n\nsecond thought\n\nfinal thought");
-
-    const answer = assistants[1]!;
-    if (answer.kind !== "single" || answer.item.kind !== "assistant") throw new Error("expected assistant");
+    const answer = rows[2];
+    expect(answer?.kind).toBe("single");
+    if (answer?.kind !== "single" || answer.item.kind !== "assistant") throw new Error("expected assistant");
     expect(answer.item.text).toBe("done");
     expect(answer.item.reasoning).toBe("");
   });
 
-  it("places merged reasoning before tool segments in the turn", () => {
+  it("places thinking block before the answer instead of separate tool rows", () => {
     const items: Item[] = [
       { kind: "user", id: "u1", text: "hi" },
       assistant("a1", "", "thinking"),
@@ -55,15 +76,10 @@ describe("buildTimelineRows reasoning coalesce", () => {
     ];
 
     const rows = buildTimelineRows(items, new Map());
-    expect(rows.map((r) => (r.kind === "action-segment" ? "tools" : r.item.kind))).toEqual([
-      "user",
-      "assistant",
-      "tools",
-      "assistant",
-    ]);
+    expect(rowKinds(rows)).toEqual(["user", "thinking", "assistant"]);
   });
 
-  it("merges many consecutive reasoning-only blocks after interim narration", () => {
+  it("keeps interim narration separate from later thinking blocks", () => {
     const items: Item[] = [
       { kind: "user", id: "u1", text: "fix it" },
       assistant("a0", "store.ts 里 listTasks 未按 status 过滤"),
@@ -75,15 +91,15 @@ describe("buildTimelineRows reasoning coalesce", () => {
     ];
 
     const rows = buildTimelineRows(items, new Map());
-    const thinking = rows.filter(
-      (r) => r.kind === "single" && r.item.kind === "assistant" && r.item.reasoning.trim() && !r.item.text.trim(),
-    );
-    expect(thinking).toHaveLength(1);
-    if (thinking[0]?.kind !== "single" || thinking[0].item.kind !== "assistant") throw new Error("expected assistant");
-    expect(thinking[0].item.reasoning).toBe("thought 1\n\nthought 2\n\nthought 3\n\nthought 4");
+    expect(rowKinds(rows)).toEqual(["user", "assistant", "thinking", "assistant"]);
+
+    const block = rows[2];
+    expect(block?.kind).toBe("thinking-block");
+    if (block?.kind !== "thinking-block") throw new Error("expected thinking block");
+    expect(block.block.reasoning).toBe("thought 1\n\nthought 2\n\nthought 3\n\nthought 4");
   });
 
-  it("keeps live stream attached to merged reasoning block", () => {
+  it("keeps live stream attached to the thinking block", () => {
     const items: Item[] = [
       { kind: "user", id: "u1", text: "hi" },
       assistant("a1", "", "part one"),
@@ -92,11 +108,109 @@ describe("buildTimelineRows reasoning coalesce", () => {
     ];
 
     const rows = buildTimelineRows(items, new Map(), { id: "a2", text: "", reasoning: "part two live" });
-    const merged = rows.find((r) => r.kind === "single" && r.item.kind === "assistant" && !r.item.text.trim());
-    expect(merged?.kind).toBe("single");
-    if (merged?.kind !== "single" || merged.item.kind !== "assistant") throw new Error("expected merged assistant");
-    expect(merged.item.id).toBe("a2");
-    expect(merged.item.reasoning).toBe("part one\n\npart two live");
-    expect(merged.item.streaming).toBe(true);
+    const block = rows.find((r) => r.kind === "thinking-block");
+    expect(block?.kind).toBe("thinking-block");
+    if (block?.kind !== "thinking-block") throw new Error("expected thinking block");
+    expect(block.block.id).toBe("a2");
+    expect(block.block.reasoning).toBe("part one\n\npart two live");
+    expect(block.block.streaming).toBe(true);
+    expect(block.block.complete).toBe(false);
+  });
+
+  it("marks thinking block incomplete while tools are still running", () => {
+    const items: Item[] = [
+      { kind: "user", id: "u1", text: "hi" },
+      assistant("a1", "", "checking"),
+      tool("t1", "running"),
+    ];
+
+    const rows = buildTimelineRows(items, new Map());
+    const block = rows.find((r) => r.kind === "thinking-block");
+    expect(block?.kind).toBe("thinking-block");
+    if (block?.kind !== "thinking-block") throw new Error("expected thinking block");
+    expect(block.block.complete).toBe(false);
+    expect(block.block.entries[0]?.kind).toBe("tool");
+  });
+
+  it("shows opening narration before thinking and folds later rounds", () => {
+    const items: Item[] = [
+      { kind: "user", id: "u1", text: "find training logs" },
+      assistant("a1", "帮你找一下文件里的训练数据。", "round 1 thought"),
+      tool("t1"),
+      assistant("a2", "探索结果出来了，我去看关键文件。", "round 2 thought"),
+      tool("t2"),
+      assistant("a3", "找到了，我来读取。", "round 3 thought"),
+      tool("t3"),
+      assistant("a4", "训练用了 3 小时，样本 12000 条。", "round 4 thought"),
+    ];
+
+    const rows = buildTimelineRows(items, new Map());
+    expect(rowKinds(rows)).toEqual(["user", "assistant", "thinking", "assistant"]);
+
+    const preface = rows[1];
+    expect(preface?.kind).toBe("single");
+    if (preface?.kind !== "single" || preface.item.kind !== "assistant") throw new Error("expected preface");
+    expect(preface.item.text).toBe("帮你找一下文件里的训练数据。");
+
+    const block = rows[2];
+    expect(block?.kind).toBe("thinking-block");
+    if (block?.kind !== "thinking-block") throw new Error("expected thinking block");
+    expect(block.block.entries).toHaveLength(3);
+    expect(block.block.reasoning).toContain("round 1 thought");
+    expect(block.block.reasoning).not.toContain("帮你找一下文件里的训练数据。");
+
+    const answer = rows[3];
+    expect(answer?.kind).toBe("single");
+    if (answer?.kind !== "single" || answer.item.kind !== "assistant") throw new Error("expected assistant");
+    expect(answer.item.text).toBe("训练用了 3 小时，样本 12000 条。");
+  });
+
+  it("drops duplicate preface and keeps thinking unified across truncation notices", () => {
+    const items: Item[] = [
+      { kind: "user", id: "u1", text: "analyze text flow" },
+      assistant("a1", "好的，我来分析一下文本检测流程。", "thought 1"),
+      tool("t1"),
+      { kind: "notice", id: "n1", level: "info", text: "tool output truncated: 681 of 33449 bytes elided" },
+      tool("t2"),
+      assistant("a2", "好的，我来分析一下文本检测流程。", "thought 2"),
+      assistant("a3", "好的，我来分析一下文本检测流程。入口在 common/config。", "thought 3"),
+    ];
+
+    const rows = buildTimelineRows(items, new Map());
+    expect(rowKinds(rows)).toEqual(["user", "assistant", "thinking", "notice", "assistant"]);
+
+    const thinking = rows[2];
+    expect(thinking?.kind).toBe("thinking-block");
+    if (thinking?.kind !== "thinking-block") throw new Error("expected thinking block");
+    expect(thinking.block.entries).toHaveLength(2);
+
+    const answer = rows[4];
+    expect(answer?.kind).toBe("single");
+    if (answer?.kind !== "single" || answer.item.kind !== "assistant") throw new Error("expected assistant");
+    expect(answer.item.text).toBe("入口在 common/config。");
+  });
+
+  it("renders shell commands as standalone rows outside thinking blocks", () => {
+    const items: Item[] = [
+      { kind: "user", id: "u1", text: "hi" },
+      assistant("a1", "", "checking repo"),
+      tool("t1"),
+      bashTool("b1", "cd desktop/frontend && npm run test:unit", "done", "Tests passed"),
+      assistant("a2", "done"),
+    ];
+
+    const rows = buildTimelineRows(items, new Map());
+    expect(rowKinds(rows)).toEqual(["user", "thinking", "tool", "assistant"]);
+
+    const thinking = rows[1];
+    expect(thinking?.kind).toBe("thinking-block");
+    if (thinking?.kind !== "thinking-block") throw new Error("expected thinking block");
+    expect(thinking.block.entries).toHaveLength(1);
+    expect(thinking.block.entries[0]?.kind).toBe("tool");
+
+    const shell = rows[2];
+    expect(shell?.kind).toBe("single");
+    if (shell?.kind !== "single" || shell.item.kind !== "tool") throw new Error("expected shell tool");
+    expect(shell.item.name).toBe("bash");
   });
 });
