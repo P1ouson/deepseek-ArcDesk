@@ -5,6 +5,7 @@ import { clearLegacyLangPref, normalizeLangPref, readLegacyLangPref, t, useI18n,
 import { useController } from "./lib/useController";
 import { app, onProjectTreeChanged, onScheduleTask } from "./lib/bridge";
 import { logBridgeError } from "./lib/logBridgeError";
+import { IPC_ONBOARDING_TIMEOUT_MS, withIPCTimeout } from "./lib/ipc";
 import { findDevPreviewTrigger, isCancellableAgentWork } from "./lib/agentActivity";
 import { isComposerSendDisabled } from "./lib/composerSendGate";
 import { useRuntimeReady } from "./lib/runtime";
@@ -34,6 +35,7 @@ import { RequirementDraft } from "./components/RequirementDraft";
 import { ModeWorkspaceCenter } from "./components/ModeWorkspaceCenter";
 import { DevMockBanner } from "./components/DevMockBanner";
 import { buildWriteConversation } from "./lib/writeConversation";
+import { useWriteModeTab } from "./lib/useWriteModeTab";
 import type { AppMode } from "./lib/appMode";
 import { getDefaultAppMode } from "./lib/startupPrefs";
 import { parseTodos } from "./lib/tools";
@@ -45,6 +47,7 @@ import {
   getStoredCodeWorkspaceRoot,
   getStoredComposerNoWorkspace,
   isUsableCodeWorkspaceRoot,
+  sameWorkspaceRoot,
   setStoredCodeWorkspaceRoot,
   setStoredComposerNoWorkspace,
 } from "./lib/composerWorkspace";
@@ -79,8 +82,9 @@ import { useWindowStatePersistence } from "./lib/windowState";
 import { useDesktopSendRouter } from "./lib/useDesktopSendRouter";
 import { useTabMetas } from "./lib/useTabMetas";
 import { useProjectDrawer } from "./lib/useProjectDrawer";
-import { useWorkbenchDock } from "./lib/useWorkbenchDock";
+import { useBrowserPanel } from "./lib/useBrowserPanel";
 import { useTerminalPanel } from "./lib/useTerminalPanel";
+import { useWorkbenchDock } from "./lib/useWorkbenchDock";
 
 type HistoryScopeFilter = { scope: "global" | "project"; workspaceRoot: string };
 type HistoryViewState =
@@ -167,8 +171,10 @@ export default function App() {
     saveDoc,
     openProjectTab,
     openGlobalTab,
+    switchTab,
     syncActiveTab,
     rewind,
+    bootPhase,
   } = useController();
   const runtimeReady = useRuntimeReady();
   const { locale, setPref: setLocalePref } = useI18n();
@@ -206,19 +212,31 @@ export default function App() {
   const codeWorkspaceRestoredRef = useRef(false);
   const prevAppModeRef = useRef<AppMode>(appMode);
   const {
-    terminalOpen,
+    terminalHasSessions,
+    terminalPanelVisible,
     terminalTabs,
     terminalPanelShown,
     terminalAnimHeight,
     terminalMotionKey,
     setActiveTerminalId,
     resolvedActiveTerminalId,
-    activeTerminalTab,
     openNewTerminal,
     closeTerminalPanel,
+    minimizeTerminalPanel,
+    restoreTerminalPanel,
     closeTerminalTab,
     setSavedTerminalHeight,
   } = useTerminalPanel({ notice });
+  const {
+    browserTabs,
+    browserActive,
+    activeBrowserTabId,
+    setActiveBrowserTabId,
+    openBrowserTab,
+    updateBrowserTab,
+    closeBrowserTab,
+    closeAllBrowserTabs,
+  } = useBrowserPanel();
   const {
     layoutRef,
     layoutStyle,
@@ -234,10 +252,9 @@ export default function App() {
     filePreviewResizing,
     rightDockMode,
     browserPreviewExpanded,
-    browserPreviewOpen,
-    pagePreviewOpen,
-    webPreviewUrl,
-    setWebPreviewUrl,
+    pagePreviewActive,
+    dockMounted,
+    dockBackgroundSessions,
     pagePreviewPath,
     setPagePreviewPath,
     openWebPreview,
@@ -264,12 +281,32 @@ export default function App() {
   } = useWorkbenchDock({
     appMode,
     projectDrawerOpen,
-    terminalOpen,
-    cwd: state.meta?.cwd,
-    openNewTerminal,
+    browserActive,
+    openBrowserTab,
+    closeAllBrowserTabs,
+    terminalHasSessions,
+    terminalPanelVisible,
+    minimizeTerminalPanel,
+    restoreTerminalPanel,
     closeTerminalPanel,
+    openNewTerminal,
+    cwd: state.meta?.cwd,
     setComposerInsertRequest,
   });
+
+  const handleCloseBrowserTab = useCallback(
+    (id: string) => {
+      closeBrowserTab(id);
+    },
+    [closeBrowserTab],
+  );
+
+  useEffect(() => {
+    if (browserActive) return;
+    if (rightDockMode !== "browser") return;
+    if (!workspacePanelOpen) return;
+    closeWorkspacePanel();
+  }, [browserActive, closeWorkspacePanel, rightDockMode, workspacePanelOpen]);
 
   // Persist window geometry across launches.
   useWindowStatePersistence();
@@ -418,6 +455,18 @@ export default function App() {
     () => tabMetas.find((tab) => tab.id === activeTabId) ?? tabMetas.find((tab) => tab.active),
     [activeTabId, tabMetas],
   );
+  const { activateWriteTab, restoreCodeTab, ensureWriteTabMatchesWorkspace } = useWriteModeTab({
+    appMode,
+    writeWorkspaceRoot,
+    activeTabId,
+    activeTab,
+    tabMetas,
+    openProjectTab,
+    openGlobalTab,
+    switchTab,
+    syncActiveTab,
+    refreshTabMetas,
+  });
   const mode = composerModePref;
   const setMode = useCallback(
     (next: Mode | ((prev: Mode) => Mode)) => {
@@ -570,6 +619,14 @@ export default function App() {
   // and a transcript update collide, the keystroke is processed immediately
   // and the transcript re-render is deferred to idle time.
   const deferredItems = useDeferredValue(state.items);
+  const deferredLive = useDeferredValue(state.live);
+  const showBootLoading =
+    !activeTabId &&
+    state.meta?.ready === false &&
+    !state.meta?.startupErr &&
+    state.items.length === 0 &&
+    !state.pendingUser;
+  const bootLoadingText = bootPhase ?? t("common.loading");
 
   const writeConversationTurns = useMemo(() => {
     if (appMode !== "write") return [];
@@ -697,18 +754,26 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    const fallback = window.setTimeout(() => {
+      if (!cancelled) setOnboardingGate(false);
+    }, IPC_ONBOARDING_TIMEOUT_MS);
     (async () => {
       try {
-        const needs = await app.NeedsOnboarding();
+        const needs = await withIPCTimeout(
+          app.NeedsOnboarding(),
+          IPC_ONBOARDING_TIMEOUT_MS,
+          "NeedsOnboarding",
+        );
         if (!cancelled) setOnboardingGate(needs);
       } catch {
-        // Bridge unavailable (browser dev seam) — skip the gate; a real key
-        // failure still surfaces via the topbar startupError banner.
         if (!cancelled) setOnboardingGate(false);
+      } finally {
+        window.clearTimeout(fallback);
       }
     })();
     return () => {
       cancelled = true;
+      window.clearTimeout(fallback);
     };
   }, []);
 
@@ -723,7 +788,7 @@ export default function App() {
     const observer = new ResizeObserver(update);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [filePreviewComposerOpen, filePreviewExpanded, chatMode, appMode, terminalOpen, state.approval, state.ask, showWorkbenchFooter]);
+  }, [filePreviewComposerOpen, filePreviewExpanded, chatMode, appMode, terminalPanelVisible, state.approval, state.ask, showWorkbenchFooter]);
 
   const toggleTerminal = useCallback(() => {
     togglePreviewTerminal();
@@ -768,9 +833,10 @@ export default function App() {
       recordRecentWorkspace(picked);
       setWriteWorkspaceRoot(picked);
       await app.AddWriteWorkspace(picked).catch(() => undefined);
+      if (appMode === "write") await activateWriteTab(picked);
     }
     return picked || undefined;
-  }, [pickWorkspace]);
+  }, [appMode, activateWriteTab, pickWorkspace]);
 
   const handleWriteWorkspaceChange = useCallback((root: string) => {
     if (isNoWriteWorkspace(root)) {
@@ -778,6 +844,7 @@ export default function App() {
       setWriteWorkspaceRoot(NO_WORKSPACE_VALUE);
       setComposerNoWorkspace(true);
       setStoredComposerNoWorkspace(true);
+      if (appMode === "write") void ensureWriteTabMatchesWorkspace(NO_WORKSPACE_VALUE);
       return;
     }
     if (!isUsableWriteWorkspaceRoot(root)) return;
@@ -786,7 +853,8 @@ export default function App() {
     setStoredWriteWorkspaceRoot(root);
     recordRecentWorkspace(root);
     setWriteWorkspaceRoot(root);
-  }, []);
+    if (appMode === "write") void ensureWriteTabMatchesWorkspace(root);
+  }, [appMode, ensureWriteTabMatchesWorkspace]);
 
   const handleUseNoWorkspace = useCallback(() => {
     setComposerNoWorkspace(true);
@@ -812,8 +880,8 @@ export default function App() {
     }
     const meta =
       scope === "global"
-        ? await openGlobalTab(trimmedTopicId, true)
-        : await openProjectTab(workspaceRoot, trimmedTopicId, true);
+        ? await openGlobalTab(trimmedTopicId)
+        : await openProjectTab(workspaceRoot, trimmedTopicId);
     if (!meta?.id) return;
     await refreshTabMetas();
   }, [openGlobalTab, openProjectTab, refreshTabMetas]);
@@ -952,12 +1020,9 @@ export default function App() {
 
   useEffect(() => {
     if (!state.meta?.ready || codeWorkspaceRestoredRef.current) return;
-    if (composerNoWorkspace) return;
-    const stored = getStoredCodeWorkspaceRoot();
-    if (!isUsableCodeWorkspaceRoot(stored)) return;
     codeWorkspaceRestoredRef.current = true;
-    void switchFolder(stored);
-  }, [state.meta?.ready, composerNoWorkspace, switchFolder]);
+    void syncActiveTab(false);
+  }, [state.meta?.ready, syncActiveTab]);
 
   useEffect(() => {
     const prev = prevAppModeRef.current;
@@ -968,20 +1033,33 @@ export default function App() {
     }
     if (appMode === "write" && prev !== "write") {
       const stored = getStoredWriteWorkspaceRoot();
+      let nextRoot = writeWorkspaceRoot;
       if (isNoWriteWorkspace(stored)) {
+        nextRoot = NO_WORKSPACE_VALUE;
         setWriteWorkspaceRoot(NO_WORKSPACE_VALUE);
       } else if (isUsableWriteWorkspaceRoot(stored)) {
+        nextRoot = stored;
         setWriteWorkspaceRoot(stored);
       }
+      void activateWriteTab(nextRoot);
       return;
+    }
+    if (prev === "write" && appMode !== "write") {
+      void restoreCodeTab();
     }
     if (appMode === "code" && prev !== "code" && !composerNoWorkspace) {
       const stored = getStoredCodeWorkspaceRoot();
-      if (isUsableCodeWorkspaceRoot(stored)) {
+      const activeRoot = activeTab?.workspaceRoot?.trim() ?? "";
+      if (isUsableCodeWorkspaceRoot(stored) && (!activeRoot || !sameWorkspaceRoot(activeRoot, stored))) {
         void switchFolder(stored);
       }
     }
-  }, [appMode, composerNoWorkspace, switchFolder]);
+  }, [appMode, composerNoWorkspace, switchFolder, activeTab?.workspaceRoot, activateWriteTab, restoreCodeTab, writeWorkspaceRoot]);
+
+  useEffect(() => {
+    if (appMode !== "write" || state.meta?.ready !== true) return;
+    void ensureWriteTabMatchesWorkspace(writeWorkspaceRoot);
+  }, [appMode, ensureWriteTabMatchesWorkspace, state.meta?.ready, writeWorkspaceRoot]);
 
   const composerPickFolder = useCallback(
     async (path?: string) => {
@@ -1348,17 +1426,24 @@ export default function App() {
           >
             <div className="workbench__stack">
               <div className="workbench__center">
-                {state.meta?.ready === false && !state.meta?.startupErr ? (
+                {showBootLoading ? (
                   <div className="loading-screen">
                     <div className="loading-screen__spinner" />
-                    <span className="loading-screen__text">{t("common.loading")}</span>
+                    <span className="loading-screen__text">{bootLoadingText}</span>
                   </div>
                 ) : chatMode ? (
-                  <MessageTimeline
+                  <>
+                    {state.meta?.ready === false && !state.meta?.startupErr ? (
+                      <div className="loading-screen loading-screen--inline" role="status">
+                        <div className="loading-screen__spinner loading-screen__spinner--sm" />
+                        <span className="loading-screen__text">{bootLoadingText}</span>
+                      </div>
+                    ) : null}
+                    <MessageTimeline
                     tabId={activeTabId}
                     items={deferredItems}
                     pendingUser={state.pendingUser}
-                    live={state.live}
+                    live={deferredLive}
                     usage={state.usage}
                     sessionCost={state.sessionCost}
                     sessionCurrency={state.sessionCurrency}
@@ -1374,6 +1459,7 @@ export default function App() {
                     showConnectionRecovery={showConnectionRecovery}
                     onOpenConnectionSetup={openOnboardingManual}
                   />
+                  </>
                 ) : (
                   <ModeWorkspaceCenter
                     mode={appMode}
@@ -1444,7 +1530,7 @@ export default function App() {
 
               {showWorkbenchFooter ? (
                 <div className="workbench__footer" ref={footerRef}>
-                  <div className={`workbench__footer-stack${terminalOpen ? " workbench__footer-stack--terminal-open" : ""}`}>
+                  <div className={`workbench__footer-stack${terminalPanelVisible ? " workbench__footer-stack--terminal-open" : ""}`}>
                     <div className="workbench__composer-zone">
                       {showConnectionRecovery ? (
                         <ConnectionRecoveryBanner onOpenSetup={openOnboardingManual} />
@@ -1501,18 +1587,47 @@ export default function App() {
                         showWorkspaceSwitcher
                         workspaceNone={composerWorkspaceNone}
                         onUseNoWorkspace={handleUseNoWorkspace}
-                        terminalActive={chatMode && terminalOpen && terminalTabs.length > 0}
-                        terminalLabel={activeTerminalTab?.title}
-                        browserPreviewActive={chatMode && browserPreviewOpen}
-                        browserPreviewLabel={webPreviewUrl ?? undefined}
-                        pagePreviewActive={chatMode && pagePreviewOpen}
+                        terminalSessions={
+                          chatMode ? terminalTabs.map((tab) => ({ id: tab.id, label: tab.title })) : []
+                        }
+                        onTerminalSessionOpen={
+                          chatMode
+                            ? (id) => {
+                                setActiveTerminalId(id);
+                                restoreTerminalPanel();
+                              }
+                            : undefined
+                        }
+                        onTerminalSessionClose={chatMode ? closeTerminalTab : undefined}
+                        browserSessions={
+                          chatMode && browserActive
+                            ? browserTabs.map((tab) => ({ id: tab.id, label: tab.title }))
+                            : []
+                        }
+                        onBrowserSessionOpen={
+                          chatMode
+                            ? (id) => {
+                                setActiveBrowserTabId(id);
+                                openDockTab("browser", { toggle: false });
+                              }
+                            : undefined
+                        }
+                        onBrowserSessionClose={chatMode ? closeBrowserTab : undefined}
+                        pagePreviewActive={chatMode && pagePreviewActive}
                         pagePreviewLabel={pagePreviewPath ?? undefined}
+                        onPageSessionOpen={
+                          chatMode && pagePreviewActive
+                            ? () => openDockTab("page", { toggle: false })
+                            : undefined
+                        }
+                        onPageSessionClose={
+                          chatMode && pagePreviewActive ? () => setPagePreviewPath(null) : undefined
+                        }
                         context={state.context}
                         usage={state.usage}
                         balance={state.balance}
                         sessionCost={state.sessionCost}
                         sessionCurrency={state.sessionCurrency}
-                        terminalCount={terminalOpen ? terminalTabs.length : 0}
                       />
                     </div>
                     {terminalPanelShown && !filePreviewComposerOpen && terminalTabs.length > 0 && resolvedActiveTerminalId && (
@@ -1525,6 +1640,7 @@ export default function App() {
                         onActiveChange={setActiveTerminalId}
                         onNewTerminal={() => void openNewTerminal()}
                         onCloseTab={closeTerminalTab}
+                        onMinimizePanel={minimizeTerminalPanel}
                         onClosePanel={closeTerminalPanel}
                         onResizeHeight={setSavedTerminalHeight}
                       />
@@ -1557,62 +1673,83 @@ export default function App() {
               </>
             )}
 
-            {showRightDock && workspacePanelOpen && (
+            {showRightDock && dockMounted && (
               <>
-                <button
-                  className="workbench__resizer workbench__resizer--dock wails-no-drag"
-                  type="button"
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label={t("rightDock.resize")}
-                  onPointerDown={startDockResize}
-                />
-                <RightDock
-                  key={dockMotionKey}
-                  open={workspacePanelOpen}
-                  closing={dockClosing}
-                  tab={rightDockMode}
-                  onTabChange={(tab) => openDockTab(tab, { toggle: false })}
-                  onClose={closeWorkspacePanel}
-                  tabId={activeTabId}
-                  context={state.context}
-                  usage={state.usage}
-                  sessionCost={state.sessionCost}
-                  sessionCurrency={state.sessionCurrency}
-                  scopeLabel={topicScopeLabel(activeTab)}
-                  refreshKey={projectRevision}
-                  modelLabel={state.meta?.label}
-                  mode={mode}
-                  effort={state.effort}
-                  balance={state.balance}
-                  running={state.running}
-                  cwd={composerCwd}
-                  onAddToChat={addWorkspaceTextToComposer}
-                  filePreviewPath={filePreviewPath}
-                  onOpenFile={(path, dockTab) => openFilePreview(path, dockTab ?? "files")}
-                  todos={showTodos ? todos : []}
-                  todoStale={todoStale}
-                  onDismissTodos={() => setDismissedTodo(todoItem!.id)}
-                  onStartPlan={() => handleSend("/plan")}
-                  codeReview={codeReview}
-                  onRunCodeReview={runCodeReview}
-                  onClearCodeReview={clearCodeReview}
-                  browserExpanded={browserPreviewExpanded}
-                  onToggleBrowserExpanded={toggleBrowserPreviewExpanded}
-                  webPreviewUrl={webPreviewUrl}
-                  onWebPreviewUrlChange={setWebPreviewUrl}
-                  pagePreviewPath={pagePreviewPath}
-                  onPagePreviewPathChange={setPagePreviewPath}
-                  onPreviewPage={openPagePreview}
-                />
+                {workspacePanelOpen ? (
+                  <button
+                    className="workbench__resizer workbench__resizer--dock wails-no-drag"
+                    type="button"
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label={t("rightDock.resize")}
+                    onPointerDown={startDockResize}
+                  />
+                ) : null}
+                <div
+                  className={`workbench__dock-slot${dockBackgroundSessions && !workspacePanelOpen ? " workbench__dock-slot--background" : ""}`}
+                  style={
+                    {
+                      width: workspacePanelOpen ? dockAnimWidth : 0,
+                      minWidth: workspacePanelOpen ? undefined : 0,
+                      flex: workspacePanelOpen ? undefined : "0 0 0px",
+                    } as CSSProperties
+                  }
+                >
+                  <RightDock
+                    key={dockMotionKey}
+                    open={workspacePanelOpen}
+                    background={dockBackgroundSessions && !workspacePanelOpen}
+                    closing={dockClosing}
+                    tab={rightDockMode}
+                    onTabChange={(tab) => openDockTab(tab, { toggle: false })}
+                    onClose={closeWorkspacePanel}
+                    tabId={activeTabId}
+                    context={state.context}
+                    usage={state.usage}
+                    sessionCost={state.sessionCost}
+                    sessionCurrency={state.sessionCurrency}
+                    scopeLabel={topicScopeLabel(activeTab)}
+                    refreshKey={projectRevision}
+                    modelLabel={state.meta?.label}
+                    mode={mode}
+                    effort={state.effort}
+                    balance={state.balance}
+                    running={state.running}
+                    cwd={composerCwd}
+                    onAddToChat={addWorkspaceTextToComposer}
+                    filePreviewPath={filePreviewPath}
+                    onOpenFile={(path, dockTab) => openFilePreview(path, dockTab ?? "files")}
+                    todos={showTodos ? todos : []}
+                    todoStale={todoStale}
+                    onDismissTodos={() => setDismissedTodo(todoItem!.id)}
+                    onStartPlan={() => handleSend("/plan")}
+                    codeReview={codeReview}
+                    onRunCodeReview={runCodeReview}
+                    onClearCodeReview={clearCodeReview}
+                    browserExpanded={browserPreviewExpanded}
+                    onToggleBrowserExpanded={toggleBrowserPreviewExpanded}
+                    browserTabs={browserTabs}
+                    activeBrowserTabId={activeBrowserTabId}
+                    onBrowserTabChange={setActiveBrowserTabId}
+                    onCloseBrowserTab={handleCloseBrowserTab}
+                    onNewBrowserTab={() => openWebPreview()}
+                    onBrowserTabUrlChange={(id, url, title) => updateBrowserTab(id, { url, title })}
+                    pagePreviewPath={pagePreviewPath}
+                    onPagePreviewPathChange={setPagePreviewPath}
+                    onPreviewPage={openPagePreview}
+                  />
+                </div>
               </>
             )}
 
             {(chatMode || appMode === "write") && (
               <StudioToolRail
                 dockOpen={workspacePanelOpen}
-                activeDockTab={workspacePanelOpen ? rightDockMode : null}
-                terminalOpen={terminalOpen}
+                activeDockTab={
+                  workspacePanelOpen && rightDockMode !== "browser" && rightDockMode !== "page"
+                    ? rightDockMode
+                    : null
+                }
                 onHubPress={openDockHub}
                 onOpenDockTab={(tab) => openDockTab(tab, { toggle: false })}
                 onOpenPreviewMode={togglePreviewMode}

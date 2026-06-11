@@ -9,6 +9,9 @@ var (
 	redactBearerToken = regexp.MustCompile(`(?i)(Bearer\s+)[A-Za-z0-9._\-+/=]{8,}`)
 	redactAPIKeyValue = regexp.MustCompile(`(?i)((?:api[_-]?key|token|secret|password|authorization)\s*[:=]\s*["']?)[^\s"',;]+`)
 	redactSKPrefix    = regexp.MustCompile(`sk-[A-Za-z0-9._\-]{8,}`)
+	redactTunnelURL   = regexp.MustCompile(`https://[a-zA-Z0-9-]+\.(trycloudflare|cfargotunnel)\.com`)
+	redactMobilePath  = regexp.MustCompile(`/mobile/p/[A-Za-z0-9]+`)
+	redactSessionQuery = regexp.MustCompile(`(?i)([?&]session=)[^&\s"']+`)
 )
 
 // redactSecrets masks common credential patterns before values reach logs or notices.
@@ -28,8 +31,13 @@ func redactURLQuery(raw string) string {
 	if raw == "" {
 		return raw
 	}
-	if i := strings.Index(raw, "/mobile/p/"); i >= 0 {
-		return raw[:i+len("/mobile/p/")] + "[REDACTED]"
+	out := redactTunnelURL.ReplaceAllString(raw, "https://[REDACTED-TUNNEL]")
+	out = redactMobilePath.ReplaceAllString(out, "/mobile/p/[REDACTED]")
+	out = redactSessionQuery.ReplaceAllString(out, `${1}[REDACTED]`)
+	if strings.Contains(out, "/mobile/p/") {
+		if i := strings.Index(out, "/mobile/p/"); i >= 0 {
+			out = out[:i+len("/mobile/p/")] + "[REDACTED]"
+		}
 	}
-	return redactSecrets(raw)
+	return redactSecrets(out)
 }

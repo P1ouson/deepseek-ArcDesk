@@ -46,7 +46,7 @@ def main() -> None:
 
     user32.ShowWindow(hwnd, SW_RESTORE)
     user32.SetForegroundWindow(hwnd)
-    time.sleep(6)
+    time.sleep(12)
 
     rect = wintypes.RECT()
     user32.GetWindowRect(hwnd, ctypes.byref(rect))

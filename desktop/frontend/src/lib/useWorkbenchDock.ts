@@ -38,8 +38,11 @@ const MOTION_PANEL_MS = 220;
 /** Minimum chat width reserved when sizing the right dock — lower than CHAT_MIN_WIDTH so the dock can open with the project drawer visible. */
 const DOCK_CHAT_MIN_WIDTH = 420;
 const WORKSPACE_RESIZER_WIDTH = 8;
-const RIGHT_DOCK_DEFAULT_WIDTH = 300;
-const RIGHT_DOCK_DEFAULT_RATIO = 0.2;
+const RIGHT_DOCK_DEFAULT_WIDTH = 380;
+const RIGHT_DOCK_DEFAULT_RATIO = 0.28;
+const PREVIEW_DOCK_DEFAULT_RATIO = 0.36;
+const PREVIEW_DOCK_MIN_WIDTH = 420;
+const PREVIEW_DOCK_EXPANDED_RATIO = 0.5;
 const RIGHT_DOCK_MIN_WIDTH = 280;
 const RIGHT_DOCK_MAX_WIDTH = 720;
 const RIGHT_DOCK_MIN_RENDER_WIDTH = 200;
@@ -86,26 +89,56 @@ function loadRightDockWidth(): number {
   return defaultRightDockWidth();
 }
 
-function resolveRightDockWidth(mainWidth: number, desiredDockWidth: number): number {
+function resolveRightDockWidth(mainWidth: number, desiredDockWidth: number, maxWidth = RIGHT_DOCK_MAX_WIDTH): number {
   const budget = Math.max(0, Math.round(mainWidth) - DOCK_CHAT_MIN_WIDTH - WORKSPACE_RESIZER_WIDTH);
   if (budget < RIGHT_DOCK_MIN_RENDER_WIDTH) return 0;
-  const desired = Math.min(RIGHT_DOCK_MAX_WIDTH, Math.max(RIGHT_DOCK_MIN_RENDER_WIDTH, Math.round(desiredDockWidth)));
+  const desired = Math.min(maxWidth, Math.max(RIGHT_DOCK_MIN_RENDER_WIDTH, Math.round(desiredDockWidth)));
   return Math.min(budget, desired);
+}
+
+/** Half of the full workbench width, leaving minimum chat space in the body row. */
+function resolveExpandedPreviewDockWidth(workbenchWidth: number, bodyRowWidth: number): number {
+  const body = Math.max(0, Math.round(bodyRowWidth));
+  const maxAllowed = Math.max(
+    RIGHT_DOCK_MIN_RENDER_WIDTH,
+    body - DOCK_CHAT_MIN_WIDTH - WORKSPACE_RESIZER_WIDTH,
+  );
+  if (maxAllowed < RIGHT_DOCK_MIN_RENDER_WIDTH) return RIGHT_DOCK_MIN_RENDER_WIDTH;
+  const bench = Math.max(0, Math.round(workbenchWidth));
+  const target = Math.round(bench * PREVIEW_DOCK_EXPANDED_RATIO);
+  return Math.max(RIGHT_DOCK_MIN_RENDER_WIDTH, Math.min(maxAllowed, target));
 }
 
 export type WorkbenchDockDeps = {
   appMode: AppMode;
   projectDrawerOpen: boolean;
-  terminalOpen: boolean;
-  cwd?: string;
-  openNewTerminal: () => void | Promise<void>;
+  browserActive: boolean;
+  openBrowserTab: (url?: string) => string;
+  closeAllBrowserTabs: () => void;
+  terminalHasSessions: boolean;
+  terminalPanelVisible: boolean;
+  minimizeTerminalPanel: () => void;
+  restoreTerminalPanel: () => void;
   closeTerminalPanel: () => void;
+  openNewTerminal: () => void | Promise<void>;
+  cwd?: string;
   setComposerInsertRequest: Dispatch<SetStateAction<ComposerInsertRequest | null>>;
 };
 
 export function useWorkbenchDock(deps: WorkbenchDockDeps) {
-  const { appMode, projectDrawerOpen, terminalOpen, cwd, openNewTerminal, closeTerminalPanel, setComposerInsertRequest } =
-    deps;
+  const {
+    appMode,
+    projectDrawerOpen,
+    browserActive,
+    openBrowserTab,
+    terminalHasSessions,
+    terminalPanelVisible,
+    minimizeTerminalPanel,
+    restoreTerminalPanel,
+    openNewTerminal,
+    cwd,
+    setComposerInsertRequest,
+  } = deps;
 
   const layoutRef = useRef<HTMLDivElement>(null);
   const [layoutWidth, setLayoutWidth] = useState(0);
@@ -124,7 +157,6 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
   const [filePreviewComposerOpen, setFilePreviewComposerOpen] = useState(false);
   const [filePreviewResizing, setFilePreviewResizing] = useState(false);
   const [browserPreviewExpanded, setBrowserPreviewExpanded] = useState(false);
-  const [webPreviewUrl, setWebPreviewUrl] = useState<string | null>(null);
   const [pagePreviewPath, setPagePreviewPath] = useState<string | null>(null);
   const [rightDockMode, setRightDockMode] = useState<RightDockTab>(() => loadHubLastTab("context"));
 
@@ -155,21 +187,39 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
     : 0;
   const previewChromeWidth = filePreviewOpen ? filePreviewRenderWidth + WORKSPACE_RESIZER_WIDTH : 0;
   const chatDockBudget = Math.max(0, measuredMainWidth - studioToolRailWidth - previewChromeWidth);
+  const workbenchWidth = layoutWidth > 0 ? layoutWidth : viewportWidthFallback();
+  const previewDockTab = rightDockMode === "browser" || rightDockMode === "page";
+  const previewDockPreferred = clampRightDockWidth(
+    Math.max(
+      PREVIEW_DOCK_MIN_WIDTH,
+      Math.round(Math.max(workbenchWidth, chatDockBudget) * PREVIEW_DOCK_DEFAULT_RATIO),
+    ),
+  );
+  const dockPreferredWidth =
+    workspacePanelOpen && previewDockTab
+      ? Math.max(preferredWorkspacePanelWidth, previewDockPreferred)
+      : preferredWorkspacePanelWidth;
   const resolvedWorkspacePanelWidth = workspacePanelOpen
-    ? resolveRightDockWidth(chatDockBudget, preferredWorkspacePanelWidth)
-    : preferredWorkspacePanelWidth;
+    ? resolveRightDockWidth(chatDockBudget, dockPreferredWidth)
+    : dockPreferredWidth;
   const baseWorkspacePanelWidth = workspacePanelOpen
     ? Math.max(resolvedWorkspacePanelWidth, RIGHT_DOCK_MIN_RENDER_WIDTH)
     : 0;
+  const expandedPreviewWidth = resolveExpandedPreviewDockWidth(workbenchWidth, chatDockBudget);
   const workspacePanelRenderWidth =
-    workspacePanelOpen && browserPreviewExpanded
-      ? clampRightDockWidth(Math.min(RIGHT_DOCK_MAX_WIDTH, Math.max(baseWorkspacePanelWidth, 480)))
+    workspacePanelOpen && browserPreviewExpanded && previewDockTab
+      ? expandedPreviewWidth
       : baseWorkspacePanelWidth;
   targetDockWidthRef.current = workspacePanelRenderWidth;
   const dockGridWidth = 0;
-  const browserPreviewOpen = workspacePanelOpen && rightDockMode === "browser";
-  const pagePreviewOpen = workspacePanelOpen && rightDockMode === "page";
-  const previewPanelOpen = browserPreviewOpen || pagePreviewOpen;
+  const browserPreviewActive = browserActive;
+  const browserPreviewVisible = workspacePanelOpen && rightDockMode === "browser";
+  const pagePreviewActive = pagePreviewPath !== null;
+  const pagePreviewVisible = workspacePanelOpen && rightDockMode === "page";
+  const previewPanelVisible = browserPreviewVisible || pagePreviewVisible;
+  const previewPanelActive = browserPreviewActive || pagePreviewActive;
+  const dockBackgroundSessions = browserPreviewActive || pagePreviewActive;
+  const dockMounted = workspacePanelOpen || dockBackgroundSessions;
 
   useEffect(() => {
     if (!workspacePanelOpen) {
@@ -193,11 +243,15 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
   useEffect(() => {
     if (!workspacePanelOpen || dockAnimWidth <= 0) return;
     setDockAnimWidth(workspacePanelRenderWidth);
-  }, [workspacePanelRenderWidth, workspacePanelOpen, dockAnimWidth]);
+  }, [workspacePanelRenderWidth, workspacePanelOpen, dockAnimWidth, browserPreviewExpanded]);
 
   useEffect(() => {
-    savePreviewPanelState({ terminal: terminalOpen, browser: browserPreviewOpen, page: pagePreviewOpen });
-  }, [browserPreviewOpen, pagePreviewOpen, terminalOpen]);
+    savePreviewPanelState({
+      terminal: terminalHasSessions,
+      browser: browserPreviewActive,
+      page: pagePreviewActive,
+    });
+  }, [browserPreviewActive, pagePreviewActive, terminalHasSessions]);
 
   useEffect(() => {
     setFilePreviewPath(null);
@@ -231,13 +285,6 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
       dockCloseTimerRef.current = null;
     }, MOTION_PANEL_MS);
   }, [workspacePanelOpen]);
-
-  const closePreviewPanel = useCallback(() => {
-    setBrowserPreviewExpanded(false);
-    if (previewPanelOpen) {
-      closeWorkspacePanel();
-    }
-  }, [closeWorkspacePanel, previewPanelOpen]);
 
   const toggleBrowserPreviewExpanded = useCallback(() => {
     setBrowserPreviewExpanded((value) => !value);
@@ -312,29 +359,33 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
   }, []);
 
   const togglePreviewTerminal = useCallback(() => {
-    if (terminalOpen) {
-      closeTerminalPanel();
+    if (terminalPanelVisible) {
+      minimizeTerminalPanel();
+      return;
+    }
+    if (terminalHasSessions) {
+      restoreTerminalPanel();
       return;
     }
     void openNewTerminal();
-  }, [closeTerminalPanel, openNewTerminal, terminalOpen]);
+  }, [minimizeTerminalPanel, openNewTerminal, restoreTerminalPanel, terminalHasSessions, terminalPanelVisible]);
 
   const openWebPreview = useCallback(
     (url?: string) => {
-      if (url?.trim()) setWebPreviewUrl(url.trim());
+      openBrowserTab(url);
       openDockTab("browser", { toggle: false });
-      savePreviewPanelState({ terminal: terminalOpen, browser: true, page: false });
+      savePreviewPanelState({ terminal: terminalHasSessions, browser: true, page: pagePreviewActive });
     },
-    [openDockTab, terminalOpen],
+    [openBrowserTab, openDockTab, pagePreviewActive, terminalHasSessions],
   );
 
   const openPagePreview = useCallback(
     (path?: string) => {
       if (path?.trim()) setPagePreviewPath(path.trim());
       openDockTab("page", { toggle: false });
-      savePreviewPanelState({ terminal: terminalOpen, browser: false, page: true });
+      savePreviewPanelState({ terminal: terminalHasSessions, browser: browserPreviewActive, page: true });
     },
-    [openDockTab, terminalOpen],
+    [browserPreviewActive, openDockTab, terminalHasSessions],
   );
 
   const openPreviewBrowser = useCallback(() => {
@@ -342,29 +393,37 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
   }, [openWebPreview]);
 
   const togglePreviewBrowser = useCallback(() => {
-    if (browserPreviewOpen) {
-      closePreviewPanel();
+    if (browserPreviewVisible) {
+      closeWorkspacePanel();
+      return;
+    }
+    if (browserPreviewActive) {
+      openDockTab("browser", { toggle: false });
       return;
     }
     openWebPreview();
-  }, [browserPreviewOpen, closePreviewPanel, openWebPreview]);
+  }, [browserPreviewActive, browserPreviewVisible, closeWorkspacePanel, openDockTab, openWebPreview]);
 
   const togglePreviewPage = useCallback(() => {
-    if (pagePreviewOpen) {
-      closePreviewPanel();
+    if (pagePreviewVisible) {
+      closeWorkspacePanel();
+      return;
+    }
+    if (pagePreviewActive) {
+      openDockTab("page", { toggle: false });
       return;
     }
     openPagePreview();
-  }, [closePreviewPanel, openPagePreview, pagePreviewOpen]);
+  }, [closeWorkspacePanel, openDockTab, openPagePreview, pagePreviewActive, pagePreviewVisible]);
 
   const deactivatePreview = useCallback(() => {
-    if (terminalOpen) {
-      closeTerminalPanel();
+    if (terminalPanelVisible) {
+      minimizeTerminalPanel();
     }
-    if (previewPanelOpen) {
-      closePreviewPanel();
+    if (previewPanelVisible) {
+      closeWorkspacePanel();
     }
-  }, [closePreviewPanel, closeTerminalPanel, previewPanelOpen, terminalOpen]);
+  }, [closeWorkspacePanel, minimizeTerminalPanel, previewPanelVisible, terminalPanelVisible]);
 
   const togglePreviewMode = useCallback(
     (mode: PreviewMode) => {
@@ -384,7 +443,7 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
   const openDockHub = useCallback(
     (hub: DockHub) => {
       if (hub === "preview") {
-        if (previewPanelOpen || terminalOpen) {
+        if (previewPanelActive || terminalHasSessions) {
           deactivatePreview();
           return;
         }
@@ -415,9 +474,9 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
       openNewTerminal,
       openPagePreview,
       openWebPreview,
-      previewPanelOpen,
+      previewPanelActive,
       rightDockMode,
-      terminalOpen,
+      terminalHasSessions,
       workspacePanelOpen,
     ],
   );
@@ -563,17 +622,20 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
     rightDockMode,
     rightDockWidth,
     browserPreviewExpanded,
-    browserPreviewOpen,
-    pagePreviewOpen,
-    previewPanelOpen,
-    webPreviewUrl,
-    setWebPreviewUrl,
-    pagePreviewPath,
-    setPagePreviewPath,
+    browserPreviewActive,
+    browserPreviewVisible,
+    pagePreviewActive,
+    pagePreviewVisible,
+    previewPanelVisible,
+    previewPanelActive,
+    dockMounted,
+    dockBackgroundSessions,
     openWebPreview,
     openPagePreview,
     openPreviewBrowser,
     filePreviewOpen,
+    pagePreviewPath,
+    setPagePreviewPath,
     showRightDock,
     closeWorkspacePanel,
     openDockTab,

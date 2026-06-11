@@ -37,12 +37,12 @@ describe("runtime readiness gate", () => {
     expect(bridgeEventStreamSource()).toBe("mock");
   });
 
-  it("B: go without runtime → not ready, no split-brain (mock IPC + deferred events)", () => {
+  it("B: go without runtime → real IPC, deferred events", () => {
     setWindowShape(true, false);
     expect(isRuntimeReady()).toBe(false);
     expect(isWailsRuntime()).toBe(false);
     expect(hasGoBinding()).toBe(true);
-    expect(bridgeBindingSource()).toBe("mock");
+    expect(bridgeBindingSource()).toBe("wails");
     expect(bridgeEventStreamSource()).toBe("deferred");
   });
 
@@ -67,7 +67,7 @@ describe("runtime readiness gate", () => {
         expect(binding).toBe("wails");
         expect(events).toBe("wails");
       } else if (hasGoBinding()) {
-        expect(binding).toBe("mock");
+        expect(binding).toBe("wails");
         expect(events).toBe("deferred");
       } else {
         expect(binding).toBe("mock");

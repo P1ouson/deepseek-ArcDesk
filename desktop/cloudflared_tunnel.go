@@ -129,7 +129,16 @@ func (a *App) GetMobileTunnelStatus() MobileTunnelStatus {
 }
 
 func (a *App) StartMobileTunnel() MobileTunnelStatus {
-	if a == nil || a.clawBridge == nil {
+	if a == nil {
+		return MobileTunnelStatus{Err: "mobile connect is not ready"}
+	}
+	if !a.confirmStartMobileTunnel() {
+		return MobileTunnelStatus{Err: "cancelled"}
+	}
+	if err := a.ensureClawBridge(); err != nil {
+		return MobileTunnelStatus{Err: err.Error()}
+	}
+	if a.clawBridge == nil {
 		return MobileTunnelStatus{Err: "mobile connect is not ready"}
 	}
 	return a.clawBridge.startCloudflaredTunnel()
@@ -271,6 +280,7 @@ func (b *clawBridge) stopMobileTunnel() {
 	if cmd != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	}
+	b.disconnectRemoteSessions()
 }
 
 func (b *clawBridge) touchTunnelActivity() {

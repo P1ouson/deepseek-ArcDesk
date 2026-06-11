@@ -68,3 +68,10 @@ export function isNoWorkspaceRoot(path: string | undefined | null): boolean {
   const normalized = (path ?? "").trim();
   return normalized === "" || normalized === NO_WORKSPACE_VALUE;
 }
+
+/** Case-insensitive path compare for Windows drive letters and separators. */
+export function sameWorkspaceRoot(a: string | undefined | null, b: string | undefined | null): boolean {
+  const left = (a ?? "").trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const right = (b ?? "").trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return left !== "" && left === right;
+}

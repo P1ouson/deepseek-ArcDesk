@@ -2,16 +2,42 @@
 
 README 截图资源。路径相对于仓库根目录 `docs/screenshots/`。
 
-| 文件 | 对应侧栏 | 说明 |
-|------|----------|------|
-| `sidebar-code.png` | 代码 | Hero 主图：代码工作区入口 |
-| `sidebar-write.png` | 写作 | 写作文稿与 Skills |
-| `sidebar-extensions.png` | 扩展 | Skills 列表与 MCP 外部工具 |
-| `sidebar-schedule.png` | 定时 | 定时任务创建与列表 |
-| `sidebar-connect.png` | 连接 | 手机扫码配对 / 局域网 / 穿透 |
-| `sidebar-settings.png` | 设置 | 通用设置（语言、代理、模型等） |
-| `runtime-agent-approval.png` | 代码实机 | 思考过程 + `write_file` 审批（`arcdesk-demo`） |
-| `runtime-web-preview.png` | Web 预览 | 右侧 iframe 看板页实机 |
-| `runtime-writing.png` | 写作实机 | Markdown 编辑 + 写作助手 |
+## 已提交（Phase A · 第一眼）
 
-**Capture tips:** 使用真实项目、打码 API Key 与敏感路径；Light/Dark 各一套可选。底部余额条已脚本打码。
+| 文件 | 用途 |
+|------|------|
+| `desktop-hero.gif` | README 顶部 30 秒预览（实机窗口录帧） |
+| `desktop-workbench.png` | 静态主图：代码工作区欢迎页 |
+| `desktop-hero.svg` | 无实机时的占位矢量图（备用） |
+
+### 重新生成
+
+需先构建桌面版：`cd desktop && wails build`
+
+```powershell
+# Windows · PNG
+python desktop/scripts/capture-screenshot.py
+
+# Windows · GIF（8 帧）
+python desktop/scripts/capture-hero-gif.py
+```
+
+```powershell
+# 备选 · PowerShell PNG（需 .NET System.Drawing）
+desktop/scripts/capture-screenshot.ps1
+```
+
+**Capture tips:** 使用真实项目、打码 API Key 与敏感路径；等待 ≥12s 让欢迎页加载完成；Light/Dark 各一套可选。
+
+## 待补（可选）
+
+| 文件 | 对应侧栏 |
+|------|----------|
+| `sidebar-write.png` | 写作 |
+| `sidebar-extensions.png` | 扩展 |
+| `sidebar-schedule.png` | 定时 |
+| `sidebar-connect.png` | 连接 |
+| `sidebar-settings.png` | 设置 |
+| `runtime-agent-approval.png` | Agent 审批实机 |
+| `runtime-web-preview.png` | 沙盒 Browser（多标签 + 适应面板） |
+| `runtime-writing.png` | 写作助手 |

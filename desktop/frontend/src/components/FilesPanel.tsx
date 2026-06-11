@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { app } from "../lib/bridge";
+import { IPC_LIST_DIR_TIMEOUT_MS, withIPCTimeout } from "../lib/ipc";
 import { useT } from "../lib/i18n";
 import type { DictKey } from "../locales/en";
 import { parentDirs, shortCwd } from "../lib/workspaceFilePreview";
@@ -71,7 +72,7 @@ export function FilesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onPrev
   }, []);
 
   const loadDir = useCallback(async (dir: string) => {
-    const entries = await app.ListDir(dir).catch(() => []);
+    const entries = await withIPCTimeout(app.ListDir(dir), IPC_LIST_DIR_TIMEOUT_MS, "ListDir").catch(() => []);
     setEntriesByDir((prev) => ({ ...prev, [dir]: entries ?? [] }));
   }, []);
 

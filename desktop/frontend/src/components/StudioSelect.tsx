@@ -6,6 +6,7 @@ import { AnchoredPopover } from "./AnchoredPopover";
 export type StudioSelectOption = {
   value: string;
   label: string;
+  title?: string;
   icon?: ReactNode;
   disabled?: boolean;
 };
@@ -21,6 +22,7 @@ export function StudioSelect({
   menuLabel,
   align = "start",
   id: idProp,
+  menuClassName = "",
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -32,6 +34,7 @@ export function StudioSelect({
   menuLabel?: string;
   align?: "start" | "end";
   id?: string;
+  menuClassName?: string;
 }) {
   const autoId = useId();
   const id = idProp ?? autoId;
@@ -39,6 +42,7 @@ export function StudioSelect({
   const [open, setOpen] = useState(false);
   const selected = options.find((option) => option.value === value);
   const display = selected?.label ?? placeholder;
+  const triggerTitle = selected?.title ?? selected?.label ?? placeholder;
 
   const closeMenu = useCallback(() => setOpen(false), []);
 
@@ -64,6 +68,7 @@ export function StudioSelect({
         aria-expanded={open}
         aria-labelledby={label ? `${id}-label` : undefined}
         className={`studio-select__trigger${open ? " studio-select__trigger--open" : ""}`}
+        title={triggerTitle}
         onClick={() => {
           if (!disabled) setOpen((current) => !current);
         }}
@@ -80,7 +85,7 @@ export function StudioSelect({
         align={align}
         placement="bottom"
       >
-        <div className="studio-select__menu" role="listbox">
+        <div className={`studio-select__menu${menuClassName ? ` ${menuClassName}` : ""}`} role="listbox">
           {menuLabel ? <div className="studio-select__menu-label">{menuLabel}</div> : null}
           {options.map((option) => (
             <button
@@ -90,6 +95,7 @@ export function StudioSelect({
               aria-selected={option.value === value}
               disabled={option.disabled}
               className={`studio-select__item${option.value === value ? " studio-select__item--active" : ""}`}
+              title={option.title ?? option.label}
               onClick={() => {
                 if (option.disabled) return;
                 onChange(option.value);

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"strings"
@@ -254,13 +255,25 @@ func relayWebSocketURL(base string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	host := strings.ToLower(u.Hostname())
+	loopback := host == "localhost" || host == "127.0.0.1" || host == "::1"
 	switch strings.ToLower(u.Scheme) {
 	case "https":
 		u.Scheme = "wss"
 	case "http":
+		if !loopback {
+			return "", fmt.Errorf("relay URL must use https for remote hosts")
+		}
 		u.Scheme = "ws"
-	case "ws", "wss":
+	case "ws":
+		if !loopback {
+			return "", fmt.Errorf("relay URL must use wss for remote hosts")
+		}
+	case "wss":
 	default:
+		if !loopback {
+			return "", fmt.Errorf("relay URL must use https for remote hosts")
+		}
 		u.Scheme = "ws"
 	}
 	u.Path = strings.TrimSuffix(u.Path, "/") + "/ws/desktop"

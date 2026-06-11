@@ -19,20 +19,31 @@ func TestDecisionRouteRejectsCrossTab(t *testing.T) {
 	}
 }
 
-func TestStartMobileTunnelStartsWithoutConfirm(t *testing.T) {
+func TestStartMobileTunnelRequiresConfirm(t *testing.T) {
 	store := newMobileConnectStore()
-	app := &App{clawBridge: &clawBridge{port: defaultClawBridgePort, mobile: store, pairRL: newPairRateLimiter()}}
-	called := false
+	app := &App{clawBridge: &clawBridge{port: defaultClawBridgePort, mobile: store, pairRL: newPairRateLimiter(), sessionRL: newSessionRateLimiter()}}
 	nativeConfirmHook = func(_ NativeConfirmRequest) (bool, error) {
-		called = true
 		return false, nil
 	}
 	defer func() { nativeConfirmHook = nil }()
 
-	// startCloudflaredTunnel may fail without cloudflared binary; we only assert confirm is not shown.
-	_ = app.StartMobileTunnel()
-	if called {
-		t.Fatal("StartMobileTunnel should not show native confirm (Connect UI already warns the user)")
+	st := app.StartMobileTunnel()
+	if st.Err == "" || !strings.Contains(st.Err, "cancelled") {
+		t.Fatalf("expected cancelled, got %+v", st)
+	}
+}
+
+func TestStartMobileTunnelProceedsAfterConfirm(t *testing.T) {
+	store := newMobileConnectStore()
+	app := &App{clawBridge: &clawBridge{port: defaultClawBridgePort, mobile: store, pairRL: newPairRateLimiter(), sessionRL: newSessionRateLimiter()}}
+	nativeConfirmHook = func(_ NativeConfirmRequest) (bool, error) {
+		return true, nil
+	}
+	defer func() { nativeConfirmHook = nil }()
+
+	st := app.StartMobileTunnel()
+	if strings.Contains(st.Err, "cancelled") {
+		t.Fatalf("unexpected cancel: %+v", st)
 	}
 }
 

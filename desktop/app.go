@@ -24,7 +24,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"arcdesk/internal/agent"
-	"arcdesk/internal/billing"
 	"arcdesk/internal/boot"
 	"arcdesk/internal/config"
 	"arcdesk/internal/control"
@@ -72,7 +71,8 @@ type App struct {
 	trayReady bool
 	tray      *desktopTray
 	sched     *taskScheduler
-	clawBridge *clawBridge
+	clawBridge   *clawBridge
+	clawBridgeMu sync.Mutex
 	mobileDecision *mobileDecisionStore
 	decisionRoutes *decisionRouteStore
 	clawRunMu      sync.Mutex
@@ -114,13 +114,39 @@ func (a *App) startup(ctx context.Context) {
 	installSystemQuitHook()
 	a.startTray()
 	a.startTaskScheduler()
-	a.startClawBridge()
 	migrateSensitiveDataFileModes()
-	if err := ensureBundledSkills(); err != nil {
-		slog.Warn("ensure bundled skills", "err", err)
-	}
-
+	// Restore tabs first so ListTabs/History IPC can serve last session from disk
+	// while the full agent boot continues in the background.
 	go a.restoreOrBuildTabs()
+	go func() {
+		if err := ensureBundledSkills(); err != nil {
+			slog.Warn("ensure bundled skills", "err", err)
+		}
+	}()
+	go a.refreshConfiguredProviderModelsIfNeeded()
+}
+
+func (a *App) refreshConfiguredProviderModelsIfNeeded() {
+	cfg, err := config.Load()
+	if err != nil {
+		return
+	}
+	seen := map[string]struct{}{}
+	for i := range cfg.Providers {
+		p := &cfg.Providers[i]
+		if !p.Configured() || len(p.Models) > 0 {
+			continue
+		}
+		env := strings.TrimSpace(p.APIKeyEnv)
+		if env == "" {
+			continue
+		}
+		if _, ok := seen[env]; ok {
+			continue
+		}
+		seen[env] = struct{}{}
+		a.refreshProviderModelsAsync(env)
+	}
 }
 
 func (a *App) beforeClose(ctx context.Context) bool {
@@ -164,6 +190,7 @@ func (a *App) restoreOrBuildTabs() {
 
 	f := loadTabsFile()
 	if len(f.Tabs) > 0 {
+		var pending []*WorkspaceTab
 		for _, entry := range f.Tabs {
 			a.mu.Lock()
 			id := a.restoredTabIDLocked(entry.ID)
@@ -176,6 +203,9 @@ func (a *App) restoreOrBuildTabs() {
 				tab = a.createTabEntryWithID("global", globalTabWorkspaceRoot(), entry.TopicID, id)
 			}
 			tab.model = entry.Model
+			if strings.TrimSpace(entry.Model) != "" {
+				tab.Label = entry.Model
+			}
 			tab.effort = cloneStringPtr(entry.Effort)
 			tab.mode = persistedTabMode(entry.Mode)
 			tab.sessionPath = strings.TrimSpace(entry.SessionPath)
@@ -184,7 +214,7 @@ func (a *App) restoreOrBuildTabs() {
 			a.tabs[tab.ID] = tab
 			a.tabOrder = append(a.tabOrder, tab.ID)
 			a.mu.Unlock()
-			go a.buildTabController(tab)
+			pending = append(pending, tab)
 		}
 		a.mu.Lock()
 		if _, ok := a.tabs[f.ActiveTab]; ok {
@@ -196,6 +226,10 @@ func (a *App) restoreOrBuildTabs() {
 			}
 		}
 		a.mu.Unlock()
+		a.emitTabsShellReady()
+		for _, tab := range pending {
+			go a.buildTabController(tab)
+		}
 		return
 	}
 
@@ -208,6 +242,7 @@ func (a *App) restoreOrBuildTabs() {
 	a.tabOrder = append(a.tabOrder, tab.ID)
 	a.activeTabID = tab.ID
 	a.mu.Unlock()
+	a.emitTabsShellReady()
 	go a.buildTabController(tab)
 }
 
@@ -1081,8 +1116,34 @@ func (a *App) SwitchWorkspace(dir string) (string, error) {
 	}
 	saveWorkspace(dir)
 
-	// Open a registered topic so the new workspace appears in the project tree
-	// immediately instead of only existing as an in-memory tab.
+	// Reuse an existing project tab for this workspace instead of minting a new
+	// topic/session on every launch or passive restore.
+	a.mu.Lock()
+	var reuse *WorkspaceTab
+	for i := len(a.tabOrder) - 1; i >= 0; i-- {
+		tab := a.tabs[a.tabOrder[i]]
+		if tab == nil || tab.Scope != "project" {
+			continue
+		}
+		root := tab.WorkspaceRoot
+		if abs, err := filepath.Abs(root); err == nil {
+			root = abs
+		}
+		if root == dir {
+			reuse = tab
+			break
+		}
+	}
+	if reuse != nil {
+		a.activeTabID = reuse.ID
+		meta := a.tabMeta(reuse, true)
+		a.saveTabsLocked()
+		a.mu.Unlock()
+		return meta.WorkspaceRoot, nil
+	}
+	a.mu.Unlock()
+
+	// First time opening this workspace: register a topic so it appears in the tree.
 	topic, err := a.CreateTopic("project", dir, "")
 	if err != nil {
 		return "", err
@@ -1109,11 +1170,18 @@ func (a *App) History() []HistoryMessage {
 
 func (a *App) HistoryForTab(tabID string) []HistoryMessage {
 	ctrl := a.ctrlByTabID(tabID)
-	if ctrl == nil {
+	if ctrl != nil {
+		msgs := ctrl.History()
+		return historyMessages(msgs, sessionDisplayResolver(config.SessionDir(), ctrl.SessionPath()))
+	}
+	tab := a.tabByID(tabID)
+	if tab == nil {
 		return []HistoryMessage{}
 	}
-	msgs := ctrl.History()
-	return historyMessages(msgs, sessionDisplayResolver(config.SessionDir(), ctrl.SessionPath()))
+	if preview := a.previewHistoryForTab(tab); len(preview) > 0 {
+		return preview
+	}
+	return []HistoryMessage{}
 }
 
 func historyMessages(msgs []provider.Message, resolveUserContent func(string) string) []HistoryMessage {
@@ -1255,8 +1323,8 @@ func (a *App) MetaForTab(tabID string) Meta {
 		cwd, _ = os.Getwd()
 	}
 	return Meta{
-		Label:        tab.Label,
-		Ready:        tab.Ready,
+		Label:        tabDisplayLabel(tab),
+		Ready:        tabAgentReady(tab),
 		StartupErr:   tab.StartupErr,
 		EventChannel: eventChannel,
 		Cwd:          cwd,
@@ -1265,8 +1333,12 @@ func (a *App) MetaForTab(tabID string) Meta {
 }
 
 // SetBypass toggles YOLO mode for the session: auto-approve every tool call
-// (writers and bash run without asking). Deny rules still apply. Runtime-only �?// not written to config, so it resets on relaunch.
+// (writers and bash run without asking). Deny rules still apply. Runtime-only —
+// not written to config, so it resets on relaunch.
 func (a *App) SetBypass(on bool) {
+	if on && !a.confirmYOLO(true) {
+		return
+	}
 	if on {
 		a.SetModeForTab("", "yolo")
 		return
@@ -2438,18 +2510,97 @@ func (a *App) ModelsForTab(tabID string) []ModelInfo {
 	if err != nil {
 		return []ModelInfo{}
 	}
-	out := []ModelInfo{}
+	return buildModelInfos(cfg, curModel)
+}
+
+func buildModelInfos(cfg *config.Config, curModel string) []ModelInfo {
+	out := make([]ModelInfo, 0)
 	for i := range cfg.Providers {
 		p := &cfg.Providers[i]
 		if !p.Configured() {
 			continue
 		}
-		for _, m := range p.ModelList() {
+		for _, m := range p.ListedModels() {
+			if strings.TrimSpace(m) == "" {
+				continue
+			}
 			ref := p.Name + "/" + m
-			out = append(out, ModelInfo{Ref: ref, Provider: p.Name, Model: m, Current: ref == curModel})
+			out = append(out, ModelInfo{
+				Ref:      ref,
+				Provider: p.Name,
+				Model:    m,
+				Current:  ref == curModel,
+			})
 		}
 	}
+	return dedupeModelInfos(out)
+}
+
+func (a *App) refreshProviderModelsAsync(apiKeyEnv string) {
+	apiKeyEnv = strings.TrimSpace(apiKeyEnv)
+	if apiKeyEnv == "" {
+		return
+	}
+	err := a.applyConfigChange(func(c *config.Config) error {
+		return config.RefreshProviderModelsFromAPI(c, apiKeyEnv)
+	})
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "agent:models-refreshed", map[string]any{
+			"apiKeyEnv": apiKeyEnv,
+			"ok":        err == nil,
+		})
+	}
+}
+
+// dedupeModelInfos collapses duplicate model ids (e.g. deepseek-v4-pro listed under
+// both deepseek-flash and deepseek-pro) so the switcher shows each SKU once.
+func dedupeModelInfos(in []ModelInfo) []ModelInfo {
+	if len(in) < 2 {
+		return in
+	}
+	best := make(map[string]ModelInfo, len(in))
+	for _, m := range in {
+		prev, ok := best[m.Model]
+		if !ok {
+			best[m.Model] = m
+			continue
+		}
+		merged := m
+		if preferModelInfo(prev, m) {
+			merged = prev
+		} else {
+			merged = m
+		}
+		if prev.Current || m.Current {
+			merged.Current = true
+		}
+		best[m.Model] = merged
+	}
+	out := make([]ModelInfo, 0, len(best))
+	seen := make(map[string]struct{}, len(best))
+	for _, m := range in {
+		if _, ok := seen[m.Model]; ok {
+			continue
+		}
+		out = append(out, best[m.Model])
+		seen[m.Model] = struct{}{}
+	}
 	return out
+}
+
+func preferModelInfo(a, b ModelInfo) bool {
+	return modelInfoRank(a) > modelInfoRank(b)
+}
+
+func modelInfoRank(m ModelInfo) int {
+	rank := 0
+	if i := strings.LastIndex(m.Model, "-"); i >= 0 {
+		tier := m.Model[i+1:]
+		if strings.Contains(m.Provider, tier) {
+			rank += 10
+		}
+	}
+	return rank
 }
 
 // SetModel switches the active model and carries the current conversation into the
@@ -2482,6 +2633,9 @@ func (a *App) SetModelForTab(tabID, name string) error {
 		return fmt.Errorf("unknown model %q", name)
 	}
 	name = entry.Name + "/" + entry.Model
+	if err := cfg.Validate(name); err != nil {
+		return fmt.Errorf("cannot switch model: %w", err)
+	}
 	effortOverride := cloneStringPtr(tab.effort)
 	if effortOverride != nil {
 		normalized, err := config.NormalizeEffort(entry, config.EffortDisplay(&config.ProviderEntry{Effort: *effortOverride, Name: entry.Name, Kind: entry.Kind, BaseURL: entry.BaseURL}))
@@ -2494,12 +2648,18 @@ func (a *App) SetModelForTab(tabID, name string) error {
 
 	var carried []provider.Message
 	prevPath := ""
+	var prevCtrl *control.Controller
 	if tab.Ctrl != nil {
 		prevPath = tab.Ctrl.SessionPath()
 		_ = tab.Ctrl.Snapshot()
 		carried = tab.Ctrl.History()
-		tab.Ctrl.Close()
+		prevCtrl = tab.Ctrl
 	}
+
+	a.mu.Lock()
+	tab.Ready = false
+	tab.StartupErr = ""
+	a.mu.Unlock()
 
 	newCtrl, err := boot.Build(a.bootContext(), boot.Options{
 		Model:          name,
@@ -2507,20 +2667,29 @@ func (a *App) SetModelForTab(tabID, name string) error {
 		Sink:           tab.sink,
 		WorkspaceRoot:  tab.WorkspaceRoot,
 		EffortOverride: cloneStringPtr(effortOverride),
+		DeferEagerMCP:  true,
 	})
 	if err != nil {
+		a.markTabAgentReady(tab, err.Error())
 		return err
 	}
+	if prevCtrl != nil {
+		prevCtrl.Close()
+	}
+
 	a.mu.Lock()
 	tab.Ctrl = newCtrl
 	tab.model = name
 	tab.effort = cloneStringPtr(effortOverride)
 	tab.Label = newCtrl.Label()
+	tab.StartupErr = ""
+	tab.Ready = true
 	a.saveTabsLocked()
 	a.mu.Unlock()
 	enableDesktopInteractive(newCtrl)
 	registerDesktopSessionTools(a, newCtrl)
 	applyTabModeToController(newCtrl, tab.mode)
+	a.emitReady(a.ctx)
 
 	path := agent.ContinueSessionPath(prevPath, newCtrl.SessionDir(), newCtrl.Label())
 	if len(carried) > 0 {
@@ -2529,6 +2698,19 @@ func (a *App) SetModelForTab(tabID, name string) error {
 		newCtrl.SetSessionPath(path)
 	}
 	return nil
+}
+
+func (a *App) markTabAgentReady(tab *WorkspaceTab, startupErr string) {
+	if tab == nil {
+		return
+	}
+	a.mu.Lock()
+	tab.StartupErr = strings.TrimSpace(startupErr)
+	tab.Ready = true
+	a.mu.Unlock()
+	if a.ctx != nil {
+		a.emitReady(a.ctx)
+	}
 }
 
 func (a *App) Effort() EffortInfo {
@@ -2583,6 +2765,10 @@ func (a *App) SetEffortForTab(tabID, level string) error {
 	if err != nil {
 		return err
 	}
+	a.mu.Lock()
+	tab.Ready = false
+	tab.StartupErr = ""
+	a.mu.Unlock()
 	var carried []provider.Message
 	prevPath := ""
 	if tab.Ctrl != nil {
@@ -2597,6 +2783,7 @@ func (a *App) SetEffortForTab(tabID, level string) error {
 		Sink:           tab.sink,
 		WorkspaceRoot:  tab.WorkspaceRoot,
 		EffortOverride: &effort,
+		DeferEagerMCP:  true,
 	})
 	if err != nil {
 		return err
@@ -3242,18 +3429,8 @@ func parseScope(s string) memory.Scope {
 // onboardingKeyEnv is the default provider (deepseek) key from config.Default().
 const onboardingKeyEnv = "DEEPSEEK_API_KEY"
 
-const deepseekOfficialBase = "https://api.deepseek.com"
-
 func normalizeDeepSeekBaseURL(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return deepseekOfficialBase
-	}
-	return strings.TrimRight(raw, "/")
-}
-
-func deepSeekBalanceURL(base string) string {
-	return normalizeDeepSeekBaseURL(base) + "/user/balance"
+	return config.NormalizeProviderBaseURL(raw)
 }
 
 // NativeConfirmRequest is the payload for ConfirmAction �?a native OS confirmation
@@ -3265,6 +3442,22 @@ type NativeConfirmRequest struct {
 	ConfirmLabel string `json:"confirmLabel"`
 	CancelLabel  string `json:"cancelLabel"`
 	Destructive  bool   `json:"destructive"`
+}
+
+// messageDialogConfirmed maps the platform dialog result to whether the user confirmed.
+// On Windows, MessageBox ignores custom button labels: QuestionDialog returns Yes/No,
+// and Warning/Info/Error dialogs return Ok.
+func messageDialogConfirmed(result, confirmLabel string, dialogType runtime.DialogType, windowsPlatform bool) bool {
+	result = strings.TrimSpace(result)
+	if windowsPlatform {
+		switch dialogType {
+		case runtime.QuestionDialog:
+			return strings.EqualFold(result, "Yes")
+		case runtime.WarningDialog, runtime.InfoDialog, runtime.ErrorDialog:
+			return strings.EqualFold(result, "Ok")
+		}
+	}
+	return result == confirmLabel
 }
 
 // ConfirmAction shows a native confirmation dialog and returns true when the user
@@ -3315,45 +3508,30 @@ func (a *App) ConfirmAction(req NativeConfirmRequest) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return result == confirm, nil
+	return messageDialogConfirmed(result, confirm, dialogType, goruntime.GOOS == "windows"), nil
 }
 
 func (a *App) NeedsOnboarding() bool {
-	return strings.TrimSpace(os.Getenv(onboardingKeyEnv)) == ""
+	cfg, err := config.Load()
+	if err != nil {
+		return true
+	}
+	for i := range cfg.Providers {
+		if cfg.Providers[i].Configured() {
+			return false
+		}
+	}
+	return true
 }
 
-// ConnectKey validates apiKey against the balance endpoint, persists it to the
-// global credentials file, and rebuilds the controller so the new key takes effect.
+// ConnectKey is kept for backward compatibility. Prefer ConnectProviderAPI for
+// generic OpenAI-compatible gateways (no extra native confirm).
 func (a *App) ConnectKey(apiKey string, baseUrl string) error {
 	if !a.confirmConnectKey() {
 		return fmt.Errorf("cancelled")
 	}
-	apiKey = strings.TrimSpace(apiKey)
-	if apiKey == "" {
-		return fmt.Errorf("key is required")
-	}
-	base := normalizeDeepSeekBaseURL(baseUrl)
-	balanceURL := deepSeekBalanceURL(base)
-	ctx, cancel := context.WithTimeout(a.ctx, 8*time.Second)
-	defer cancel()
-	if _, err := billing.FetchWithClient(ctx, nil, balanceURL, apiKey); err != nil {
-		return fmt.Errorf("validate: %w", err)
-	}
-	if err := upsertDotEnv(onboardingKeyEnv, apiKey); err != nil {
-		return fmt.Errorf("save: %w", err)
-	}
-	if err := a.applyConfigChange(func(c *config.Config) error {
-		for i := range c.Providers {
-			if c.Providers[i].APIKeyEnv == onboardingKeyEnv {
-				c.Providers[i].BaseURL = base
-				c.Providers[i].BalanceURL = balanceURL
-			}
-		}
-		return nil
-	}); err != nil {
-		return fmt.Errorf("base url: %w", err)
-	}
-	return nil
+	_, err := a.ConnectProviderAPI(baseUrl, apiKey)
+	return err
 }
 
 // FileEntry represents one file or directory in the write workspace browser.

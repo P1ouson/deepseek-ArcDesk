@@ -246,6 +246,99 @@ type TabMeta struct {
 	Cwd           string `json:"cwd"`
 }
 
+// tabAgentReady is the single source of truth for whether the frontend may treat
+// a tab as interactive. Ready on disk can be true while Ctrl is nil (rebuild gap).
+func tabDisplayLabel(tab *WorkspaceTab) string {
+	if tab == nil {
+		return ""
+	}
+	if label := strings.TrimSpace(tab.Label); label != "" {
+		return label
+	}
+	return strings.TrimSpace(tab.model)
+}
+
+func tabSessionCandidates(tab *WorkspaceTab, dir string) []string {
+	if tab == nil || dir == "" {
+		return nil
+	}
+	var candidates []string
+	if sp := strings.TrimSpace(tab.sessionPath); sp != "" {
+		candidates = append(candidates, sp)
+	}
+	if tab.TopicID != "" {
+		if p := findTopicSession(dir, tab.TopicID); p != "" {
+			candidates = append(candidates, p)
+		}
+	}
+	if p := findScopedTabSession(dir, tab.Scope, tab.WorkspaceRoot); p != "" {
+		candidates = append(candidates, p)
+	}
+	return candidates
+}
+
+func resolveTabSessionPath(tab *WorkspaceTab, dir string) string {
+	seen := map[string]bool{}
+	for _, raw := range tabSessionCandidates(tab, dir) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || seen[raw] {
+			continue
+		}
+		seen[raw] = true
+		sessionPath, _, err := validateSessionPath(dir, raw)
+		if err != nil {
+			continue
+		}
+		return sessionPath
+	}
+	return ""
+}
+
+// previewHistoryForTab loads the persisted session transcript from disk without
+// waiting for boot.Build. Only the explicit sessionPath from desktop-tabs.json is
+// used here — topic/scoped scans are deferred to resumeTabSession during agent boot
+// so startup stays instant and cannot wedge on a large sessions directory.
+func (a *App) previewHistoryForTab(tab *WorkspaceTab) (out []HistoryMessage) {
+	defer func() {
+		if recover() != nil {
+			out = nil
+		}
+	}()
+	if tab == nil {
+		return nil
+	}
+	sp := strings.TrimSpace(tab.sessionPath)
+	if sp == "" {
+		return nil
+	}
+	dir := config.SessionDir()
+	sessionPath, _, err := validateSessionPath(dir, sp)
+	if err != nil {
+		return nil
+	}
+	msgs, err := previewSessionMessages(dir, sessionPath)
+	if err != nil {
+		return nil
+	}
+	return msgs
+}
+
+func (a *App) emitTabsShellReady() {
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "agent:tabs-shell")
+	}
+}
+
+func tabAgentReady(tab *WorkspaceTab) bool {
+	if tab == nil || !tab.Ready {
+		return false
+	}
+	if strings.TrimSpace(tab.StartupErr) != "" {
+		return true
+	}
+	return tab.Ctrl != nil
+}
+
 func (a *App) tabMeta(tab *WorkspaceTab, active bool) TabMeta {
 	m := TabMeta{
 		ID:            tab.ID,
@@ -254,8 +347,8 @@ func (a *App) tabMeta(tab *WorkspaceTab, active bool) TabMeta {
 		WorkspaceName: workspaceName(tab.WorkspaceRoot),
 		TopicID:       tab.TopicID,
 		TopicTitle:    tab.TopicTitle,
-		Label:         tab.Label,
-		Ready:         tab.Ready,
+		Label:         tabDisplayLabel(tab),
+		Ready:         tabAgentReady(tab),
 		Mode:          currentTabMode(tab),
 		StartupErr:    tab.StartupErr,
 		Active:        active,
@@ -473,7 +566,13 @@ func (a *App) CloseTab(tabID string) error {
 // wires the controller and flips Ready; on failure it stores StartupErr.
 func (a *App) buildTabController(tab *WorkspaceTab) {
 	wailsCtx := a.ctx
-	buildCtx := a.bootContext()
+	a.mu.Lock()
+	tab.Ready = false
+	tab.StartupErr = ""
+	a.mu.Unlock()
+
+	buildCtx, cancel := context.WithTimeout(a.bootContext(), 90*time.Second)
+	defer cancel()
 
 	root := tab.WorkspaceRoot
 	if root == "" {
@@ -493,14 +592,6 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 		return
 	}
 
-	// A key resolved from this project's .env is project-scoped; lift it into the
-	// global credentials store only after explicit user confirmation.
-	if keys := listPromotableProviderKeys(cfg); len(keys) > 0 {
-		if a.confirmPromoteProjectSecrets(keys, root) {
-			promoteProviderKeys(cfg, keys)
-		}
-	}
-
 	model := strings.TrimSpace(tab.model)
 	if model == "" {
 		model = cfg.DefaultModel
@@ -517,7 +608,6 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 	a.mu.Lock()
 	tab.model = model
 	tab.Label = model
-	a.saveTabsLocked()
 	a.mu.Unlock()
 
 	if tab.sink != nil {
@@ -531,6 +621,7 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 		WorkspaceRoot:     root,
 		EffortOverride:    cloneStringPtr(tab.effort),
 		SkillInstallGuard: a.desktopSkillInstallGuard(),
+		DeferEagerMCP:     true,
 	})
 	if err != nil {
 		a.mu.Lock()
@@ -539,6 +630,15 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 		a.mu.Unlock()
 		a.emitReady(wailsCtx)
 		return
+	}
+
+	// Project .env key promotion must not block controller boot on a native dialog.
+	if keys := listPromotableProviderKeys(cfg); len(keys) > 0 {
+		go func(keys []string, root string) {
+			if a.confirmPromoteProjectSecrets(keys, root) {
+				promoteProviderKeys(cfg, keys)
+			}
+		}(keys, root)
 	}
 
 	enableDesktopInteractive(ctrl)
@@ -1217,7 +1317,12 @@ const (
 	defaultTopicTitle      = "新的会话"
 	topicTitleSourceAuto   = "auto"
 	topicTitleSourceManual = "manual"
+	writeModeTopicID       = "__arcdesk_write__"
 )
+
+func isWriteModeTopicID(id string) bool {
+	return strings.TrimSpace(id) == writeModeTopicID
+}
 
 func topicTitlesPath(workspaceRoot string) string {
 	if workspaceRoot == "" {
@@ -2009,6 +2114,9 @@ func (a *App) ListProjectTree() []ProjectNode {
 		globalTopicIDs := orderedTopicIDs(f.GlobalTopics, globalTitleMap)
 		children := make([]ProjectNode, 0, len(globalTopicIDs))
 		for _, id := range globalTopicIDs {
+			if isWriteModeTopicID(id) {
+				continue
+			}
 			title := globalTitleMap[id]
 			summary := topicSummaries[topicSummaryKey("global", "", id)]
 			status := openTopics[topicSummaryKey("global", "", id)]
@@ -2052,6 +2160,9 @@ func (a *App) ListProjectTree() []ProjectNode {
 
 		children := make([]ProjectNode, 0, len(topicIDs))
 		for _, tid := range topicIDs {
+			if isWriteModeTopicID(tid) {
+				continue
+			}
 			topicTitle := strings.TrimSpace(titleMap[tid])
 			if topicTitle == "" {
 				topicTitle = topicTitleForTab("project", p.Root, tid)
@@ -2262,37 +2373,16 @@ func (a *App) resumeTabSession(ctrl *control.Controller, tab *WorkspaceTab, dir 
 	if ctrl == nil || tab == nil || dir == "" {
 		return ""
 	}
-	var candidates []string
-	if sp := strings.TrimSpace(tab.sessionPath); sp != "" {
-		candidates = append(candidates, sp)
+	path := resolveTabSessionPath(tab, dir)
+	if path == "" {
+		return ""
 	}
-	if tab.TopicID != "" {
-		if p := findTopicSession(dir, tab.TopicID); p != "" {
-			candidates = append(candidates, p)
-		}
+	loaded, err := agent.LoadSession(path)
+	if err != nil {
+		return ""
 	}
-	if p := findScopedTabSession(dir, tab.Scope, tab.WorkspaceRoot); p != "" {
-		candidates = append(candidates, p)
-	}
-	seen := map[string]bool{}
-	for _, raw := range candidates {
-		raw = strings.TrimSpace(raw)
-		if raw == "" || seen[raw] {
-			continue
-		}
-		seen[raw] = true
-		sessionPath, _, err := validateSessionPath(dir, raw)
-		if err != nil {
-			continue
-		}
-		loaded, err := agent.LoadSession(sessionPath)
-		if err != nil {
-			continue
-		}
-		ctrl.Resume(loaded, sessionPath)
-		return sessionPath
-	}
-	return ""
+	ctrl.Resume(loaded, path)
+	return path
 }
 
 // findScopedTabSession returns the most recently updated session for a tab

@@ -5,12 +5,12 @@ import (
 )
 
 func TestClawBridgeBindHostDefault(t *testing.T) {
-	if got := clawBridgeBindHost(false); got != clawBridgeBindLocalhost {
-		t.Fatalf("bind host = %q, want %q", got, clawBridgeBindLocalhost)
+	if got := clawBridgeBindHost(false); got != clawBridgeBindLAN {
+		t.Fatalf("bind host = %q, want %q", got, clawBridgeBindLAN)
 	}
 	bridge := &clawBridge{mobile: &mobileConnectStore{}}
-	if got := bridge.bindHost(); got != clawBridgeBindLocalhost {
-		t.Fatalf("bridge bind host = %q, want %q", got, clawBridgeBindLocalhost)
+	if got := bridge.bindHost(); got != clawBridgeBindLAN {
+		t.Fatalf("bridge bind host = %q, want %q", got, clawBridgeBindLAN)
 	}
 }
 
@@ -27,8 +27,8 @@ func TestClawBridgeBindHostAllowLAN(t *testing.T) {
 }
 
 func TestClawBridgeListenAddrDefault(t *testing.T) {
-	addr := clawBridgeListenAddr(clawBridgeBindLocalhost, defaultClawBridgePort)
-	want := "127.0.0.1:8787"
+	addr := clawBridgeListenAddr(clawBridgeBindLAN, defaultClawBridgePort)
+	want := "0.0.0.0:8787"
 	if addr != want {
 		t.Fatalf("listen addr = %q, want %q", addr, want)
 	}

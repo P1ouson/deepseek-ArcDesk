@@ -39,6 +39,7 @@ import type {
   ProjectNode,
   ProviderView,
   ProviderModelsResult,
+  ProviderConnectResult,
   QuestionAnswer,
   ServerView,
   SessionMeta,
@@ -236,6 +237,8 @@ export interface AppBindings {
   ApplyUpdate(): Promise<void>;
   OpenDownloadPage(): Promise<void>;
   NeedsOnboarding(): Promise<boolean>;
+  ConnectProviderAPI(baseUrl: string, apiKey: string): Promise<ProviderConnectResult>;
+  /** @deprecated Use ConnectProviderAPI — still opens native confirm */
   ConnectKey(apiKey: string, baseUrl?: string): Promise<void>;
   SideChatReply(message: string): Promise<string>;
   GetMobilePendingDecision(): Promise<MobilePendingDecision | null>;
@@ -279,6 +282,7 @@ export interface AppBindings {
   GetMobileConnectConfig(): Promise<MobileConnectConfig>;
   SaveMobileConnectConfig(config: MobileConnectConfig): Promise<void>;
   ListMobileSessions(): Promise<{ id: string; createdAt: number; lastSeen: number }[]>;
+  RevokeMobileSession(sessionId: string): Promise<void>;
   GetMobileTunnelStatus(): Promise<MobileTunnelStatus>;
   StartMobileTunnel(): Promise<MobileTunnelStatus>;
   StopMobileTunnel(): Promise<MobileTunnelStatus>;
@@ -332,12 +336,14 @@ function realApp(): AppBindings | undefined {
 }
 
 function boundApp(): AppBindings | undefined {
-  return isRuntimeReady() ? realApp() : undefined;
+  // Use real Go bindings as soon as window.go exists. Waiting for window.runtime
+  // previously routed IPC through the dev mock (ready:true) and caused stale boot state.
+  return hasGoBinding() ? realApp() : undefined;
 }
 
 /** Test seam: IPC + event stream use the same readiness gate. */
 export function bridgeBindingSource(): "wails" | "mock" {
-  return isRuntimeReady() ? "wails" : "mock";
+  return hasGoBinding() ? "wails" : "mock";
 }
 
 /** Test seam: agent event subscribe branch (deferred while go exists without runtime). */
@@ -413,16 +419,87 @@ export function onFilesDropped(cb: (paths: string[]) => void): () => void {
 }
 
 // onReady subscribes to the agent:ready event fired when boot.Build completes.
-// The frontend re-fetches Meta/Context/History when this lands.
+// The frontend re-fetches Meta/Context/History when this lands. Also probes once on
+// subscribe so a fast backend boot is not lost if agent:ready fired before EventsOn.
 export function onReady(cb: () => void): () => void {
+  let fired = false;
+  const invoke = () => {
+    if (fired) return;
+    fired = true;
+    cb();
+  };
+
+  const probeAlreadyReady = () => {
+    const bindings = realApp();
+    if (!bindings?.ListTabs) return;
+    void bindings
+      .ListTabs()
+      .then((tabs) => {
+        if (!Array.isArray(tabs)) return;
+        if (tabs.some((tab) => tab.ready || tab.startupErr)) invoke();
+      })
+      .catch(() => {});
+  };
+
   if (isRuntimeReady()) {
-    return window.runtime!.EventsOn("agent:ready", () => cb());
+    probeAlreadyReady();
+    return window.runtime!.EventsOn("agent:ready", () => invoke());
   }
   if (hasGoBinding()) {
-    return subscribeWhenRuntimeReady(() => window.runtime!.EventsOn("agent:ready", () => cb()));
+    return subscribeWhenRuntimeReady(() => {
+      probeAlreadyReady();
+      return window.runtime!.EventsOn("agent:ready", () => invoke());
+    });
   }
   // In dev mock, fire immediately since there's no real boot sequence.
-  cb();
+  invoke();
+  return () => {};
+}
+
+// onModelsRefreshed fires after a background GET /models sync completes (e.g. after
+// saving an API key). Model pickers reload from persisted config — no live fetch.
+export function onModelsRefreshed(cb: () => void): () => void {
+  if (isRuntimeReady()) {
+    return window.runtime!.EventsOn("agent:models-refreshed", () => cb());
+  }
+  if (hasGoBinding()) {
+    return subscribeWhenRuntimeReady(() =>
+      window.runtime!.EventsOn("agent:models-refreshed", () => cb()),
+    );
+  }
+  return () => {};
+}
+
+// onTabsShell fires once tab metadata is restored (before agent boot.Build finishes).
+export function onTabsShell(cb: () => void): () => void {
+  let fired = false;
+  const invoke = () => {
+    if (fired) return;
+    fired = true;
+    cb();
+  };
+
+  const probeTabs = () => {
+    const bindings = realApp();
+    if (!bindings?.ListTabs) return;
+    void bindings
+      .ListTabs()
+      .then((tabs) => {
+        if (Array.isArray(tabs) && tabs.length > 0) invoke();
+      })
+      .catch(() => {});
+  };
+
+  if (isRuntimeReady()) {
+    probeTabs();
+    return window.runtime!.EventsOn("agent:tabs-shell", () => invoke());
+  }
+  if (hasGoBinding()) {
+    return subscribeWhenRuntimeReady(() => {
+      probeTabs();
+      return window.runtime!.EventsOn("agent:tabs-shell", () => invoke());
+    });
+  }
   return () => {};
 }
 
@@ -2017,17 +2094,32 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
     async NeedsOnboarding() {
       return !settings.providers.find((p) => p.apiKeyEnv === "DEEPSEEK_API_KEY")?.keySet;
     },
+    async ConnectProviderAPI(baseUrl: string, apiKey: string): Promise<ProviderConnectResult> {
+      if (!apiKey.trim()) throw new Error("api key is required");
+      const base = (baseUrl?.trim() || "").replace(/\/$/, "");
+      if (!base) throw new Error("base URL is required");
+      const official = base === "https://api.deepseek.com";
+      settings.providers.forEach((p) => {
+        if (p.apiKeyEnv === "DEEPSEEK_API_KEY") {
+          p.keySet = true;
+          p.baseUrl = base;
+          p.balanceUrl = official ? `${base}/user/balance` : "";
+          p.models = ["mock-model-a", "mock-model-b"];
+        }
+      });
+      await delay(300);
+      return { baseUrl: base, modelCount: 2, models: ["mock-model-a", "mock-model-b"], keyEnv: "DEEPSEEK_API_KEY" };
+    },
     async ConnectKey(apiKey: string, baseUrl?: string) {
+      await delay(0);
       if (!apiKey.trim()) throw new Error("key is required");
       const base = (baseUrl?.trim() || "https://api.deepseek.com").replace(/\/$/, "");
       settings.providers.forEach((p) => {
         if (p.apiKeyEnv === "DEEPSEEK_API_KEY") {
           p.keySet = true;
           p.baseUrl = base;
-          p.balanceUrl = `${base}/user/balance`;
         }
       });
-      await delay(300);
     },
     async SideChatReply(message: string) {
       if (!message.trim()) throw new Error("message is required");
@@ -2322,6 +2414,7 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
     async ListMobileSessions() {
       return [];
     },
+    async RevokeMobileSession(_sessionId: string) {},
     async GetMobileTunnelStatus() {
       return { running: false, url: "" };
     },

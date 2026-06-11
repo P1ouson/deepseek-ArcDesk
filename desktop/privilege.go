@@ -87,7 +87,7 @@ func (a *App) confirmConnectKey() bool {
 		Message:      "Store a new provider API key in the global credentials file?",
 		ConfirmLabel: "Save",
 		CancelLabel:  "Cancel",
-		Destructive:  true,
+		Destructive:  false,
 	})
 }
 
@@ -131,11 +131,11 @@ func (a *App) confirmStartMobileTunnel() bool {
 func (a *App) confirmAllowLAN() bool {
 	return a.requireNativeConfirm(NativeConfirmRequest{
 		Title:        "Expose mobile bridge to your local network?",
-		Message:      "This binds the mobile bridge to all network interfaces (0.0.0.0).",
-		Detail:       "Devices on your Wi‑Fi or LAN can reach the pairing page and API on this machine until you turn this off. Pairing is still required for control actions.",
+		Message:      "Devices on your Wi‑Fi or LAN can reach the pairing page and API on this machine until you turn this off.",
+		Detail:       "Pairing is still required for control actions. Press Enter or click Allow to confirm.",
 		ConfirmLabel: "Allow LAN access",
 		CancelLabel:  "Cancel",
-		Destructive:  true,
+		Destructive:  false,
 	})
 }
 

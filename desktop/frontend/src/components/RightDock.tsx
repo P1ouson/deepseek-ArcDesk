@@ -7,6 +7,7 @@ import { dockHubForTab } from "../lib/dockHubs";
 import { dockHubLabel, dockTabLabel, dockTabsForHub } from "./DockHubButtons";
 
 import { BrowserPanel } from "./BrowserPanel";
+import type { BrowserTab } from "../lib/useBrowserPanel";
 import { PagePreviewPanel } from "./PagePreviewPanel";
 
 import { ChangesPanel } from "./ChangesPanel";
@@ -32,6 +33,8 @@ import type { ReviewMode, ReviewScope } from "../lib/codeReview";
 export interface RightDockProps {
 
   open: boolean;
+
+  background?: boolean;
 
   closing?: boolean;
 
@@ -91,9 +94,17 @@ export interface RightDockProps {
 
   onToggleBrowserExpanded?: () => void;
 
-  webPreviewUrl?: string | null;
+  browserTabs?: BrowserTab[];
 
-  onWebPreviewUrlChange?: (url: string) => void;
+  activeBrowserTabId?: string | null;
+
+  onBrowserTabChange?: (id: string) => void;
+
+  onCloseBrowserTab?: (id: string) => void;
+
+  onNewBrowserTab?: () => void;
+
+  onBrowserTabUrlChange?: (id: string, url: string, title?: string) => void;
 
   pagePreviewPath?: string | null;
 
@@ -108,6 +119,8 @@ export interface RightDockProps {
 export function RightDock({
 
   open,
+
+  background = false,
 
   closing = false,
 
@@ -167,9 +180,17 @@ export function RightDock({
 
   onToggleBrowserExpanded,
 
-  webPreviewUrl,
+  browserTabs = [],
 
-  onWebPreviewUrlChange,
+  activeBrowserTabId = null,
+
+  onBrowserTabChange,
+
+  onCloseBrowserTab,
+
+  onNewBrowserTab,
+
+  onBrowserTabUrlChange,
 
   pagePreviewPath,
 
@@ -181,15 +202,17 @@ export function RightDock({
 
   const t = useT();
 
-  if (!open) return null;
+  if (!open && !background) return null;
 
 
 
   const hub = dockHubForTab(tab);
 
-  const hubTabs = dockTabsForHub(hub);
+  const hubTabs = hub === "preview" ? [] : dockTabsForHub(hub);
 
-  const headTitle = `${dockHubLabel(hub, t)} · ${dockTabLabel(tab, t)}`;
+  const headTitle = hub === "preview" && tab === "browser"
+    ? dockTabLabel(tab, t)
+    : `${dockHubLabel(hub, t)} · ${dockTabLabel(tab, t)}`;
 
 
 
@@ -198,6 +221,7 @@ export function RightDock({
     <aside
       className={[
         "right-dock",
+        background ? "right-dock--background" : "",
         tab === "browser" && browserExpanded ? "right-dock--browser-expanded" : "",
         tab === "page" && browserExpanded ? "right-dock--browser-expanded" : "",
         closing ? "motion-panel--closing" : "",
@@ -207,7 +231,8 @@ export function RightDock({
       aria-label={t("rightDock.workbench")}
     >
 
-      <div className="right-dock__head">
+      {open ? (
+        <div className="right-dock__head">
 
         <div className="right-dock__head-main">
 
@@ -254,6 +279,7 @@ export function RightDock({
         </button>
 
       </div>
+      ) : null}
 
       <div className="right-dock__body">
 
@@ -353,8 +379,12 @@ export function RightDock({
           <BrowserPanel
             expanded={browserExpanded}
             onToggleExpanded={onToggleBrowserExpanded}
-            previewUrl={webPreviewUrl}
-            onPreviewUrlChange={onWebPreviewUrlChange}
+            tabs={browserTabs}
+            activeId={activeBrowserTabId}
+            onActiveChange={(id) => onBrowserTabChange?.(id)}
+            onCloseTab={(id) => onCloseBrowserTab?.(id)}
+            onNewTab={() => onNewBrowserTab?.()}
+            onTabUrlChange={(id, url, title) => onBrowserTabUrlChange?.(id, url, title)}
             refreshKey={refreshKey}
             workspaceRoot={cwd}
           />

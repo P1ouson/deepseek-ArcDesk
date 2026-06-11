@@ -857,6 +857,8 @@ func LoadForRoot(root string) (*Config, error) {
 	normalizeLegacyEffort(cfg)
 	normalizeEffortConfig(cfg)
 	backfillDeepSeekPro(cfg)
+	dedupeRedundantProviders(cfg)
+	pruneUnconfiguredProviders(cfg)
 	// First run (no config file anywhere): keep CodeGraph off until the user opts
 	// in. An existing config 鈥?even one without a [codegraph] section 鈥?keeps the
 	// built-in default (on), so an upgrade never silently drops code intelligence.
@@ -900,6 +902,56 @@ func backfillDeepSeekPro(c *Config) {
 			return
 		}
 	}
+}
+
+func sameProviderEndpoint(a, b *ProviderEntry) bool {
+	return strings.EqualFold(strings.TrimSpace(a.BaseURL), strings.TrimSpace(b.BaseURL)) &&
+		strings.EqualFold(strings.TrimSpace(a.APIKeyEnv), strings.TrimSpace(b.APIKeyEnv))
+}
+
+// dedupeRedundantProviders drops single-model providers whose SKU is already
+// exposed by another provider's models list on the same endpoint/key.
+func dedupeRedundantProviders(c *Config) {
+	multiOwner := map[string]int{}
+	for i := range c.Providers {
+		p := &c.Providers[i]
+		if len(p.Models) <= 1 {
+			continue
+		}
+		for _, m := range p.ModelList() {
+			if m != "" {
+				multiOwner[m] = i
+			}
+		}
+	}
+	if len(multiOwner) == 0 {
+		return
+	}
+	kept := make([]ProviderEntry, 0, len(c.Providers))
+	for i := range c.Providers {
+		p := c.Providers[i]
+		models := p.ModelList()
+		if len(models) == 1 {
+			ownerIdx, ok := multiOwner[models[0]]
+			if ok && ownerIdx != i && sameProviderEndpoint(&c.Providers[ownerIdx], &p) {
+				continue
+			}
+		}
+		kept = append(kept, p)
+	}
+	c.Providers = kept
+}
+
+// pruneUnconfiguredProviders removes preset providers whose api_key_env is not
+// set, so model pickers only reflect APIs the user actually configured.
+func pruneUnconfiguredProviders(c *Config) {
+	kept := make([]ProviderEntry, 0, len(c.Providers))
+	for _, p := range c.Providers {
+		if p.Configured() {
+			kept = append(kept, p)
+		}
+	}
+	c.Providers = kept
 }
 
 func resolveRoot(root string) string {

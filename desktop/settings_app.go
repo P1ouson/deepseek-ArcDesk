@@ -6,6 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"arcdesk/internal/agent"
 	"arcdesk/internal/boot"
@@ -328,7 +331,7 @@ func (a *App) Settings() SettingsView {
 		p := &cfg.Providers[i]
 		v.Providers = append(v.Providers, ProviderView{
 			Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL,
-			Models: nonNil(p.ModelList()), Default: p.DefaultModel(),
+			Models: nonNil(p.ListedModels()), Default: p.DefaultModel(),
 			APIKeyEnv:        p.APIKeyEnv,
 			KeySet:           p.APIKeyEnv != "" && os.Getenv(p.APIKeyEnv) != "",
 			BalanceURL:       p.BalanceURL,
@@ -457,6 +460,10 @@ func (a *App) rebuild() error {
 	if tab == nil {
 		return fmt.Errorf("no active tab")
 	}
+	a.mu.Lock()
+	tab.Ready = false
+	tab.StartupErr = ""
+	a.mu.Unlock()
 	var carried []provider.Message
 	prevPath := ""
 	if tab.Ctrl != nil {
@@ -474,11 +481,14 @@ func (a *App) rebuild() error {
 			}
 		}
 	}
-	ctrl, err := boot.Build(a.bootContext(), boot.Options{
+	buildCtx, cancel := context.WithTimeout(a.bootContext(), 90*time.Second)
+	defer cancel()
+	ctrl, err := boot.Build(buildCtx, boot.Options{
 		Model: model, RequireKey: false,
 		Sink:           tab.sink,
 		WorkspaceRoot:  tab.WorkspaceRoot,
 		EffortOverride: cloneStringPtr(tab.effort),
+		DeferEagerMCP:  true,
 	})
 	if err != nil {
 		a.mu.Lock()
@@ -606,22 +616,40 @@ func (a *App) SyncProviderModels(providerName string) (ProviderModelsResult, err
 		if len(models) == 0 {
 			return fmt.Errorf("empty model list returned")
 		}
-		updated := *e
-		updated.Models = models
-		updated.Model = models[0]
-		if !updated.HasModel(updated.Default) {
-			updated.Default = models[0]
+		stored := config.ModelsForProviderStorage(e, models)
+		if len(stored) == 0 {
+			return fmt.Errorf("empty model list returned")
 		}
-		out = ProviderModelsResult{Provider: name, Models: models}
-		return c.UpsertProvider(updated)
+		out = ProviderModelsResult{Provider: name, Models: stored}
+		for i := range c.Providers {
+			if c.Providers[i].APIKeyEnv != e.APIKeyEnv {
+				continue
+			}
+			entry := config.ModelsForProviderStorage(&c.Providers[i], models)
+			if len(entry) == 0 {
+				continue
+			}
+			c.Providers[i].Models = append([]string(nil), entry...)
+			c.Providers[i].Model = entry[0]
+			if !c.Providers[i].HasModel(c.Providers[i].Default) {
+				c.Providers[i].Default = entry[0]
+			}
+		}
+		return nil
 	})
+	if err == nil && a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "agent:models-refreshed", map[string]any{
+			"provider": name,
+			"ok":       true,
+		})
+	}
 	return out, err
 }
 
 // SaveProvider adds or updates a provider. A single model fills `model`; several
 // fill `models` (with `default`). The shared key/endpoint live on the entry.
 func (a *App) SaveProvider(p ProviderView) error {
-	return a.applyConfigChange(func(c *config.Config) error {
+	err := a.applyConfigChange(func(c *config.Config) error {
 		e := config.ProviderEntry{
 			Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL,
 			APIKeyEnv: p.APIKeyEnv, BalanceURL: strings.TrimSpace(p.BalanceURL), ContextWindow: p.ContextWindow,
@@ -635,8 +663,22 @@ func (a *App) SaveProvider(p ProviderView) error {
 				e.Default = p.Default
 			}
 		}
-		return c.UpsertProvider(e)
+		config.ApplyDeepSeekProviderEndpoints(&e)
+		if err := c.UpsertProvider(e); err != nil {
+			return err
+		}
+		if e.APIKeyEnv == onboardingKeyEnv {
+			c.SyncDeepSeekEndpoints(e.BaseURL)
+		}
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(p.APIKeyEnv) == onboardingKeyEnv {
+		go a.refreshProviderModelsAsync(onboardingKeyEnv)
+	}
+	return nil
 }
 
 // DeleteProvider removes a provider (refused for the current default_model).
@@ -660,7 +702,11 @@ func (a *App) SetProviderKey(apiKeyEnv, value string) error {
 	if err := upsertDotEnv(apiKeyEnv, value); err != nil {
 		return err
 	}
-	return a.rebuild()
+	if err := a.rebuild(); err != nil {
+		return err
+	}
+	go a.refreshProviderModelsAsync(apiKeyEnv)
+	return nil
 }
 
 // SetPermissionMode sets the writer-fallback mode (ask|allow|deny).

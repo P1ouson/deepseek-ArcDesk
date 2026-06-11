@@ -512,6 +512,13 @@ export interface ProviderModelsResult {
   models: string[];
 }
 
+export interface ProviderConnectResult {
+  baseUrl: string;
+  modelCount: number;
+  models: string[];
+  keyEnv: string;
+}
+
 // BalanceInfo is the wallet-balance readout (desktop/app.go Balance). available
 // is false when the provider declares no balanceUrl or a fetch failed; display is
 // the formatted amount (e.g. "¥110.00").

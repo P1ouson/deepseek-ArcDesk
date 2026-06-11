@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -49,6 +50,26 @@ func TestFetchModelsAuthError(t *testing.T) {
 	_, err := FetchModels(context.Background(), srv.URL, "bad-key")
 	if err == nil {
 		t.Fatal("expected error for bad key")
+	}
+}
+
+func TestFetchModelsLargePayload(t *testing.T) {
+	const n = 5000
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data := make([]map[string]string, n)
+		for i := range data {
+			data[i] = map[string]string{"id": fmt.Sprintf("provider/model-%04d", i)}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}))
+	defer srv.Close()
+
+	models, err := FetchModels(context.Background(), srv.URL+"/v1", "key")
+	if err != nil {
+		t.Fatalf("large payload: %v", err)
+	}
+	if len(models) != n {
+		t.Fatalf("want %d models, got %d", n, len(models))
 	}
 }
 

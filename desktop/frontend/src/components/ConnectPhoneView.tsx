@@ -155,33 +155,43 @@ export function ConnectPhoneView({
 
   useEffect(() => {
     void reload();
-    const timer = window.setInterval(() => void reload(), 5_000);
+    const timer = window.setInterval(() => void reload(), 2_000);
     return () => window.clearInterval(timer);
   }, [reload]);
 
   useEffect(() => {
     if (!tunnel.running || tunnel.url || tunnel.err) return;
-    const timer = window.setInterval(() => void reload(), tunnel.phase === "downloading" ? 500 : 2_000);
+    const timer = window.setInterval(() => void reload(), tunnel.phase === "downloading" ? 500 : 1_000);
     return () => window.clearInterval(timer);
   }, [tunnel.running, tunnel.url, tunnel.err, tunnel.phase, reload]);
 
   useEffect(() => {
-    const off = window.runtime?.EventsOn?.("mobile:message", () => void reload());
-    return () => off?.();
+    const offMessage = window.runtime?.EventsOn?.("mobile:message", () => void reload());
+    const offSessions = window.runtime?.EventsOn?.("mobile:sessions", () => void reload());
+    return () => {
+      offMessage?.();
+      offSessions?.();
+    };
   }, [reload]);
 
   const mode = useMemo(() => modeMeta(pairing?.connectMode, t), [pairing?.connectMode, t]);
   const ModeIcon = mode.icon;
   const tunnelReady = Boolean(tunnel.url || pairing?.tunnelUrl);
+  const lanTransportReady = Boolean(config.allowLAN && pairing?.lanIp);
+  const remoteTransportReady = tunnelReady || lanTransportReady;
   const lanAddress = pairing?.lanIp ? `${pairing.lanIp}:${pairing.port}` : t("phone.lanNotDetected");
   const isLanMode = pairing?.connectMode === "lan";
-  const activeConnectionCount = pairing?.activeCount ?? tunnel.activeCount ?? 0;
+  const activeConnectionCount = remoteTransportReady
+    ? (pairing?.activeCount ?? tunnel.activeCount ?? 0)
+    : 0;
   const qrHint = useMemo(() => {
     if (pairing?.bridgeReady === false) return t("phone.bridgeUnavailable");
+    if (pairing?.qrDataUrl || pairing?.pairUrl) return "";
     if (tunnelReady || pairing?.connectMode === "tunnel") return "";
-    if (config.allowLAN && pairing?.lanIp) return t("phone.qrUnavailable");
+    if (config.allowLAN && pairing?.lanIp) return t("phone.qrLanRefresh");
+    if (pairing?.lanIp && !config.allowLAN) return t("phone.qrEnableLan", { ip: pairing.lanIp });
     return t("phone.qrStartTunnel");
-  }, [config.allowLAN, pairing?.bridgeReady, pairing?.connectMode, pairing?.lanIp, t, tunnelReady]);
+  }, [config.allowLAN, pairing?.bridgeReady, pairing?.connectMode, pairing?.lanIp, pairing?.pairUrl, pairing?.qrDataUrl, t, tunnelReady]);
 
   useEffect(() => {
     if (tunnelReady) {
@@ -237,16 +247,22 @@ export function ConnectPhoneView({
     try {
       await app.SaveMobileConnectConfig(nextConfig);
       setNotice(t("phone.saved"));
-      await reload();
+      if (nextConfig.allowLAN) {
+        setPairing(await app.RefreshMobilePairing());
+      } else {
+        await reload();
+      }
     } catch (e) {
       rollback?.();
       const raw = String((e as Error)?.message ?? e);
       const normalized = raw.trim().toLowerCase();
-      setErr(
-        normalized === "cancelled" || normalized.includes("cancelled")
-          ? t("phone.lanEnableFailed")
-          : raw,
-      );
+      if (normalized === "cancelled" || normalized.includes("cancelled")) {
+        setErr(t("phone.lanEnableCancelled"));
+      } else if (normalized.includes("restart claw bridge") || normalized.includes("listen on")) {
+        setErr(t("phone.lanEnableFailed"));
+      } else {
+        setErr(raw);
+      }
     } finally {
       setBusy(false);
     }
@@ -312,10 +328,29 @@ export function ConnectPhoneView({
       const status = await app.StartMobileTunnel();
       setTunnel(status);
       if (status.err) {
+        if (status.err.toLowerCase().includes("cancelled")) {
+          setNotice(null);
+          return;
+        }
         setErr(status.err);
         return;
       }
       setNotice(t("phone.tunnelStarting"));
+      await reload();
+    } catch (e) {
+      setErr(String((e as Error)?.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revokeDevice = async (sessionId: string) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await app.RevokeMobileSession(sessionId);
+      setSessions(await app.ListMobileSessions().catch(() => []));
+      setNotice(t("phone.deviceRevoked"));
       await reload();
     } catch (e) {
       setErr(String((e as Error)?.message ?? e));
@@ -349,7 +384,7 @@ export function ConnectPhoneView({
           <span className={`connect-compact__chip${mode.ok ? " connect-compact__chip--ok" : ""}`}>
             <ModeIcon size={12} /> {mode.label}
           </span>
-          <span className="connect-compact__chip connect-compact__chip--ok">
+          <span className={`connect-compact__chip${activeConnectionCount > 0 ? " connect-compact__chip--ok" : ""}`}>
             <Smartphone size={12} /> {t("phone.activeDevices", { n: activeConnectionCount })}
           </span>
           <span className={`connect-compact__chip${tunnelReady ? " connect-compact__chip--ok" : ""}`}>
@@ -408,7 +443,18 @@ export function ConnectPhoneView({
             ) : (
               <div className="connect-compact__qr-empty">
                 <p>{qrHint}</p>
-                {!config.allowLAN && !tunnel.running ? (
+                {!config.allowLAN && !tunnel.running && pairing?.lanIp ? (
+                  <button
+                    type="button"
+                    className="connect-compact__btn connect-compact__btn--primary"
+                    disabled={busy}
+                    onClick={() => void toggleAllowLAN(true)}
+                  >
+                    <Wifi size={13} />
+                    {t("phone.enableLanPairing")}
+                  </button>
+                ) : null}
+                {!config.allowLAN && !tunnel.running && !pairing?.lanIp ? (
                   <button
                     type="button"
                     className="connect-compact__btn connect-compact__btn--primary"
@@ -594,6 +640,14 @@ export function ConnectPhoneView({
                   <li key={item.id}>
                     <span>{item.id.slice(0, 8)}…</span>
                     <time>{new Date(item.lastSeen).toLocaleTimeString()}</time>
+                    <button
+                      type="button"
+                      className="connect-compact__revoke"
+                      disabled={busy}
+                      onClick={() => void revokeDevice(item.id)}
+                    >
+                      {t("phone.revokeDevice")}
+                    </button>
                   </li>
                 ))}
               </ul>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, ClipboardEvent, DragEvent, KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { CSSProperties, ClipboardEvent, DragEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import {
   AlertTriangle,
   ArrowUp,
@@ -43,9 +43,61 @@ import { FileMenu } from "./FileMenu";
 import { EffortSwitcherMenu, EffortSwitcherTrigger } from "./EffortSwitcher";
 import { ComposerModeBar } from "./ComposerModeBar";
 import { ModelSwitcherMenu, ModelSwitcherTrigger } from "./ModelSwitcher";
+import { modelLabelFromRef } from "../lib/modelLabel";
 import { Tooltip } from "./Tooltip";
 import { useDismissOnOutsidePointerDown } from "../lib/useDismissOnOutsidePointerDown";
 import { AnchoredPopover } from "./AnchoredPopover";
+
+export type ComposerSessionTag = { id: string; label: string };
+
+function ComposerSessionChip({
+  kind,
+  icon,
+  label,
+  onOpen,
+  onClose,
+  closeLabel,
+}: {
+  kind: "terminal" | "browser" | "page";
+  icon: ReactNode;
+  label: string;
+  onOpen?: () => void;
+  onClose?: () => void;
+  closeLabel: string;
+}) {
+  return (
+    <div className={`composer-context__item composer-context__item--${kind} composer-context__session`}>
+      {onOpen ? (
+        <button type="button" className="composer-context__session-main" onClick={onOpen}>
+          {icon}
+          <span className="composer-context__text">
+            <span className="composer-context__name">{label}</span>
+          </span>
+        </button>
+      ) : (
+        <span className="composer-context__session-main">
+          {icon}
+          <span className="composer-context__text">
+            <span className="composer-context__name">{label}</span>
+          </span>
+        </span>
+      )}
+      {onClose ? (
+        <button
+          type="button"
+          className="composer-context__session-close"
+          onClick={(event) => {
+            event.stopPropagation();
+            onClose();
+          }}
+          aria-label={closeLabel}
+        >
+          <X size={12} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 interface Attachment {
   path: string;
@@ -151,12 +203,16 @@ export function Composer({
   showWorkspaceSwitcher = false,
   workspaceNone = false,
   onUseNoWorkspace,
-  terminalActive = false,
-  terminalLabel,
-  browserPreviewActive = false,
-  browserPreviewLabel,
+  terminalSessions = [],
+  browserSessions = [],
   pagePreviewActive = false,
   pagePreviewLabel,
+  onTerminalSessionOpen,
+  onTerminalSessionClose,
+  onBrowserSessionOpen,
+  onBrowserSessionClose,
+  onPageSessionOpen,
+  onPageSessionClose,
   composerSurface = "code",
   sendExternally = false,
   onSendState,
@@ -192,12 +248,16 @@ export function Composer({
   showWorkspaceSwitcher?: boolean;
   workspaceNone?: boolean;
   onUseNoWorkspace?: () => void;
-  terminalActive?: boolean;
-  terminalLabel?: string;
-  browserPreviewActive?: boolean;
-  browserPreviewLabel?: string;
+  terminalSessions?: ComposerSessionTag[];
+  browserSessions?: ComposerSessionTag[];
   pagePreviewActive?: boolean;
   pagePreviewLabel?: string;
+  onTerminalSessionOpen?: (id: string) => void;
+  onTerminalSessionClose?: (id: string) => void;
+  onBrowserSessionOpen?: (id: string) => void;
+  onBrowserSessionClose?: (id: string) => void;
+  onPageSessionOpen?: () => void;
+  onPageSessionClose?: () => void;
   composerSurface?: ComposerSurface;
   sendExternally?: boolean;
   onSendState?: (state: ComposerSendState | null) => void;
@@ -236,13 +296,13 @@ export function Composer({
   const writeSurface = composerSurface === "write";
   const codeSurface = composerSurface === "code";
   const activeWriteContext = writeSurface ? writeContext : null;
-  const showTerminalTag = codeSurface && terminalActive;
-  const showBrowserTag = codeSurface && browserPreviewActive;
+  const showTerminalTags = codeSurface && terminalSessions.length > 0;
+  const showBrowserTags = codeSurface && browserSessions.length > 0;
   const showPageTag = codeSurface && pagePreviewActive;
   const showCodeAttachments = codeSurface && attachments.length > 0;
   const showCodeWorkspaceRefs = codeSurface && workspaceRefs.length > 0;
   const hasContextTags =
-    showTerminalTag || showBrowserTag || showPageTag || activeWriteContext || showCodeAttachments || showCodeWorkspaceRefs;
+    showTerminalTags || showBrowserTags || showPageTag || activeWriteContext || showCodeAttachments || showCodeWorkspaceRefs;
 
   useEffect(() => {
     if (writeSurface) {
@@ -1201,35 +1261,37 @@ export function Composer({
         {hasContextTags ? (
           <div className="composer-context" aria-label={t("composer.contextItems")}>
             <div className="composer-context__tags">
-            {showTerminalTag ? (
-              <div className="composer-context__item composer-context__item--terminal">
-                <SquareTerminal size={14} />
-                <span className="composer-context__text">
-                  <span className="composer-context__name">
-                    {terminalLabel?.trim() || t("composer.terminalActive")}
-                  </span>
-                </span>
-              </div>
-            ) : null}
-            {showBrowserTag ? (
-              <div className="composer-context__item composer-context__item--browser">
-                <Monitor size={14} />
-                <span className="composer-context__text">
-                  <span className="composer-context__name">
-                    {browserPreviewLabel?.trim() || t("composer.browserActive")}
-                  </span>
-                </span>
-              </div>
-            ) : null}
+            {terminalSessions.map((session) => (
+              <ComposerSessionChip
+                key={`terminal-${session.id}`}
+                kind="terminal"
+                icon={<SquareTerminal size={14} />}
+                label={session.label.trim() || t("composer.terminalActive")}
+                onOpen={onTerminalSessionOpen ? () => onTerminalSessionOpen(session.id) : undefined}
+                onClose={onTerminalSessionClose ? () => onTerminalSessionClose(session.id) : undefined}
+                closeLabel={t("terminal.closeTab", { title: session.label })}
+              />
+            ))}
+            {browserSessions.map((session) => (
+              <ComposerSessionChip
+                key={`browser-${session.id}`}
+                kind="browser"
+                icon={<Monitor size={14} />}
+                label={session.label.trim() || t("composer.browserActive")}
+                onOpen={onBrowserSessionOpen ? () => onBrowserSessionOpen(session.id) : undefined}
+                onClose={onBrowserSessionClose ? () => onBrowserSessionClose(session.id) : undefined}
+                closeLabel={t("browser.closeTab", { title: session.label })}
+              />
+            ))}
             {showPageTag ? (
-              <div className="composer-context__item composer-context__item--page">
-                <Globe size={14} />
-                <span className="composer-context__text">
-                  <span className="composer-context__name">
-                    {pagePreviewLabel?.trim() || t("composer.pageActive")}
-                  </span>
-                </span>
-              </div>
+              <ComposerSessionChip
+                kind="page"
+                icon={<Globe size={14} />}
+                label={pagePreviewLabel?.trim() || t("composer.pageActive")}
+                onOpen={onPageSessionOpen}
+                onClose={onPageSessionClose}
+                closeLabel={t("browser.closeTab", { title: pagePreviewLabel?.trim() || t("composer.pageActive") })}
+              />
             ) : null}
             {activeWriteContext ? (
               <div className="composer-context__item composer-context__item--write">
@@ -1411,7 +1473,8 @@ export function Composer({
           <div className="composer-meta__model-effort">
             <div className="composer-meta__control composer-meta__control--model" ref={modelAnchorRef}>
               <ModelSwitcherTrigger
-                label={modelLabel}
+                label={modelLabelFromRef(modelLabel)}
+                title={modelLabel}
                 open={paramMenu === "model"}
                 disabled={running}
                 onClick={() => {

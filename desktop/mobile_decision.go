@@ -188,7 +188,7 @@ func (b *clawBridge) handleMobileDecision(w http.ResponseWriter, r *http.Request
 			writeMobileJSON(w, http.StatusBadRequest, map[string]any{"error": "session is required"})
 			return
 		}
-		if _, ok := b.mobile.session(sessionID); !ok {
+		if err := b.mobile.requirePairedSession(sessionID); err != nil {
 			writeMobileJSON(w, http.StatusUnauthorized, map[string]any{"error": "session not found"})
 			return
 		}
@@ -209,7 +209,11 @@ func (b *clawBridge) handleMobileDecision(w http.ResponseWriter, r *http.Request
 			writeMobileJSON(w, http.StatusBadRequest, map[string]any{"error": "session is required"})
 			return
 		}
-		if _, ok := b.mobile.session(req.SessionID); !ok {
+		if b.sessionRL != nil && !b.sessionRL.allow(clientIP(r)+"|"+req.SessionID) {
+			writeMobileJSON(w, http.StatusTooManyRequests, map[string]any{"error": "too many requests"})
+			return
+		}
+		if err := b.mobile.requirePairedSession(req.SessionID); err != nil {
 			writeMobileJSON(w, http.StatusUnauthorized, map[string]any{"error": "session not found"})
 			return
 		}

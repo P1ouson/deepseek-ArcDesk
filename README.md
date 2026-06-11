@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <strong>面向 DeepSeek 工作流的开源桌面 Coding Agent</strong><br/>
-  原生桌面 · 权限化工具执行 · MCP · 长会话成本优化
+  <strong>本地 DeepSeek 桌面 Coding Agent — 独立窗口完成读代码、改文件、跑命令</strong><br/>
+  不绑浏览器标签页 · 工具调用需审批 · MCP / Skills · 针对 DeepSeek 长会话成本优化
 </p>
 
 <p align="center">
@@ -16,6 +16,10 @@
 
 <p align="center">
   <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases"><strong>⬇ 下载桌面版</strong></a>
+  &nbsp;·&nbsp;
+  <a href="#30-秒预览">预览</a>
+  &nbsp;·&nbsp;
+  <a href="#和谁不一样">对比</a>
   &nbsp;·&nbsp;
   <a href="#快速开始">快速开始</a>
   &nbsp;·&nbsp;
@@ -34,69 +38,57 @@
 
 <br/>
 
-> **ArcDesk** 是一款独立的 MIT 开源 Coding Agent，针对 DeepSeek 长会话与工具编排做了优化，**并非 DeepSeek 官方产品**。
->
-> 与 Cursor 同类的是 **Agent 工作流**（对话 → 工具 → Diff → 审批），而非完整 IDE。可与 VS Code、JetBrains 等编辑器并行使用。
-
-<br/>
-
-## 截图
+## 30 秒预览 {#30-秒预览}
 
 <p align="center">
   <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases">
-    <img src="docs/screenshots/sidebar-code.png" alt="ArcDesk 代码工作区" width="920"/>
+    <img src="docs/screenshots/desktop-hero.gif" alt="ArcDesk 代码工作区：欢迎页与快速开始" width="920"/>
   </a>
 </p>
-<p align="center"><sub><strong>代码</strong> — 项目导览 / 最近变更 / 定位逻辑快捷入口 · auto / plan / yolo 模式 · DeepSeek 模型与用量</sub></p>
-
-<table>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/screenshots/sidebar-write.png" alt="写作工作区" width="100%"/>
-<p align="center"><sub><strong>写作</strong> — 文稿管理与营销 Skills 联动</sub></p>
-</td>
-<td width="50%" valign="top">
-<img src="docs/screenshots/sidebar-extensions.png" alt="Agent 扩展" width="100%"/>
-<p align="center"><sub><strong>扩展</strong> — Skills 与子 Agent · MCP 外部工具</sub></p>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/screenshots/sidebar-schedule.png" alt="定时任务" width="100%"/>
-<p align="center"><sub><strong>定时</strong> — 按日程自动启动 Agent 会话</sub></p>
-</td>
-<td width="50%" valign="top">
-<img src="docs/screenshots/sidebar-connect.png" alt="手机连接" width="100%"/>
-<p align="center"><sub><strong>连接</strong> — 扫码配对 · 局域网 / 穿透远程访问</sub></p>
-</td>
-</tr>
-<tr>
-<td colspan="2" valign="top">
-<img src="docs/screenshots/sidebar-settings.png" alt="设置" width="100%"/>
-<p align="center"><sub><strong>设置</strong> — 语言 · 网络代理 · 模型服务 · 权限 · 自动更新</sub></p>
-</td>
-</tr>
-</table>
-
-### 运行实录
+<p align="center"><sub>导入项目 → 代码工作区欢迎页 → 一键卡片发起 Agent 任务 · <a href="#更多界面">静态截图</a></sub></p>
 
 <p align="center">
-  <img src="docs/screenshots/runtime-agent-approval.png" alt="Agent 执行中：思考过程与 write_file 审批" width="920"/>
+  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-windows-amd64-installer.exe"><strong>⬇ Windows</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-darwin-universal.dmg"><strong>macOS</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-linux-amd64-installer.tar.gz"><strong>Linux</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases">全部 Release</a>
 </p>
-<p align="center"><sub><strong>实机 · 代码工作区</strong> — 打开 <code>arcdesk-demo</code> 项目 · 思考过程可折叠 · 工具调用需显式批准</sub></p>
 
-<table>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/screenshots/runtime-web-preview.png" alt="Web 实时预览" width="100%"/>
-<p align="center"><sub><strong>Web 实时预览</strong> — 右侧内嵌看板页，与 Agent 改代码同屏对照</sub></p>
-</td>
-<td width="50%" valign="top">
-<img src="docs/screenshots/runtime-writing.png" alt="写作工作区实机" width="100%"/>
-<p align="center"><sub><strong>写作助手</strong> — Markdown 编辑 / 预览 · 摘要 / 润色 / 校对 · 一键插入文稿</sub></p>
-</td>
-</tr>
-</table>
+> **首次安装须知（请先看）**
+>
+> - **ArcDesk 是独立 MIT 开源项目，并非 DeepSeek 官方产品。** 模型推理按 API 用量计费。
+> - 当前安装包**尚未** Apple 公证 / Windows Authenticode 签名。macOS 可能提示「已损坏」；Windows 可能出现 SmartScreen — 见 [故障排查](#故障排查)。
+> - Windows 安装程序会在缺失时**自动下载 WebView2**（约数 MB，属正常行为）。
+> - 请选择默认路径 **`%LOCALAPPDATA%\Programs\ArcDesk`** 或新建空文件夹安装；**不要**装到含 `.git` / 源码的开发目录（卸载时可能残留文件）。
+
+<br/>
+
+## 和谁不一样 {#和谁不一样}
+
+| | **ArcDesk** | **网页版 DeepSeek** | **Cursor** | **Chatbox 等客户端** |
+|---|:---:|:---:|:---:|:---:|
+| **形态** | 原生桌面 + CLI | 浏览器标签 | IDE 分支 | 多为 Electron 聊天壳 |
+| **Agent 工作流** | 读文件 / bash / Diff / 审批 | 以对话为主 | ✅ 深度 IDE 集成 | 视产品而定 |
+| **DeepSeek 长会话成本** | 前缀缓存 + 压缩策略 | 无专门优化 | 多模型订阅 | 通常无 |
+| **MCP + 项目级信任** | ✅ | ❌ | ✅ | 部分 |
+| **开源可审计** | MIT | ❌ | ❌ | 视项目 |
+| **独立窗口（不绑 IDE）** | ✅ 默认 | ❌ | 在 IDE 内 | ✅ |
+
+与 Cursor 同类的是 **Agent 循环**（对话 → 工具 → Diff → 审批），不是完整 IDE 替代品。可与 VS Code、JetBrains 等并行使用。
+
+<br/>
+
+## 更多界面 {#更多界面}
+
+<p align="center">
+  <img src="docs/screenshots/desktop-workbench.png" alt="ArcDesk 代码工作区欢迎页" width="920"/>
+</p>
+<p align="center"><sub><strong>代码工作区</strong> — 项目导览 / 最近变更 / 定位逻辑 · auto / plan / yolo · 底部 DeepSeek 用量</sub></p>
+
+侧栏另含 **写作 · 扩展（Skills / MCP）· 定时 · 连接（手机远程）· 设置**。完整能力见 [桌面亮点](#桌面亮点)；补截图见 [`docs/screenshots/README.md`](docs/screenshots/README.md)。
 
 <br/>
 
@@ -111,7 +103,7 @@ ArcDesk 桌面版不是「包一层 Web UI」——**自研 Go Agent 内核**通
 | **Agent 扩展** | Skills + MCP | 内置 explore / research / review / security-review 等子 Agent Skills；支持从文件夹加载自定义 Skill；MCP 外部工具（stdio / HTTP）按项目信任加载 |
 | **定时任务** | 无人值守 Agent | 后台每 30 秒检查到期任务，自动开启新对话并发送预设 Prompt；可绑定工作区根目录与模型，支持每日等调度类型 |
 | **手机远程连接** | 扫码配对 · 局域网 · 穿透 | 手机浏览器扫码配对后远程查看/驱动桌面 Agent；同 Wi‑Fi 可走局域网；外网可用 **Cloudflare 一键穿透**（空闲 10 分钟自动停止）；移动端会话跟随桌面当前 Tab 与模型 |
-| **Web 实时预览** | 内嵌 iframe 预览 dev server | 右侧 **Web 预览** 面板加载本地 dev server（默认 `localhost`）；按项目沙盒 **白名单 host/port** 校验 URL；离线时每 5 秒自动重连；外链需原生确认 |
+| **沙盒 Browser** | 多标签 iframe 预览 | 侧栏 **Browser** 多标签沙盒预览 dev server；地址栏可改、**适应面板**缩放；默认更宽，**展开预览**占半窗；**Preview** 面板预览工作区 HTML/SVG |
 | **项目沙盒** | YOLO 前置安全边界 | 按项目配置 bash 约束、网络、可写目录与预览 URL 策略；YOLO（全自动工具）模式需先完成沙盒配置 |
 | **集成终端** | 多 Tab PTY | 工作台内嵌 xterm.js 终端，支持多标签；Shell 可在设置中选择 PowerShell / cmd / Git Bash / WSL |
 | **内联 Diff + 工具审批** | 可见、可拒 | Agent 写文件 / 跑 bash / 调 MCP 时弹出原生审批；变更以 Diff 形式展示后再应用 |
@@ -120,7 +112,7 @@ ArcDesk 桌面版不是「包一层 Web UI」——**自研 Go Agent 内核**通
 | **新建需求（SDD）** | 结构化需求 → Agent | 从侧栏发起结构化需求单，逐步确认后交给 Agent 执行 |
 | **Git / GitHub CLI** | PR 与合并偏好 | 设置中配置 PR 合并方式、commit/PR 说明模板；检测 `gh` CLI 状态 |
 
-<p align="center"><sub>侧栏六页见<a href="#截图">截图</a>；<a href="#运行实录">运行实录</a>展示审批、Web 预览、写作助手实机画面</sub></p>
+<p align="center"><sub>侧栏六页见<a href="#更多界面">更多界面</a>；完整能力见 <a href="#桌面亮点">桌面亮点</a></sub></p>
 
 <br/>
 
@@ -149,7 +141,7 @@ ArcDesk 使用 **独立实现的 Go Agent 内核**（`internal/agent` + `interna
 | **零 HTTP 跳板的 UI 绑定** | Go `App` 方法 + `EventsEmit` 直推 React | Agent 流式输出延迟更低，状态与审批与内核同步 |
 | **手机远程连接** | 局域网 HTTP + Cloudflare 快速穿透 + 移动 Web UI（`mobile_page.html`） | 外网扫码配对；空闲自动停穿透；会话跟随桌面 Tab |
 | **写作工作区** | 独立文稿树 + 写作助手（摘要 / 润色 / 校对）+ Skills 自动启用 | 文档类任务与代码会话分离，可插入文稿 |
-| **Web 实时预览** | iframe 沙盒 + URL 白名单 + 离线 5s 重探 | 改前端时同屏看 dev server，不必切浏览器 |
+| **沙盒 Browser** | 多标签 + 适应面板缩放 + 半窗展开 | 改前端时同屏看 dev server；侧栏可放大至窗口一半 |
 | **定时 Agent** | 后台 30s tick，`scheduled-tasks.json` 持久化 | 到点自动开聊并发 Prompt |
 | **项目沙盒向导** | `project-sandbox.json` 约束 bash / 网络 / 预览 URL | YOLO 全自动前必须划边界 |
 | **原生确认链** | 凭证、穿透、外链预览、高危 shell 走 OS 级确认 | 降低误触与供应链风险 |
@@ -517,7 +509,7 @@ flowchart TB
 | Windows / Linux bash 沙盒 | macOS Seatbelt 最完整 | 增强 bubblewrap / Windows 约束 |
 | npm CLI 分发 | 仓库内包装器已就绪 | 稳定 semver 发布到 npm |
 | CodeGraph on Windows | 自动拉取未充分验证 | 完善 Windows 安装路径 |
-| 文档与截图 | 持续更新 | 补全 hero GIF / CLI TUI 截图 |
+| 文档与截图 | 持续更新 | 补全各侧栏实机截图 / CLI TUI |
 
 <br/>
 

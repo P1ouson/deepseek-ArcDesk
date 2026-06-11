@@ -25,7 +25,7 @@ func testMobileAuthBridge(t *testing.T) (*clawBridge, string, string) {
 	}
 
 	app := &App{mobileDecision: newMobileDecisionStore()}
-	bridge := &clawBridge{mobile: store, app: app, port: defaultClawBridgePort}
+	bridge := &clawBridge{mobile: store, app: app, port: defaultClawBridgePort, pairRL: newPairRateLimiter(), sessionRL: newSessionRateLimiter()}
 	return bridge, sess.ID, pairToken
 }
 

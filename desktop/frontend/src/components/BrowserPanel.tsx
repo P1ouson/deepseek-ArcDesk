@@ -1,16 +1,31 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
   Maximize2,
   Minimize2,
   Monitor,
+  Plus,
   RefreshCw,
+  Scan,
   ShieldCheck,
+  X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { app } from "../lib/bridge";
+import {
+  clampPreviewScale,
+  computePreviewFitScale,
+  DEFAULT_PREVIEW_LOGICAL_HEIGHT,
+  DEFAULT_PREVIEW_LOGICAL_WIDTH,
+  measureIframeDocumentSize,
+  type BrowserPreviewZoomMode,
+} from "../lib/browserPreviewFit";
+import { browserTabTitle } from "../lib/browserTabTitle";
 import { confirmAction } from "../lib/confirmAction";
 import { useT } from "../lib/i18n";
+import type { BrowserTab } from "../lib/useBrowserPanel";
 import type { PreviewURLValidation } from "../lib/types";
 import {
   defaultPreviewUrl,
@@ -21,41 +36,65 @@ import {
 import { Tooltip } from "./Tooltip";
 
 export interface BrowserPanelProps {
+  tabs: BrowserTab[];
+  activeId: string | null;
+  onActiveChange: (id: string) => void;
+  onCloseTab: (id: string) => void;
+  onNewTab: () => void;
+  onTabUrlChange: (id: string, url: string, title?: string) => void;
   expanded?: boolean;
   onToggleExpanded?: () => void;
-  /** Controlled preview URL from workbench state. */
-  previewUrl?: string | null;
-  onPreviewUrlChange?: (url: string) => void;
-  /** Bump to soft-reload iframe after workspace file changes (HMR fallback). */
   refreshKey?: number;
   workspaceRoot?: string;
 }
 
 type Reachability = "unknown" | "online" | "offline";
 
-export function BrowserPanel({
-  expanded = false,
-  onToggleExpanded,
-  previewUrl,
-  onPreviewUrlChange,
-  refreshKey = 0,
-  workspaceRoot: _workspaceRoot,
-}: BrowserPanelProps) {
+function isLocalUrl(raw: string): boolean {
+  try {
+    const host = new URL(raw).hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
+function BrowserTabPane({
+  tab,
+  active,
+  refreshKey,
+  onUrlChange,
+}: {
+  tab: BrowserTab;
+  active: boolean;
+  refreshKey: number;
+  onUrlChange: (url: string, title: string) => void;
+}) {
   const t = useT();
-  const initialUrl = previewUrl?.trim() || defaultPreviewUrl();
-  const [url, setUrl] = useState(initialUrl);
-  const [src, setSrc] = useState<string | null>(initialUrl);
+  const [addressDraft, setAddressDraft] = useState(tab.url);
+  const [src, setSrc] = useState<string | null>(tab.url);
   const [reachability, setReachability] = useState<Reachability>("unknown");
   const [status, setStatus] = useState<PreviewURLValidation>(() => ({
     decision: "allow",
-    url: initialUrl,
+    url: tab.url,
     strict: false,
   }));
   const [blockedMessage, setBlockedMessage] = useState("");
   const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [zoomMode, setZoomMode] = useState<BrowserPreviewZoomMode>("fit");
+  const [manualScale, setManualScale] = useState(1);
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+  const [contentSize, setContentSize] = useState({
+    width: DEFAULT_PREVIEW_LOGICAL_WIDTH,
+    height: DEFAULT_PREVIEW_LOGICAL_HEIGHT,
+  });
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const probeGen = useRef(0);
   const reloadGen = useRef(0);
   const lastRefreshKey = useRef(refreshKey);
+  const lastTabIdRef = useRef(tab.id);
+  const prevTabUrlRef = useRef(tab.url);
 
   const bumpIframe = useCallback((base: string) => {
     const clean = base.split("#")[0] ?? base;
@@ -109,28 +148,43 @@ export function BrowserPanel({
         if (!ok) return;
       }
 
-      setUrl(next.url);
-      onPreviewUrlChange?.(next.url);
+      prevTabUrlRef.current = next.url;
+      setAddressDraft(next.url);
+      onUrlChange(next.url, browserTabTitle(next.url));
       setSrc(next.url);
       setIframeLoaded(false);
+      setZoomMode("fit");
       void checkReachability(next.url);
     },
-    [checkReachability, onPreviewUrlChange, t],
+    [checkReachability, onUrlChange, t],
   );
 
   useEffect(() => {
-    if (!previewUrl?.trim()) return;
-    if (previewUrl.trim() === url.trim()) return;
-    void applyPreviewUrl(previewUrl, true);
-  }, [applyPreviewUrl, previewUrl, url]);
+    if (lastTabIdRef.current !== tab.id) {
+      lastTabIdRef.current = tab.id;
+      prevTabUrlRef.current = tab.url;
+      setAddressDraft(tab.url);
+      setZoomMode("fit");
+      if (tab.url.trim()) {
+        setSrc(tab.url);
+      }
+      return;
+    }
+    if (prevTabUrlRef.current === tab.url) return;
+    prevTabUrlRef.current = tab.url;
+    setAddressDraft(tab.url);
+    if (tab.url.trim()) {
+      void applyPreviewUrl(tab.url, true);
+    }
+  }, [applyPreviewUrl, tab.id, tab.url]);
 
   useEffect(() => {
+    if (!active || tab.url.trim()) return;
     let cancelled = false;
     void (async () => {
       try {
         const detected = await app.DetectDevServerURL();
         if (cancelled || !detected) return;
-        if (previewUrl?.trim()) return;
         await applyPreviewUrl(detected, true);
       } catch {
         /* ignore */
@@ -139,36 +193,85 @@ export function BrowserPanel({
     return () => {
       cancelled = true;
     };
-  }, [applyPreviewUrl, previewUrl, refreshKey]);
+  }, [active, applyPreviewUrl, tab.url]);
 
   useEffect(() => {
     if (!src || reachability !== "offline") return;
     const id = window.setInterval(() => {
-      void checkReachability(url);
+      void checkReachability(addressDraft);
     }, 5000);
     return () => window.clearInterval(id);
-  }, [checkReachability, reachability, src, url]);
+  }, [addressDraft, checkReachability, reachability, src]);
 
   useEffect(() => {
-    if (!src) return;
+    if (!active || !src) return;
     if (lastRefreshKey.current === refreshKey) return;
     lastRefreshKey.current = refreshKey;
     const gen = ++reloadGen.current;
     const id = window.setTimeout(() => {
       if (gen !== reloadGen.current) return;
-      bumpIframe(url);
+      bumpIframe(addressDraft);
     }, 700);
     return () => window.clearTimeout(id);
-  }, [bumpIframe, refreshKey, src, url]);
+  }, [active, addressDraft, bumpIframe, refreshKey, src]);
+
+  const measureContent = useCallback(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const measured = measureIframeDocumentSize(iframe);
+    if (measured) {
+      setContentSize(measured);
+    }
+  }, []);
+
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el || !active) return;
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      setViewportSize({ width: rect.width, height: rect.height });
+    };
+    update();
+    const ro = new ResizeObserver(() => update());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [active]);
+
+  const previewScale = useMemo(() => {
+    if (zoomMode === "manual") return clampPreviewScale(manualScale);
+    return clampPreviewScale(
+      computePreviewFitScale(
+        viewportSize.width,
+        viewportSize.height,
+        contentSize.width,
+        contentSize.height,
+      ),
+    );
+  }, [contentSize.height, contentSize.width, manualScale, viewportSize.height, viewportSize.width, zoomMode]);
+
+  const zoomIn = useCallback(() => {
+    setZoomMode("manual");
+    setManualScale((current) => clampPreviewScale((zoomMode === "manual" ? current : previewScale) * 1.12));
+  }, [previewScale, zoomMode]);
+
+  const zoomOut = useCallback(() => {
+    setZoomMode("manual");
+    setManualScale((current) => clampPreviewScale((zoomMode === "manual" ? current : previewScale) / 1.12));
+  }, [previewScale, zoomMode]);
+
+  const zoomFit = useCallback(() => {
+    setZoomMode("fit");
+    measureContent();
+  }, [measureContent]);
 
   const reload = useCallback(() => {
     if (!src) {
-      void applyPreviewUrl(url, true);
+      void applyPreviewUrl(addressDraft, true);
       return;
     }
-    bumpIframe(url);
-    void checkReachability(url);
-  }, [applyPreviewUrl, bumpIframe, checkReachability, src, url]);
+    bumpIframe(addressDraft);
+    void checkReachability(addressDraft);
+  }, [addressDraft, applyPreviewUrl, bumpIframe, checkReachability, src]);
 
   const statusBadge = (() => {
     if (reachability === "offline" && src) {
@@ -212,7 +315,7 @@ export function BrowserPanel({
   })();
 
   return (
-    <div className="right-dock__browser browser-panel">
+    <div className={`browser-panel__pane${active ? " browser-panel__pane--active" : ""}`} aria-hidden={!active}>
       <header className="browser-panel__chrome wails-no-drag">
         <div className="browser-panel__row">
           <div className="browser-panel__tools" role="toolbar" aria-label={t("browser.title")}>
@@ -221,28 +324,38 @@ export function BrowserPanel({
                 <RefreshCw size={15} strokeWidth={1.75} />
               </button>
             </Tooltip>
-            {onToggleExpanded ? (
-              <Tooltip label={t(expanded ? "browser.collapse" : "browser.expand")}>
-                <button
-                  type="button"
-                  className="browser-panel__tool"
-                  onClick={onToggleExpanded}
-                  aria-label={t(expanded ? "browser.collapse" : "browser.expand")}
-                  aria-pressed={expanded}
-                >
-                  {expanded ? <Minimize2 size={15} strokeWidth={1.75} /> : <Maximize2 size={15} strokeWidth={1.75} />}
-                </button>
-              </Tooltip>
-            ) : null}
+            <Tooltip label={t("browser.zoomFit")}>
+              <button
+                type="button"
+                className={`browser-panel__tool${zoomMode === "fit" ? " browser-panel__tool--active" : ""}`}
+                onClick={zoomFit}
+                aria-label={t("browser.zoomFit")}
+                aria-pressed={zoomMode === "fit"}
+              >
+                <Scan size={15} strokeWidth={1.75} />
+              </button>
+            </Tooltip>
+            <Tooltip label={t("browser.zoomOut")}>
+              <button type="button" className="browser-panel__tool" onClick={zoomOut} aria-label={t("browser.zoomOut")}>
+                <ZoomOut size={15} strokeWidth={1.75} />
+              </button>
+            </Tooltip>
+            <span className="browser-panel__zoom-level" aria-live="polite">
+              {Math.round(previewScale * 100)}%
+            </span>
+            <Tooltip label={t("browser.zoomIn")}>
+              <button type="button" className="browser-panel__tool" onClick={zoomIn} aria-label={t("browser.zoomIn")}>
+                <ZoomIn size={15} strokeWidth={1.75} />
+              </button>
+            </Tooltip>
           </div>
-
           <div className="browser-panel__omnibox">
             <input
-              className="browser-panel__url"
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
+              className="browser-panel__url wails-no-drag"
+              value={addressDraft}
+              onChange={(event) => setAddressDraft(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") void applyPreviewUrl(url);
+                if (event.key === "Enter") void applyPreviewUrl(addressDraft);
               }}
               placeholder={t("rightDock.urlPlaceholder")}
               spellCheck={false}
@@ -252,7 +365,7 @@ export function BrowserPanel({
               <button
                 type="button"
                 className="browser-panel__go"
-                onClick={() => void applyPreviewUrl(url)}
+                onClick={() => void applyPreviewUrl(addressDraft)}
                 aria-label={t("rightDock.browserGo")}
               >
                 <ArrowRight size={14} strokeWidth={2} />
@@ -260,35 +373,50 @@ export function BrowserPanel({
             </Tooltip>
           </div>
         </div>
-
         <div className="browser-panel__meta">{statusBadge}</div>
       </header>
 
       {blockedMessage ? (
         <div className="right-dock__browser-blocked">{blockedMessage}</div>
       ) : src ? (
-        <div className="browser-panel__viewport">
+        <div
+          ref={viewportRef}
+          className={`browser-panel__viewport${zoomMode === "manual" ? " browser-panel__viewport--manual" : ""}`}
+        >
           {reachability === "offline" && !iframeLoaded ? (
             <div className="browser-panel__overlay">
               <p>{t("browser.offlineTitle")}</p>
               <p className="browser-panel__idle-hint">{t("browser.offlineHint")}</p>
-              <button type="button" className="browser-panel__retry" onClick={() => void applyPreviewUrl(url, true)}>
+              <button type="button" className="browser-panel__retry" onClick={() => void applyPreviewUrl(addressDraft, true)}>
                 {t("browser.retry")}
               </button>
             </div>
           ) : null}
-          <iframe
-            key={src}
-            title={t("browser.title")}
-            src={src}
-            className="right-dock__iframe"
-            sandbox={PREVIEW_IFRAME_SANDBOX}
-            referrerPolicy="no-referrer"
-            onLoad={() => {
-              setIframeLoaded(true);
-              if (reachability === "unknown") setReachability("online");
+          <div
+            className="browser-panel__scaler"
+            style={{
+              width: contentSize.width,
+              height: contentSize.height,
+              transform: `scale(${previewScale})`,
             }}
-          />
+          >
+            <iframe
+              ref={iframeRef}
+              key={src}
+              title={tab.title}
+              src={src}
+              className="right-dock__iframe"
+              sandbox={PREVIEW_IFRAME_SANDBOX}
+              referrerPolicy="no-referrer"
+              onLoad={() => {
+                setIframeLoaded(true);
+                if (reachability === "unknown") setReachability("online");
+                measureContent();
+                requestAnimationFrame(() => measureContent());
+                window.setTimeout(() => measureContent(), 400);
+              }}
+            />
+          </div>
         </div>
       ) : (
         <div className="right-dock__browser-blocked browser-panel__idle">
@@ -300,11 +428,105 @@ export function BrowserPanel({
   );
 }
 
-function isLocalUrl(raw: string): boolean {
-  try {
-    const host = new URL(raw).hostname.toLowerCase();
-    return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1";
-  } catch {
-    return false;
+export function BrowserPanel({
+  tabs,
+  activeId,
+  onActiveChange,
+  onCloseTab,
+  onNewTab,
+  onTabUrlChange,
+  expanded = false,
+  onToggleExpanded,
+  refreshKey = 0,
+}: BrowserPanelProps) {
+  const t = useT();
+  const tabsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = tabsRef.current;
+    if (!el || !activeId) return;
+    const activeBtn = el.querySelector<HTMLButtonElement>(`[data-browser-id="${activeId}"]`);
+    activeBtn?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeId, tabs.length]);
+
+  if (tabs.length === 0) {
+    return (
+      <div className="right-dock__browser browser-panel browser-panel--empty">
+        <p>{t("browser.idleTitle")}</p>
+        <button type="button" className="browser-panel__retry" onClick={onNewTab}>
+          {t("browser.newTab")}
+        </button>
+      </div>
+    );
   }
+
+  return (
+    <div className="right-dock__browser browser-panel">
+      <header className="browser-panel__tabbar wails-no-drag">
+        <div className="browser-panel__tabs" ref={tabsRef} role="tablist" aria-label={t("browser.tabs")}>
+          {tabs.map((tab) => (
+            <div
+              key={tab.clientKey}
+              className={`browser-panel__tab${tab.id === activeId ? " browser-panel__tab--active" : ""}`}
+              role="presentation"
+            >
+              <button
+                type="button"
+                role="tab"
+                data-browser-id={tab.id}
+                aria-selected={tab.id === activeId}
+                className="browser-panel__tab-main"
+                onClick={() => onActiveChange(tab.id)}
+              >
+                <Monitor size={12} />
+                <span>{tab.title}</span>
+              </button>
+              <button
+                type="button"
+                className="browser-panel__tab-close"
+                aria-label={t("browser.closeTab", { title: tab.title })}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCloseTab(tab.id);
+                }}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="browser-panel__tab-actions">
+          <button type="button" className="browser-panel__action" onClick={onNewTab} aria-label={t("browser.newTab")}>
+            <Plus size={14} />
+          </button>
+          {onToggleExpanded ? (
+            <Tooltip label={t(expanded ? "browser.collapse" : "browser.expand")}>
+              <button
+                type="button"
+                className="browser-panel__action"
+                onClick={onToggleExpanded}
+                aria-label={t(expanded ? "browser.collapse" : "browser.expand")}
+                aria-pressed={expanded}
+              >
+                {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>
+            </Tooltip>
+          ) : null}
+        </div>
+      </header>
+      <div className="browser-panel__stack">
+        {tabs.map((tab) => (
+          <BrowserTabPane
+            key={tab.clientKey}
+            tab={tab}
+            active={tab.id === activeId}
+            refreshKey={refreshKey}
+            onUrlChange={(url, title) => onTabUrlChange(tab.id, url, title ?? browserTabTitle(url))}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
+
+export { defaultPreviewUrl };

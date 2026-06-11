@@ -13,6 +13,7 @@ import { projectColorValue } from "../lib/projectColors";
 import { ContextMenu, contextMenuPointFromEvent, type ContextMenuItem, type ContextMenuPoint } from "./ContextMenu";
 import { MotionUnfold } from "./MotionUnfold";
 import { ProjectSearchDialog } from "./ProjectSearchDialog";
+import { isWriteModeTopicId } from "../lib/writeTab";
 import { Tooltip } from "./Tooltip";
 
 interface ProjectTreeProps {
@@ -364,6 +365,9 @@ export function ProjectTree({
 
   const renderNode = (node: ProjectNode | null | undefined, depth: number) => {
     if (!node) return null;
+    if ((node.kind === "topic" || node.kind === "global_topic") && isWriteModeTopicId(node.topicId)) {
+      return null;
+    }
     const key = projectNodeKey(node, depth);
     const children = asArray(node.children);
     const isExpanded = !sidebar && query.trim() ? true : expanded.has(key);

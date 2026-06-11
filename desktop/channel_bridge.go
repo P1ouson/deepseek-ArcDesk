@@ -23,14 +23,15 @@ const (
 )
 
 type clawBridge struct {
-	app    *App
-	mu     sync.Mutex
-	srv    *http.Server
-	port   int
-	mobile *mobileConnectStore
-	relay  *mobileRelayClient
-	tunnel *mobileTunnelRunner
-	pairRL *pairRateLimiter
+	app       *App
+	mu        sync.Mutex
+	srv       *http.Server
+	port      int
+	mobile    *mobileConnectStore
+	relay     *mobileRelayClient
+	tunnel    *mobileTunnelRunner
+	pairRL    *pairRateLimiter
+	sessionRL *actionRateLimiter
 }
 
 type ClawCallbackInfo struct {
@@ -44,11 +45,42 @@ func (a *App) startClawBridge() {
 	if a == nil {
 		return
 	}
-	a.clawBridge = &clawBridge{app: a, port: defaultClawBridgePort, mobile: newMobileConnectStore(), pairRL: newPairRateLimiter()}
+	a.clawBridgeMu.Lock()
+	defer a.clawBridgeMu.Unlock()
+	if a.clawBridge != nil {
+		return
+	}
+	a.clawBridge = &clawBridge{
+		app:       a,
+		port:      defaultClawBridgePort,
+		mobile:    newMobileConnectStore(),
+		pairRL:    newPairRateLimiter(),
+		sessionRL: newSessionRateLimiter(),
+	}
 	if err := a.clawBridge.start(); err != nil {
 		slog.Warn("claw bridge failed to start", "err", err)
 		a.clawBridge = nil
 	}
+}
+
+// ensureClawBridge lazily starts the mobile/claw HTTP bridge when remote features are used.
+func (a *App) ensureClawBridge() error {
+	if a == nil {
+		return fmt.Errorf("app unavailable")
+	}
+	a.clawBridgeMu.Lock()
+	ready := a.clawBridge != nil
+	a.clawBridgeMu.Unlock()
+	if ready {
+		return nil
+	}
+	a.startClawBridge()
+	a.clawBridgeMu.Lock()
+	defer a.clawBridgeMu.Unlock()
+	if a.clawBridge == nil {
+		return fmt.Errorf("mobile connect is not ready")
+	}
+	return nil
 }
 
 func (a *App) stopClawBridge() {
@@ -59,18 +91,43 @@ func (a *App) stopClawBridge() {
 	a.clawBridge = nil
 }
 
-func clawBridgeBindHost(allowLAN bool) string {
-	if allowLAN {
-		return clawBridgeBindLAN
-	}
-	return clawBridgeBindLocalhost
+func clawBridgeBindHost(_ bool) string {
+	// Always bind all interfaces; non-loopback access is gated in middleware
+	// so toggling AllowLAN does not require restarting the listener.
+	return clawBridgeBindLAN
 }
 
 func (b *clawBridge) bindHost() string {
-	if b != nil && b.mobile != nil && b.mobile.getConfig().AllowLAN {
-		return clawBridgeBindLAN
+	return clawBridgeBindLAN
+}
+
+func isLoopbackIP(ip string) bool {
+	ip = strings.TrimSpace(ip)
+	if ip == "localhost" || ip == "127.0.0.1" || ip == "::1" {
+		return true
 	}
-	return clawBridgeBindLocalhost
+	parsed := net.ParseIP(ip)
+	return parsed != nil && parsed.IsLoopback()
+}
+
+func (b *clawBridge) mobileAccessAllowed(r *http.Request) bool {
+	if b == nil || b.mobile == nil {
+		return false
+	}
+	if b.mobile.getConfig().AllowLAN {
+		return true
+	}
+	return isLoopbackIP(clientIP(r))
+}
+
+func (b *clawBridge) withMobileAccess(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !b.mobileAccessAllowed(r) {
+			http.Error(w, "LAN access disabled", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	}
 }
 
 func clawBridgeListenAddr(host string, port int) string {
@@ -84,12 +141,12 @@ func cloudflaredTunnelTarget(port int) string {
 func (b *clawBridge) newHTTPServer() *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/claw/wecom/", b.handleWeCom)
-	mux.HandleFunc("/mobile/health", b.handleMobileHealth)
-	mux.HandleFunc("/mobile/p/", b.handleMobilePairPage)
-	mux.HandleFunc("/mobile/api/pair", b.handleMobilePair)
-	mux.HandleFunc("/mobile/api/messages", b.handleMobileMessages)
-	mux.HandleFunc("/mobile/api/send", b.handleMobileSend)
-	mux.HandleFunc("/mobile/api/decision", b.handleMobileDecision)
+	mux.HandleFunc("/mobile/health", b.withMobileAccess(b.handleMobileHealth))
+	mux.HandleFunc("/mobile/p/", b.withMobileAccess(b.handleMobilePairPage))
+	mux.HandleFunc("/mobile/api/pair", b.withMobileAccess(b.handleMobilePair))
+	mux.HandleFunc("/mobile/api/messages", b.withMobileAccess(b.handleMobileMessages))
+	mux.HandleFunc("/mobile/api/send", b.withMobileAccess(b.handleMobileSend))
+	mux.HandleFunc("/mobile/api/decision", b.withMobileAccess(b.handleMobileDecision))
 	return &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -124,25 +181,6 @@ func (b *clawBridge) startListener() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.startListenerLocked()
-}
-
-func (b *clawBridge) restartListener() error {
-	if b == nil {
-		return fmt.Errorf("claw bridge unavailable")
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.srv != nil {
-		ctx, cancel := contextWithTimeout(5 * time.Second)
-		_ = b.srv.Shutdown(ctx)
-		cancel()
-		b.srv = nil
-		time.Sleep(120 * time.Millisecond)
-	}
-	if err := b.startListenerLocked(); err != nil {
-		return fmt.Errorf("listen on %s: %w", clawBridgeListenAddr(b.bindHost(), b.port), err)
-	}
-	return nil
 }
 
 func (b *clawBridge) start() error {
@@ -210,6 +248,9 @@ func (a *App) TestClawWeComChannel(channel ClawChannel) string {
 }
 
 func (b *clawBridge) handleWeCom(w http.ResponseWriter, r *http.Request) {
+	if b != nil && b.app != nil {
+		_ = b.app.ensureClawBridge()
+	}
 	channelID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/claw/wecom/"), "/")
 	if channelID == "" {
 		http.NotFound(w, r)
@@ -374,7 +415,7 @@ func appendClawMessage(channelID, text string, outgoing bool) (ClawMessage, erro
 	path := ARCDESKDesktopDataPath("claw-messages.json")
 	items, _ := loadClawMessages(path)
 	items = append(items, msg)
-	if err := saveJSON(path, items); err != nil {
+	if err := saveSensitiveJSON(path, items); err != nil {
 		return ClawMessage{}, err
 	}
 	return msg, nil

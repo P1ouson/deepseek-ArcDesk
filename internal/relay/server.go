@@ -26,18 +26,17 @@ const (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: relayCheckOrigin,
 }
 
 // Server is the cloud relay that bridges phone HTTP clients and desktop websockets.
-// Deployments listening beyond loopback must sit behind TLS and network ACLs; the
-// default arcdesk-relay binary binds 127.0.0.1:8788.
 type Server struct {
 	mu         sync.RWMutex
 	devices    map[string]*desktopLink
 	secrets    map[string]string
 	pairTokens map[string]pairBinding
 	sessions   map[string]*relaySession
+	pairRL     *pairRateLimiter
 }
 
 type pairBinding struct {
@@ -66,6 +65,7 @@ func NewServer() *Server {
 		secrets:    map[string]string{},
 		pairTokens: map[string]pairBinding{},
 		sessions:   map[string]*relaySession{},
+		pairRL:     newPairRateLimiter(),
 	}
 }
 
@@ -255,6 +255,10 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if s.pairRL != nil && !s.pairRL.allow(clientIP(r)) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "too many pairing attempts"})
+		return
+	}
 	var req struct {
 		Token string `json:"token"`
 	}
@@ -262,12 +266,13 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json"})
 		return
 	}
-	deviceID, err := s.deviceForPairToken(req.Token)
+	deviceID, tokenKey, err := s.deviceForPairToken(req.Token)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": err.Error()})
 		return
 	}
 	sess := s.createSession(deviceID)
+	s.consumePairToken(tokenKey)
 	writeJSON(w, http.StatusOK, map[string]any{"sessionId": sess.id, "ok": true})
 }
 
@@ -341,28 +346,42 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "requestId": requestID})
 }
 
-func (s *Server) deviceForPairToken(token string) (string, error) {
+func (s *Server) deviceForPairToken(token string) (deviceID string, tokenKey string, err error) {
 	key := strings.TrimSpace(token)
 	if key == "" {
-		return "", fmt.Errorf("pairing token is required")
+		return "", "", fmt.Errorf("pairing token is required")
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	bind, ok := s.pairTokens[key]
-	if !ok || time.Now().UnixMilli() > bind.expiresAt {
-		return "", fmt.Errorf("pairing token expired or invalid")
+	for stored, bind := range s.pairTokens {
+		if !pairTokenEqual(stored, key) {
+			continue
+		}
+		if time.Now().UnixMilli() > bind.expiresAt {
+			return "", "", fmt.Errorf("pairing token expired or invalid")
+		}
+		if _, online := s.devices[bind.deviceID]; !online {
+			return "", "", fmt.Errorf("desktop offline")
+		}
+		return bind.deviceID, stored, nil
 	}
-	if _, online := s.devices[bind.deviceID]; !online {
-		return "", fmt.Errorf("desktop offline")
+	return "", "", fmt.Errorf("pairing token expired or invalid")
+}
+
+func (s *Server) consumePairToken(tokenKey string) {
+	if tokenKey == "" {
+		return
 	}
-	return bind.deviceID, nil
+	s.mu.Lock()
+	delete(s.pairTokens, tokenKey)
+	s.mu.Unlock()
 }
 
 func (s *Server) createSession(deviceID string) *relaySession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sess := &relaySession{
-		id:        randomID("sess"),
+		id:        randomSessionID(),
 		deviceID:  deviceID,
 		createdAt: time.Now().UnixMilli(),
 		lastSeen:  time.Now().UnixMilli(),

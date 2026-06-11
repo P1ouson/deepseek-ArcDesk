@@ -22,6 +22,19 @@ describe("useController reducer", () => {
     expect(state.live?.text).toBe("hi");
   });
 
+  it("keeps user message before assistant when streaming via stream_delta", () => {
+    let state = controllerReducer(controllerInitialState, { type: "user", text: "question" });
+    state = controllerApplyWireEvent(state, { kind: "turn_started" });
+    state = controllerReducer(state, { type: "stream_delta", text: "answer" });
+    state = controllerApplyWireEvent(state, { kind: "turn_done" });
+    const roles = state.items
+      .filter((it) => it.kind === "user" || it.kind === "assistant")
+      .map((it) => it.kind);
+    expect(roles).toEqual(["user", "assistant"]);
+    expect(state.items.find((it) => it.kind === "user")?.text).toBe("question");
+    expect(state.items.find((it) => it.kind === "assistant")?.text).toBe("answer");
+  });
+
   it("blocks concurrent send while a turn is active", () => {
     let state = controllerReducer(controllerInitialState, { type: "user", text: "first" });
     state = controllerApplyWireEvent(state, { kind: "turn_started" });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
-import { Plus, SquareTerminal, X } from "lucide-react";
+import { Minus, Plus, SquareTerminal, X } from "lucide-react";
 import { useT } from "../lib/i18n";
 import { shortCwd } from "../lib/workspaceFilePreview";
 import { TerminalView } from "./TerminalView";
@@ -31,6 +31,7 @@ export interface BottomTerminalPanelProps {
   onActiveChange: (id: string) => void;
   onNewTerminal: () => void;
   onCloseTab: (id: string, index: number) => void;
+  onMinimizePanel: () => void;
   onClosePanel: () => void;
   onResizeHeight: (height: number) => void;
 }
@@ -43,6 +44,7 @@ export function BottomTerminalPanel({
   onActiveChange,
   onNewTerminal,
   onCloseTab,
+  onMinimizePanel,
   onClosePanel,
   onResizeHeight,
 }: BottomTerminalPanelProps) {
@@ -82,7 +84,7 @@ export function BottomTerminalPanel({
   const onPanelKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
       event.preventDefault();
-      onClosePanel();
+      onMinimizePanel();
     }
   };
 
@@ -145,6 +147,9 @@ export function BottomTerminalPanel({
           {cwd && <span className="terminal-panel__cwd">{shortCwd(cwd)}</span>}
           <button type="button" className="terminal-panel__action" onClick={onNewTerminal} aria-label={t("terminal.new")}>
             <Plus size={14} />
+          </button>
+          <button type="button" className="terminal-panel__action" onClick={onMinimizePanel} aria-label={t("terminal.minimize")}>
+            <Minus size={14} />
           </button>
           <button type="button" className="terminal-panel__close" onClick={onClosePanel} aria-label={t("terminal.close")}>
             <X size={14} />

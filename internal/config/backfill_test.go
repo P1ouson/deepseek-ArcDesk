@@ -67,3 +67,42 @@ func TestBackfillDeepSeekProSkipsNonDeepSeek(t *testing.T) {
 		t.Error("unrelated config must be untouched")
 	}
 }
+
+func TestDedupeRedundantProvidersDropsDuplicatePro(t *testing.T) {
+	c := &Config{Providers: []ProviderEntry{
+		{Name: "deepseek-flash", BaseURL: "https://api.deepseek.com", Models: []string{"deepseek-v4-flash", "deepseek-v4-pro"}, APIKeyEnv: "DEEPSEEK_API_KEY"},
+		{Name: "deepseek-pro", BaseURL: "https://api.deepseek.com", Model: "deepseek-v4-pro", APIKeyEnv: "DEEPSEEK_API_KEY"},
+	}}
+	dedupeRedundantProviders(c)
+	if len(c.Providers) != 1 {
+		t.Fatalf("providers = %d, want 1 grouped deepseek provider", len(c.Providers))
+	}
+	if c.Providers[0].Name != "deepseek-flash" {
+		t.Fatalf("kept provider = %q, want deepseek-flash", c.Providers[0].Name)
+	}
+}
+
+func TestPruneUnconfiguredProvidersDropsPresetsWithoutKey(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "ds-key")
+	t.Setenv("MIMO_API_KEY", "")
+	c := Default()
+	pruneUnconfiguredProviders(c)
+	for _, p := range c.Providers {
+		if p.Name == "mimo-pro" || p.Name == "mimo-flash" {
+			t.Fatalf("unexpected unconfigured provider %q", p.Name)
+		}
+	}
+	if hasModel(c, "deepseek-v4-flash") == nil {
+		t.Fatal("configured deepseek provider should remain")
+	}
+}
+
+func TestPruneUnconfiguredProvidersKeepsMimoWithKey(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "ds-key")
+	t.Setenv("MIMO_API_KEY", "mi-key")
+	c := Default()
+	pruneUnconfiguredProviders(c)
+	if hasModel(c, "mimo-v2.5-pro") == nil {
+		t.Fatal("mimo-pro should remain when MIMO_API_KEY is set")
+	}
+}

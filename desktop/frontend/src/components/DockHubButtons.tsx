@@ -21,7 +21,6 @@ import {
   DOCK_HUBS,
   dockHubDef,
   dockHubForTab,
-  getPreviewPanelState,
   previewModesForHub,
   type DockHub,
   type PreviewMode,
@@ -52,7 +51,6 @@ const HUB_META: Record<DockHub, { icon: ReactNode; labelKey: "dockHub.context" |
 export interface DockHubButtonsProps {
   dockOpen: boolean;
   activeDockTab?: RightDockTab | null;
-  terminalOpen?: boolean;
   onHubPress: (hub: DockHub) => void;
   onOpenDockTab: (tab: RightDockTab) => void;
   onOpenPreviewMode: (mode: PreviewMode) => void;
@@ -61,7 +59,6 @@ export interface DockHubButtonsProps {
 export function DockHubButtons({
   dockOpen,
   activeDockTab,
-  terminalOpen = false,
   onHubPress,
   onOpenDockTab,
   onOpenPreviewMode,
@@ -71,7 +68,6 @@ export function DockHubButtons({
   const menuAnchorRef = useRef<HTMLButtonElement | null>(null) as MutableRefObject<HTMLButtonElement | null>;
 
   const activeHub = activeDockTab ? dockHubForTab(activeDockTab) : null;
-  const previewState = getPreviewPanelState(terminalOpen, dockOpen, activeDockTab);
 
   const openMenu = (hub: DockHub, anchor: HTMLButtonElement) => {
     menuAnchorRef.current = anchor;
@@ -89,14 +85,8 @@ export function DockHubButtons({
   };
 
   const hubIsActive = (hub: DockHub): boolean => {
-    if (hub === "preview") return previewState.terminal || previewState.browser || previewState.page;
+    if (hub === "preview") return false;
     return dockOpen && activeHub === hub;
-  };
-
-  const previewModeChecked = (mode: PreviewMode): boolean => {
-    if (mode === "terminal") return previewState.terminal;
-    if (mode === "page") return previewState.page;
-    return previewState.browser;
   };
 
   const menuItemCount = (hub: DockHub): number => {
@@ -158,21 +148,18 @@ export function DockHubButtons({
           <div className="dock-hub-menu__list" role="menu">
             {previewModesForHub("preview").map((mode) => {
               const modeMeta = PREVIEW_META[mode];
-              const checked = previewModeChecked(mode);
               return (
                 <button
                   key={mode}
                   type="button"
-                  role="menuitemcheckbox"
-                  aria-checked={checked}
-                  className={`dock-hub-menu__item${checked ? " dock-hub-menu__item--active" : ""}`}
+                  role="menuitem"
+                  className="dock-hub-menu__item"
                   onClick={() => pickPreviewMode(mode)}
                 >
                   <span className="dock-hub-menu__item-main">
                     {modeMeta.icon}
                     <span>{t(modeMeta.labelKey as DictKey) || modeMeta.fallback}</span>
                   </span>
-                  {checked && <span className="dock-hub-menu__check">✓</span>}
                 </button>
               );
             })}

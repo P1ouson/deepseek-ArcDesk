@@ -74,6 +74,9 @@ type Options struct {
 	// SkillInstallGuard, when set, must approve install_skill persistent writes
 	// (desktop uses native confirmation). Nil preserves autonomous headless behavior.
 	SkillInstallGuard skill.InstallGuard
+	// DeferEagerMCP skips blocking MCP handshake during boot (desktop tabs). Eager
+	// plugins are registered as lazy placeholders and start on first use.
+	DeferEagerMCP bool
 }
 
 // Build loads config, resolves the model(s), and returns a Controller wrapping a
@@ -341,6 +344,11 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	}
 
 	// Eager: block until handshake. Failures show up in /mcp.
+	// Desktop defers eager MCP to first use so tab boot stays fast.
+	if len(eagerSpecs) > 0 && opts.DeferEagerMCP {
+		lazySpecs = append(lazySpecs, eagerSpecs...)
+		eagerSpecs = nil
+	}
 	if len(eagerSpecs) > 0 {
 		host, ptools := plugin.StartAvailable(ctx, eagerSpecs)
 		pluginHost = host

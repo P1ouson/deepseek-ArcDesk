@@ -2,7 +2,7 @@
 param(
   [string]$Exe = (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) "desktop\build\bin\arcdesk-desktop.exe"),
   [string]$Out = (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) "docs\screenshots\desktop-workbench.png"),
-  [int]$WaitSec = 8
+  [int]$WaitSec = 12
 )
 
 $ErrorActionPreference = "Stop"

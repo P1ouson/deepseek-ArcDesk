@@ -241,5 +241,110 @@ export function buildTimelineRows(
   }
 
   flushTools();
-  return rows;
+  return coalesceReasoningAcrossTools(rows, live);
+}
+
+/** Merge reasoning-only assistant rows in a turn into one block (tools stay in between). */
+function coalesceReasoningAcrossTools(rows: TimelineRow[], live?: LiveStream): TimelineRow[] {
+  const result: TimelineRow[] = [];
+  const reasoningParts: string[] = [];
+  let reasoningStreaming = false;
+  let anchorId = "";
+  let insertAt = -1;
+  let mergedInserted = false;
+  const absorbedIds: string[] = [];
+
+  const resetReasoning = () => {
+    reasoningParts.length = 0;
+    reasoningStreaming = false;
+    anchorId = "";
+    insertAt = -1;
+    mergedInserted = false;
+    absorbedIds.length = 0;
+  };
+
+  const insertMergedReasoning = () => {
+    if (reasoningParts.length === 0 || mergedInserted) return;
+    const mergedId = live && absorbedIds.includes(live.id) ? live.id : anchorId || "merged-reasoning";
+    const mergedRow: TimelineRow = {
+      kind: "single",
+      item: {
+        kind: "assistant",
+        id: mergedId,
+        text: "",
+        reasoning: reasoningParts.join("\n\n"),
+        streaming: reasoningStreaming,
+      },
+    };
+    if (insertAt >= 0 && insertAt <= result.length) {
+      result.splice(insertAt, 0, mergedRow);
+    } else {
+      result.push(mergedRow);
+    }
+    mergedInserted = true;
+    reasoningParts.length = 0;
+    reasoningStreaming = false;
+    anchorId = "";
+    insertAt = -1;
+    absorbedIds.length = 0;
+  };
+
+  for (const row of rows) {
+    if (row.kind === "single" && row.item.kind === "user") {
+      insertMergedReasoning();
+      resetReasoning();
+      result.push(row);
+      continue;
+    }
+
+    if (row.kind === "single" && row.item.kind === "assistant") {
+      const a = row.item;
+      const isLive = live?.id === a.id;
+      const hasText = a.text.trim().length > 0;
+      const hasReasoning = a.reasoning.trim().length > 0;
+
+      if (!hasText && hasReasoning) {
+        if (reasoningParts.length === 0) {
+          insertAt = result.length;
+          anchorId = isLive && live ? live.id : a.id;
+        } else if (isLive && live) {
+          anchorId = live.id;
+        }
+        absorbedIds.push(a.id);
+        reasoningParts.push(a.reasoning);
+        reasoningStreaming = reasoningStreaming || a.streaming || isLive;
+        continue;
+      }
+
+      if (hasText) {
+        if (hasReasoning) {
+          if (reasoningParts.length === 0) {
+            insertAt = result.length;
+            anchorId = isLive && live ? live.id : a.id;
+          } else if (isLive && live) {
+            anchorId = live.id;
+          }
+          absorbedIds.push(a.id);
+          reasoningParts.push(a.reasoning);
+          reasoningStreaming = reasoningStreaming || a.streaming || isLive;
+        }
+        insertMergedReasoning();
+        result.push({ kind: "single", item: { ...a, reasoning: "" } });
+        continue;
+      }
+
+      if (a.streaming) {
+        insertMergedReasoning();
+        result.push(row);
+        continue;
+      }
+
+      continue;
+    }
+
+    result.push(row);
+  }
+
+  insertMergedReasoning();
+  return result;
 }

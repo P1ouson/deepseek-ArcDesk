@@ -53,6 +53,46 @@ func isolateDesktopUserDirs(t *testing.T) string {
 	return home
 }
 
+func TestDedupeModelInfosCollapsesDuplicatePro(t *testing.T) {
+	in := []ModelInfo{
+		{Ref: "deepseek-flash/deepseek-v4-flash", Provider: "deepseek-flash", Model: "deepseek-v4-flash", Current: true},
+		{Ref: "deepseek-flash/deepseek-v4-pro", Provider: "deepseek-flash", Model: "deepseek-v4-pro"},
+		{Ref: "deepseek-pro/deepseek-v4-pro", Provider: "deepseek-pro", Model: "deepseek-v4-pro"},
+		{Ref: "mimo-pro/mimo-v2.5-pro", Provider: "mimo-pro", Model: "mimo-v2.5-pro"},
+		{Ref: "mimo-flash/mimo-v2.5", Provider: "mimo-flash", Model: "mimo-v2.5"},
+	}
+	out := dedupeModelInfos(in)
+	if len(out) != 4 {
+		t.Fatalf("len(out) = %d, want 4 unique models", len(out))
+	}
+	for _, m := range out {
+		if m.Model == "deepseek-v4-pro" {
+			if m.Ref != "deepseek-pro/deepseek-v4-pro" {
+				t.Fatalf("pro ref = %q, want deepseek-pro/deepseek-v4-pro", m.Ref)
+			}
+			return
+		}
+	}
+	t.Fatal("deepseek-v4-pro missing from deduped list")
+}
+
+func TestDedupeModelInfosPreservesCurrentSelection(t *testing.T) {
+	in := []ModelInfo{
+		{Ref: "deepseek-flash/deepseek-v4-pro", Provider: "deepseek-flash", Model: "deepseek-v4-pro", Current: true},
+		{Ref: "deepseek-pro/deepseek-v4-pro", Provider: "deepseek-pro", Model: "deepseek-v4-pro"},
+	}
+	out := dedupeModelInfos(in)
+	if len(out) != 1 {
+		t.Fatalf("len(out) = %d, want 1", len(out))
+	}
+	if !out[0].Current {
+		t.Fatal("expected deduped pro entry to stay current")
+	}
+	if out[0].Ref != "deepseek-pro/deepseek-v4-pro" {
+		t.Fatalf("ref = %q, want deepseek-pro/deepseek-v4-pro", out[0].Ref)
+	}
+}
+
 func TestCommandsIncludesEffortNotThinking(t *testing.T) {
 	app := NewApp()
 	cmds := app.Commands()
@@ -1178,14 +1218,17 @@ func hasDirEntry(entries []DirEntry, name string) bool {
 }
 
 func TestNormalizeDeepSeekBaseURL(t *testing.T) {
-	if got := normalizeDeepSeekBaseURL(""); got != deepseekOfficialBase {
-		t.Fatalf("empty = %q, want %q", got, deepseekOfficialBase)
+	if got := normalizeDeepSeekBaseURL(""); got != config.DeepSeekOfficialBase {
+		t.Fatalf("empty = %q, want %q", got, config.DeepSeekOfficialBase)
 	}
 	if got := normalizeDeepSeekBaseURL("  https://relay.example/v1/  "); got != "https://relay.example/v1" {
 		t.Fatalf("trim = %q", got)
 	}
-	if got := deepSeekBalanceURL("https://relay.example"); got != "https://relay.example/user/balance" {
-		t.Fatalf("balance = %q", got)
+	if got := config.DeepSeekBalanceURL("https://relay.example"); got != "" {
+		t.Fatalf("relay balance = %q, want empty", got)
+	}
+	if got := config.DeepSeekBalanceURL(config.DeepSeekOfficialBase); got != "https://api.deepseek.com/user/balance" {
+		t.Fatalf("official balance = %q", got)
 	}
 }
 

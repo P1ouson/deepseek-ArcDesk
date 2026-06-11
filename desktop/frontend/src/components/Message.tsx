@@ -184,7 +184,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   actionPending = false,
   rewindDisabled = false,
   copyText,
-  showCopyButton = true,
+  showTurnActions = false,
 }: {
   item: AssistantItem;
   turn?: number;
@@ -194,19 +194,20 @@ export const AssistantMessage = memo(function AssistantMessage({
   checkpoint?: CheckpointMeta;
   actionPending?: boolean;
   rewindDisabled?: boolean;
-  /** When set, only the turn's last assistant bubble should pass this (aggregated answer text). */
+  /** Aggregated answer text for the turn (copy uses this on the final bubble). */
   copyText?: string;
-  showCopyButton?: boolean;
+  /** Only the turn's final assistant bubble should enable copy/rewind actions. */
+  showTurnActions?: boolean;
 }) {
   const t = useT();
   const hasText = item.text.trim().length > 0;
   const hasReasoning = item.reasoning.trim().length > 0;
   const thinkingActive = item.streaming && hasReasoning && !hasText;
   const [reasoningOpen, setReasoningOpen] = useState(thinkingActive);
-  const showActions = !item.streaming && hasText;
   const canRewind = onRewind != null && turn != null;
   const resolvedCopyText = (copyText ?? item.text).trim();
-  const showCopy = showCopyButton && resolvedCopyText.length > 0;
+  const showCopy = showTurnActions && resolvedCopyText.length > 0;
+  const showActions = showTurnActions && !item.streaming && hasText && (showCopy || canRewind);
 
   useEffect(() => {
     if (thinkingActive) {

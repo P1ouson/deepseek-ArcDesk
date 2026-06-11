@@ -12,6 +12,7 @@ import (
 func migrateSensitiveDataFileModes() {
 	for _, name := range []string{
 		"claw-channels.json",
+		"claw-messages.json",
 		"mobile-connect.json",
 		"mobile-sessions.json",
 	} {

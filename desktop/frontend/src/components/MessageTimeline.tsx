@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, memo } from "react";
 import { ChevronDown, Info } from "lucide-react";
 import { MotionUnfold } from "./MotionUnfold";
 import { VList, type VListHandle } from "virtua";
@@ -69,7 +69,7 @@ function CompactionBlock({ item }: { item: Extract<Item, { kind: "compaction" }>
   );
 }
 
-function TimelineRow({
+const TimelineRow = memo(function TimelineRow({
   item,
   live,
   userTurn,
@@ -81,7 +81,7 @@ function TimelineRow({
   actionPending,
   rewindDisabled,
   turnCopyText,
-  showTurnCopy,
+  showTurnActions,
 }: {
   item: Item;
   live?: LiveStream;
@@ -94,7 +94,7 @@ function TimelineRow({
   actionPending?: boolean;
   rewindDisabled?: boolean;
   turnCopyText?: string;
-  showTurnCopy?: boolean;
+  showTurnActions?: boolean;
 }) {
   switch (item.kind) {
     case "user": {
@@ -120,7 +120,7 @@ function TimelineRow({
           actionPending={actionPending}
           rewindDisabled={rewindDisabled}
           copyText={turnCopyText}
-          showCopyButton={showTurnCopy}
+          showTurnActions={showTurnActions}
           onRewind={(tn, scope) => {
             onRewind?.(tn, scope);
             onToggleRewind(null);
@@ -151,7 +151,9 @@ function TimelineRow({
     default:
       return null;
   }
-}
+});
+
+const VIRTUAL_ROW_THRESHOLD = 40;
 
 export function MessageTimeline({
   tabId: _tabId,
@@ -176,7 +178,9 @@ export function MessageTimeline({
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<VListHandle>(null);
+  const staticScrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  const [pinnedToBottom, setPinnedToBottom] = useState(true);
   const [listHeight, setListHeight] = useState(480);
   const [showFab, setShowFab] = useState(false);
   const [openTurn, setOpenTurn] = useState<number | null>(null);
@@ -219,20 +223,20 @@ export function MessageTimeline({
 
   const checkpointsByTurn = useMemo(() => new Map(checkpoints.map((cp) => [cp.turn, cp])), [checkpoints]);
 
-  const turnAssistantCopy = useMemo(() => {
+  const turnAssistantActions = useMemo(() => {
     const copyTextByAssistantId = new Map<string, string>();
-    const showCopyByAssistantId = new Map<string, boolean>();
+    const showActionsByAssistantId = new Map<string, boolean>();
     let turn: number | undefined;
     const chunks: string[] = [];
-    let lastAssistantId: string | undefined;
+    let lastTextAssistantId: string | undefined;
 
     const flush = () => {
-      if (lastAssistantId && chunks.length > 0) {
-        copyTextByAssistantId.set(lastAssistantId, chunks.join("\n\n"));
-        showCopyByAssistantId.set(lastAssistantId, true);
+      if (lastTextAssistantId && chunks.length > 0) {
+        copyTextByAssistantId.set(lastTextAssistantId, chunks.join("\n\n"));
+        showActionsByAssistantId.set(lastTextAssistantId, true);
       }
       chunks.length = 0;
-      lastAssistantId = undefined;
+      lastTextAssistantId = undefined;
     };
 
     for (const it of items) {
@@ -240,24 +244,27 @@ export function MessageTimeline({
         flush();
         turn = userTurn.get(it.id);
       } else if (it.kind === "assistant" && turn != null) {
-        lastAssistantId = it.id;
         const text = it.text.trim();
-        if (text) chunks.push(text);
+        if (text) {
+          chunks.push(text);
+          lastTextAssistantId = it.id;
+        }
       }
     }
     flush();
-    return { copyTextByAssistantId, showCopyByAssistantId };
+    return { copyTextByAssistantId, showActionsByAssistantId };
   }, [items, userTurn]);
 
   const rows = useMemo(
-    () => buildTimelineRows(items, subcallsByParent, live),
-    [items, subcallsByParent, live],
+    () => buildTimelineRows(items, subcallsByParent, pinnedToBottom ? live : undefined),
+    [items, subcallsByParent, live, pinnedToBottom],
   );
   const empty = items.length === 0 && !pendingUser;
 
   const rowKey = (row: BuiltTimelineRow) => (row.kind === "action-segment" ? row.segment.id : row.item.id);
   const pendingRowCount = pendingUser ? 1 : 0;
   const totalRows = rows.length + pendingRowCount;
+  const useVirtualList = totalRows > VIRTUAL_ROW_THRESHOLD;
 
   useEffect(() => {
     if (openTurn == null) return;
@@ -288,7 +295,42 @@ export function MessageTimeline({
   useEffect(() => {
     if (!stick.current || (empty && !pendingUser)) return;
     listRef.current?.scrollToIndex(totalRows - 1, { align: "end" });
-  }, [totalRows, rows.length, live?.text?.length, live?.reasoning?.length, empty, pendingUser]);
+  }, [
+    totalRows,
+    rows.length,
+    pinnedToBottom ? live?.text?.length : 0,
+    pinnedToBottom ? live?.reasoning?.length : 0,
+    empty,
+    pendingUser,
+    pinnedToBottom,
+  ]);
+
+  const renderRow = (row: BuiltTimelineRow) => (
+    <div key={rowKey(row)} className="timeline__turn">
+      {row.kind === "action-segment" ? (
+        <ActionSegmentView
+          segment={row.segment}
+          workspaceRoot={workspaceRoot}
+          onOpenFile={onOpenActionFile}
+        />
+      ) : (
+        <TimelineRow
+          item={row.item}
+          live={pinnedToBottom ? live : undefined}
+          userTurn={userTurn}
+          assistantTurn={assistantTurn}
+          checkpointsByTurn={checkpointsByTurn}
+          openTurn={openTurn}
+          onToggleRewind={(turn) => setOpenTurn((cur) => (cur === turn ? null : turn))}
+          onRewind={onRewind}
+          actionPending={actionPending}
+          rewindDisabled={rewindDisabled}
+          turnCopyText={turnAssistantActions.copyTextByAssistantId.get(row.item.id)}
+          showTurnActions={turnAssistantActions.showActionsByAssistantId.get(row.item.id) === true}
+        />
+      )}
+    </div>
+  );
 
   const onScroll = (offset: number) => {
     const el = containerRef.current;
@@ -296,12 +338,19 @@ export function MessageTimeline({
     const max = Math.max(0, el.scrollHeight - listHeight);
     const atBottom = max - offset < 80;
     stick.current = atBottom;
+    setPinnedToBottom((prev) => (prev === atBottom ? prev : atBottom));
     setShowFab(!atBottom);
   };
 
   const scrollToBottom = () => {
     stick.current = true;
-    listRef.current?.scrollToIndex(totalRows - 1, { align: "end", smooth: true });
+    setPinnedToBottom(true);
+    if (useVirtualList) {
+      listRef.current?.scrollToIndex(totalRows - 1, { align: "end", smooth: true });
+    } else {
+      const el = staticScrollRef.current;
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
     setShowFab(false);
   };
 
@@ -329,43 +378,34 @@ export function MessageTimeline({
 
   return (
     <div className="timeline" ref={containerRef} style={{ flex: 1, minHeight: 0 }}>
-      <VList
-        ref={listRef}
-        style={{ height: listHeight, padding: "16px 20px", paddingBottom: footerHeight + 8 }}
-        onScroll={onScroll}
-      >
-        {rows.map((row) => (
-          <div key={rowKey(row)} className="timeline__turn">
-            {row.kind === "action-segment" ? (
-              <ActionSegmentView
-                segment={row.segment}
-                workspaceRoot={workspaceRoot}
-                onOpenFile={onOpenActionFile}
-              />
-            ) : (
-              <TimelineRow
-                item={row.item}
-                live={live}
-                userTurn={userTurn}
-                assistantTurn={assistantTurn}
-                checkpointsByTurn={checkpointsByTurn}
-                openTurn={openTurn}
-                onToggleRewind={(turn) => setOpenTurn((cur) => (cur === turn ? null : turn))}
-                onRewind={onRewind}
-                actionPending={actionPending}
-                rewindDisabled={rewindDisabled}
-                turnCopyText={turnAssistantCopy.copyTextByAssistantId.get(row.item.id)}
-                showTurnCopy={turnAssistantCopy.showCopyByAssistantId.get(row.item.id) === true}
-              />
-            )}
-          </div>
-        ))}
-        {pendingUser ? (
-          <div key="pending-user" className="timeline__turn">
-            <PendingUserMessage text={pendingUser} />
-          </div>
-        ) : null}
-      </VList>
+      {useVirtualList ? (
+        <VList
+          ref={listRef}
+          style={{ height: listHeight, padding: "16px 20px", paddingBottom: footerHeight + 8 }}
+          onScroll={onScroll}
+        >
+          {rows.map((row) => renderRow(row))}
+          {pendingUser ? (
+            <div key="pending-user" className="timeline__turn">
+              <PendingUserMessage text={pendingUser} />
+            </div>
+          ) : null}
+        </VList>
+      ) : (
+        <div
+          ref={staticScrollRef}
+          className="timeline__static"
+          style={{ height: listHeight, overflow: "auto", padding: "16px 20px", paddingBottom: footerHeight + 8 }}
+          onScroll={(e) => onScroll((e.currentTarget as HTMLDivElement).scrollTop)}
+        >
+          {rows.map((row) => renderRow(row))}
+          {pendingUser ? (
+            <div key="pending-user" className="timeline__turn">
+              <PendingUserMessage text={pendingUser} />
+            </div>
+          ) : null}
+        </div>
+      )}
       {showFab && (
         <button type="button" className="timeline__fab" onClick={scrollToBottom} aria-label={t("timeline.scrollToBottom")}>
           <ChevronDown size={18} />

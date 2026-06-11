@@ -23,7 +23,7 @@ const components: Components = {
     const match = /language-([\w-]+)/.exec(className ?? "");
     const isBlock = match !== null || text.includes("\n");
     if (isBlock) {
-      return <CodeViewer value={text.replace(/\n$/, "")} language={match?.[1]} maxHeight={360} />;
+      return <CodeViewer value={text.replace(/\n$/, "")} language={match?.[1]} maxHeight={360} flat />;
     }
     return <code className="md-code">{children}</code>;
   },

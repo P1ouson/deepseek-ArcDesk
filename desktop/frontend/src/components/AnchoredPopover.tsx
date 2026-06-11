@@ -151,14 +151,22 @@ export function AnchoredPopover({
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
-    const closeOnViewportChange = () => onClose();
+    const closeOnResize = () => onClose();
+    const closeOnScroll = (event: Event) => {
+      const target = event.target;
+      const menu = menuRef.current;
+      if (menu && target instanceof Node && menu.contains(target)) {
+        return;
+      }
+      onClose();
+    };
     window.addEventListener("keydown", closeOnEscape);
-    window.addEventListener("resize", closeOnViewportChange);
-    window.addEventListener("scroll", closeOnViewportChange, true);
+    window.addEventListener("resize", closeOnResize);
+    window.addEventListener("scroll", closeOnScroll, true);
     return () => {
       window.removeEventListener("keydown", closeOnEscape);
-      window.removeEventListener("resize", closeOnViewportChange);
-      window.removeEventListener("scroll", closeOnViewportChange, true);
+      window.removeEventListener("resize", closeOnResize);
+      window.removeEventListener("scroll", closeOnScroll, true);
     };
   }, [mounted, onClose]);
 
@@ -180,6 +188,9 @@ export function AnchoredPopover({
           event.stopPropagation();
         }}
         onClick={(event) => {
+          event.stopPropagation();
+        }}
+        onWheel={(event) => {
           event.stopPropagation();
         }}
       >

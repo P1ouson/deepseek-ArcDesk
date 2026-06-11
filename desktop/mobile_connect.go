@@ -31,7 +31,7 @@ const (
 	mobilePairTokenBytes    = 16
 	mobileSessionBytes      = 24
 	defaultTunnelIdleMin    = 10
-	mobileSessionActiveWindow = 5 * time.Minute
+	mobileSessionActiveWindow = 45 * time.Second
 )
 
 // errMobileSessionUnauthorized is returned when a mutating mobile API call
@@ -324,6 +324,33 @@ func (s *mobileConnectStore) rotatePairTokenLocked() mobilePairToken {
 }
 
 func (s *mobileConnectStore) listSessions() []MobileSessionSummary {
+	return s.listActiveSessions()
+}
+
+func (s *mobileConnectStore) listActiveSessions() []MobileSessionSummary {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UnixMilli()
+	window := mobileSessionActiveWindow.Milliseconds()
+	out := make([]MobileSessionSummary, 0, len(s.sessions))
+	for id, sess := range s.sessions {
+		if !mobileSessionStillValid(sess, now) {
+			delete(s.sessions, id)
+			continue
+		}
+		if now-sess.LastSeen > window {
+			continue
+		}
+		out = append(out, MobileSessionSummary{
+			ID:        sess.ID,
+			CreatedAt: sess.CreatedAt,
+			LastSeen:  sess.LastSeen,
+		})
+	}
+	return out
+}
+
+func (s *mobileConnectStore) listAllSessions() []MobileSessionSummary {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now().UnixMilli()
@@ -376,6 +403,9 @@ func (s *mobileConnectStore) requirePairedSession(id string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.config.Enabled {
+		return fmt.Errorf("mobile connect is disabled")
+	}
 	sess, ok := s.sessions[key]
 	if !ok {
 		return errMobileSessionUnauthorized
@@ -388,6 +418,49 @@ func (s *mobileConnectStore) requirePairedSession(id string) error {
 	}
 	sess.LastSeen = now
 	return nil
+}
+
+func (s *mobileConnectStore) revokeSession(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := strings.TrimSpace(id)
+	if key == "" {
+		return false
+	}
+	if _, ok := s.sessions[key]; !ok {
+		return false
+	}
+	delete(s.sessions, key)
+	_ = s.saveSessions()
+	return true
+}
+
+func (s *mobileConnectStore) revokeAllSessions() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.sessions) == 0 {
+		return
+	}
+	s.sessions = map[string]*mobileSession{}
+	_ = s.saveSessions()
+}
+
+// clearActiveSessions marks every session offline immediately without deleting history.
+func (s *mobileConnectStore) clearActiveSessions() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UnixMilli()
+	stale := now - mobileSessionActiveWindow.Milliseconds() - 1
+	changed := false
+	for _, sess := range s.sessions {
+		if sess.LastSeen > stale {
+			sess.LastSeen = stale
+			changed = true
+		}
+	}
+	if changed {
+		_ = s.saveSessions()
+	}
 }
 
 func (s *mobileConnectStore) pair(token string) (*mobileSession, error) {
@@ -410,6 +483,7 @@ func (s *mobileConnectStore) pair(token string) (*mobileSession, error) {
 		Messages:  nil,
 	}
 	s.sessions[sess.ID] = sess
+	s.rotatePairTokenLocked()
 	_ = s.saveSessions()
 	return sess, nil
 }
@@ -488,14 +562,34 @@ func (s *mobileConnectStore) messages(sessionID string) []mobileChatMessage {
 }
 
 func (a *App) GetMobileConnectConfig() MobileConnectConfig {
-	if a == nil || a.clawBridge == nil || a.clawBridge.mobile == nil {
+	if err := a.ensureClawBridge(); err != nil {
+		return MobileConnectConfig{Enabled: true, Model: "deepseek-chat", Persona: "Be concise and practical."}
+	}
+	if a.clawBridge == nil || a.clawBridge.mobile == nil {
 		return MobileConnectConfig{Enabled: true, Model: "deepseek-chat", Persona: "Be concise and practical."}
 	}
 	return a.clawBridge.mobile.getConfig()
 }
 
+func (a *App) RevokeMobileSession(sessionID string) error {
+	if err := a.ensureClawBridge(); err != nil {
+		return err
+	}
+	if a.clawBridge == nil || a.clawBridge.mobile == nil {
+		return fmt.Errorf("mobile connect is not ready")
+	}
+	if !a.clawBridge.mobile.revokeSession(sessionID) {
+		return fmt.Errorf("session not found")
+	}
+	a.clawBridge.emitMobileSessionsChanged()
+	return nil
+}
+
 func (a *App) SaveMobileConnectConfig(cfg MobileConnectConfig) error {
-	if a == nil || a.clawBridge == nil || a.clawBridge.mobile == nil {
+	if err := a.ensureClawBridge(); err != nil {
+		return err
+	}
+	if a.clawBridge == nil || a.clawBridge.mobile == nil {
 		return fmt.Errorf("mobile connect is not ready")
 	}
 	prev := a.clawBridge.mobile.getConfig()
@@ -505,15 +599,22 @@ func (a *App) SaveMobileConnectConfig(cfg MobileConnectConfig) error {
 	if strings.TrimSpace(cfg.Persona) == "" {
 		cfg.Persona = prev.Persona
 	}
+	if cfg.AllowLAN && !prev.AllowLAN {
+		if !a.confirmAllowLAN() {
+			return fmt.Errorf("cancelled")
+		}
+	}
+	if !cfg.Enabled && prev.Enabled {
+		a.clawBridge.mobile.revokeAllSessions()
+	}
 	if err := a.clawBridge.mobile.setConfig(cfg); err != nil {
 		return err
 	}
 	if cfg.AllowLAN != prev.AllowLAN {
 		if cfg.AllowLAN {
 			ensureMobileLANFirewallRule(a.clawBridge.port)
-		}
-		if err := a.clawBridge.restartListener(); err != nil {
-			return fmt.Errorf("restart claw bridge: %w", err)
+		} else if a.clawBridge.tunnelPublicURL() == "" {
+			a.clawBridge.mobile.clearActiveSessions()
 		}
 	} else if cfg.AllowLAN {
 		ensureMobileLANFirewallRule(a.clawBridge.port)
@@ -521,24 +622,34 @@ func (a *App) SaveMobileConnectConfig(cfg MobileConnectConfig) error {
 	a.clawBridge.stopRelayClient()
 	a.clawBridge.startRelayClient()
 	a.clawBridge.pushRelayPairToken()
+	a.clawBridge.emitMobileSessionsChanged()
 	return nil
 }
 
 func (a *App) GetMobilePairingInfo() MobilePairingInfo {
-	if a == nil || a.clawBridge == nil || a.clawBridge.mobile == nil {
+	if a == nil {
+		return MobilePairingInfo{Port: defaultClawBridgePort, Enabled: true, BridgeReady: false, ConnectMode: "none"}
+	}
+	if err := a.ensureClawBridge(); err != nil {
 		return MobilePairingInfo{
-			Port:        defaultClawBridgePort,
-			Enabled:     true,
-			LanIP:       primaryLANIP(),
-			BridgeReady: false,
-			ConnectMode: "none",
+			Port: defaultClawBridgePort, Enabled: true, LanIP: primaryLANIP(),
+			BridgeReady: false, ConnectMode: "none",
 		}
+	}
+	if a.clawBridge == nil || a.clawBridge.mobile == nil {
+		return MobilePairingInfo{Port: defaultClawBridgePort, Enabled: true, BridgeReady: false, ConnectMode: "none"}
 	}
 	return a.clawBridge.mobilePairingInfo()
 }
 
 func (a *App) RefreshMobilePairing() MobilePairingInfo {
-	if a == nil || a.clawBridge == nil || a.clawBridge.mobile == nil {
+	if a == nil {
+		return MobilePairingInfo{Port: defaultClawBridgePort, Enabled: true, BridgeReady: false}
+	}
+	if err := a.ensureClawBridge(); err != nil {
+		return MobilePairingInfo{Port: defaultClawBridgePort, Enabled: true, BridgeReady: false}
+	}
+	if a.clawBridge == nil || a.clawBridge.mobile == nil {
 		return MobilePairingInfo{Port: defaultClawBridgePort, Enabled: true, BridgeReady: false}
 	}
 	info := a.clawBridge.mobile.refreshPairing(a.clawBridge.port, a.clawBridge.tunnelPublicURL(), a.clawBridge.relayConnected())
@@ -566,7 +677,13 @@ func (b *clawBridge) mobileRefreshPairing() MobilePairingInfo {
 }
 
 func (a *App) ListMobileSessions() []MobileSessionSummary {
-	if a == nil || a.clawBridge == nil || a.clawBridge.mobile == nil {
+	if a == nil {
+		return nil
+	}
+	if err := a.ensureClawBridge(); err != nil {
+		return nil
+	}
+	if a.clawBridge == nil || a.clawBridge.mobile == nil {
 		return nil
 	}
 	return a.clawBridge.mobile.listSessions()
@@ -629,6 +746,7 @@ func (b *clawBridge) handleMobilePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeMobileJSON(w, http.StatusOK, map[string]any{"sessionId": sess.ID, "ok": true})
+	b.emitMobileSessionsChanged()
 }
 
 func (b *clawBridge) handleMobileMessages(w http.ResponseWriter, r *http.Request) {
@@ -646,7 +764,7 @@ func (b *clawBridge) handleMobileMessages(w http.ResponseWriter, r *http.Request
 		writeMobileJSON(w, http.StatusBadRequest, map[string]any{"error": "session is required"})
 		return
 	}
-	if _, ok := b.mobile.session(sessionID); !ok {
+	if err := b.mobile.requirePairedSession(sessionID); err != nil {
 		writeMobileJSON(w, http.StatusUnauthorized, map[string]any{"error": "session not found"})
 		return
 	}
@@ -669,6 +787,11 @@ func (b *clawBridge) handleMobileSend(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeMobileJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json"})
+		return
+	}
+	req.SessionID = strings.TrimSpace(req.SessionID)
+	if b.sessionRL != nil && !b.sessionRL.allow(clientIP(r)+"|"+req.SessionID) {
+		writeMobileJSON(w, http.StatusTooManyRequests, map[string]any{"error": "too many requests"})
 		return
 	}
 	pendingID, err := b.processMobileUserMessage(req.SessionID, req.Text)
@@ -736,6 +859,29 @@ func (b *clawBridge) emitMobileMessage(sessionID string, msg mobileChatMessage) 
 		"sessionId": sessionID,
 		"message":   msg,
 	})
+}
+
+func (b *clawBridge) emitMobileSessionsChanged() {
+	if b == nil || b.app == nil || b.app.ctx == nil || b.mobile == nil {
+		return
+	}
+	runtime.EventsEmit(b.app.ctx, "mobile:sessions", map[string]any{
+		"activeCount": b.mobile.activeSessionCount(),
+		"pairedCount": b.mobile.pairedCount(),
+	})
+}
+
+func (b *clawBridge) disconnectRemoteSessions() {
+	if b == nil || b.mobile == nil {
+		return
+	}
+	if b.mobile.getConfig().AllowLAN {
+		b.mobile.clearActiveSessions()
+	} else {
+		b.mobile.revokeAllSessions()
+	}
+	b.pushRelayPairToken()
+	b.emitMobileSessionsChanged()
 }
 
 func writeMobileJSON(w http.ResponseWriter, status int, payload any) {

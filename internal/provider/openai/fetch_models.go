@@ -11,14 +11,21 @@ import (
 	"time"
 )
 
+// Large gateways (e.g. OpenRouter) return multi-hundred-KiB /models payloads.
+const maxModelsResponseBytes = 16 << 20 // 16 MiB
+
 // FetchModels calls the OpenAI-compatible GET /models endpoint and returns the
-// available model IDs.
+// available model IDs, sorted alphabetically.
 func FetchModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
-	cli := &http.Client{Timeout: 10 * time.Second}
-	url := strings.TrimRight(baseURL, "/")
-	if !strings.HasSuffix(url, "/models") {
-		url += "/models"
+	return FetchModelsHTTP(ctx, nil, baseURL, apiKey)
+}
+
+// FetchModelsHTTP is like FetchModels but allows a custom HTTP client (proxy-aware).
+func FetchModelsHTTP(ctx context.Context, client *http.Client, baseURL, apiKey string) ([]string, error) {
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
 	}
+	url := modelsListURL(baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -27,13 +34,13 @@ func FetchModels(ctx context.Context, baseURL, apiKey string) ([]string, error) 
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := cli.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch models: request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxModelsResponseBytes))
 	if err != nil {
 		return nil, fmt.Errorf("fetch models: read response: %w", err)
 	}
@@ -59,4 +66,12 @@ func FetchModels(ctx context.Context, baseURL, apiKey string) ([]string, error) 
 	}
 	sort.Strings(ids)
 	return ids, nil
+}
+
+func modelsListURL(baseURL string) string {
+	url := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if !strings.HasSuffix(url, "/models") {
+		url += "/models"
+	}
+	return url
 }

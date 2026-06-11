@@ -25,6 +25,9 @@ export function useTerminalPanel(deps: TerminalPanelDeps) {
   const terminalCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const terminalTabKeyRef = useRef(0);
 
+  const terminalHasSessions = terminalTabs.length > 0;
+  const terminalPanelVisible = terminalOpen;
+
   useEffect(() => {
     if (!terminalOpen) {
       if (!terminalPanelShown) return;
@@ -68,6 +71,15 @@ export function useTerminalPanel(deps: TerminalPanelDeps) {
     setActiveTerminalId(null);
     setTerminalOpen(false);
   }, []);
+
+  const minimizeTerminalPanel = useCallback(() => {
+    setTerminalOpen(false);
+  }, []);
+
+  const restoreTerminalPanel = useCallback(() => {
+    if (terminalTabs.length === 0) return;
+    setTerminalOpen(true);
+  }, [terminalTabs.length]);
 
   const openNewTerminal = useCallback(async () => {
     const result = await startTerminal();
@@ -138,6 +150,8 @@ export function useTerminalPanel(deps: TerminalPanelDeps) {
 
   return {
     terminalOpen,
+    terminalHasSessions,
+    terminalPanelVisible,
     terminalTabs,
     terminalPanelShown,
     terminalAnimHeight,
@@ -148,6 +162,8 @@ export function useTerminalPanel(deps: TerminalPanelDeps) {
     activeTerminalTab,
     openNewTerminal,
     closeTerminalPanel,
+    minimizeTerminalPanel,
+    restoreTerminalPanel,
     closeTerminalTab,
     setSavedTerminalHeight,
   };

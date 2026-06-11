@@ -5,10 +5,30 @@ import { useT } from "../lib/i18n";
 import { app, openExternal } from "../lib/bridge";
 import { logBridgeError } from "../lib/logBridgeError";
 
-const DEEPSEEK_OFFICIAL_BASE = "https://api.deepseek.com";
+type ApiPreset = "deepseek" | "openrouter" | "openai" | "custom";
 
-// Full-window first-run gate: validate a pasted key via Go, then onComplete
-// unmounts us so the rebuilt controller's main UI takes over.
+const PRESET_BASE: Record<Exclude<ApiPreset, "custom">, string> = {
+  deepseek: "https://api.deepseek.com",
+  openrouter: "https://openrouter.ai/api/v1",
+  openai: "https://api.openai.com/v1",
+};
+
+const PRESET_HELP: Partial<Record<ApiPreset, string>> = {
+  deepseek: "https://platform.deepseek.com/api_keys",
+  openrouter: "https://openrouter.ai/keys",
+  openai: "https://platform.openai.com/api-keys",
+};
+
+function detectPreset(baseUrl: string): ApiPreset {
+  const base = baseUrl.trim().replace(/\/$/, "").toLowerCase();
+  if (!base) return "custom";
+  if (base.includes("openrouter.ai")) return "openrouter";
+  if (base.includes("api.openai.com")) return "openai";
+  if (base.includes("deepseek.com")) return "deepseek";
+  return "custom";
+}
+
+// First-run gate: connect any OpenAI-compatible API (official, relay, OpenRouter).
 export function OnboardingOverlay({
   manual = false,
   onComplete,
@@ -17,7 +37,8 @@ export function OnboardingOverlay({
   onComplete: () => void;
 }) {
   const t = useT();
-  const [baseUrl, setBaseUrl] = useState("");
+  const [preset, setPreset] = useState<ApiPreset>("deepseek");
+  const [baseUrl, setBaseUrl] = useState(PRESET_BASE.deepseek);
   const [value, setValue] = useState("");
   const [state, setState] = useState<"idle" | "validating" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -27,15 +48,32 @@ export function OnboardingOverlay({
     void app
       .Settings()
       .then((s) => {
-        const deepseek = s?.providers?.find((p) => p.apiKeyEnv === "DEEPSEEK_API_KEY");
-        const base = (deepseek?.baseUrl ?? DEEPSEEK_OFFICIAL_BASE).replace(/\/$/, "");
-        if (base !== DEEPSEEK_OFFICIAL_BASE) setBaseUrl(base);
+        const primary = s?.providers?.find((p) => p.keySet) ?? s?.providers?.find((p) => p.apiKeyEnv === "DEEPSEEK_API_KEY");
+        const base = (primary?.baseUrl ?? "").replace(/\/$/, "");
+        if (base) {
+          setPreset(detectPreset(base));
+          setBaseUrl(base);
+        }
       })
       .catch((err) => logBridgeError("Onboarding.Settings", err));
   }, []);
 
+  const applyPreset = useCallback((next: ApiPreset) => {
+    setPreset(next);
+    if (next !== "custom") {
+      setBaseUrl(PRESET_BASE[next]);
+    }
+    if (state === "error") setState("idle");
+  }, [state]);
+
   const submit = useCallback(async () => {
     const key = value.trim();
+    const base = baseUrl.trim();
+    if (!base) {
+      setError(t("onboarding.error.baseUrlRequired"));
+      setState("error");
+      return;
+    }
     if (!key) {
       setError(t("onboarding.error.empty"));
       setState("error");
@@ -45,14 +83,23 @@ export function OnboardingOverlay({
     setState("validating");
     setError(null);
     try {
-      await app.ConnectKey(key, baseUrl.trim());
+      await app.ConnectProviderAPI(base, key);
       onComplete();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (/status\s*401|status\s*403|invalid/i.test(msg)) {
+      const raw = e instanceof Error ? e.message : String(e);
+      const msg = raw.replace(/^validate:\s*/i, "").replace(/^fetch models:\s*/i, "");
+      if (/cancelled/i.test(msg)) {
+        setError(t("onboarding.error.cancelled"));
+      } else if (/status\s*401|status\s*403|unauthorized|invalid key/i.test(msg)) {
         setError(t("onboarding.error.invalid"));
-      } else if (/network|unreachable|timeout|dial/i.test(msg)) {
+      } else if (/decode response|unexpected end of json|invalid character/i.test(msg)) {
+        setError(t("onboarding.error.parse", { detail: msg }));
+      } else if (/network|unreachable|timeout|dial tcp|connection refused|no such host/i.test(msg)) {
         setError(t("onboarding.error.network"));
+      } else if (/base url is required/i.test(msg)) {
+        setError(t("onboarding.error.baseUrlRequired"));
+      } else if (/empty model list/i.test(msg)) {
+        setError(t("onboarding.error.emptyModels"));
       } else {
         setError(msg || t("onboarding.error.unknown"));
       }
@@ -65,6 +112,7 @@ export function OnboardingOverlay({
   const title = manual ? t("onboarding.titleManual") : t("onboarding.title");
   const tagline = manual ? t("onboarding.taglineManual") : t("onboarding.tagline");
   const kicker = manual ? t("onboarding.kickerManual") : t("onboarding.kicker");
+  const helpUrl = PRESET_HELP[preset];
 
   return createPortal(
     <div className="onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
@@ -91,6 +139,25 @@ export function OnboardingOverlay({
 
         <div className="onboarding__fields">
           <div className="onboarding__field">
+            <label className="onboarding__label" htmlFor="onboarding-preset">
+              {t("onboarding.presetLabel")}
+            </label>
+            <select
+              id="onboarding-preset"
+              className="onboarding__input onboarding__select"
+              value={preset}
+              disabled={state === "validating"}
+              onChange={(e) => applyPreset(e.target.value as ApiPreset)}
+            >
+              <option value="deepseek">{t("onboarding.preset.deepseek")}</option>
+              <option value="openrouter">{t("onboarding.preset.openrouter")}</option>
+              <option value="openai">{t("onboarding.preset.openai")}</option>
+              <option value="custom">{t("onboarding.preset.custom")}</option>
+            </select>
+            <p className="onboarding__hint">{t("onboarding.presetHint")}</p>
+          </div>
+
+          <div className="onboarding__field">
             <label className="onboarding__label" htmlFor="onboarding-base-url">
               {t("onboarding.baseUrlLabel")}
             </label>
@@ -104,6 +171,7 @@ export function OnboardingOverlay({
               value={baseUrl}
               onChange={(e) => {
                 setBaseUrl(e.target.value);
+                setPreset(detectPreset(e.target.value));
                 if (state === "error") setState("idle");
               }}
               onKeyDown={(e) => {
@@ -174,17 +242,21 @@ export function OnboardingOverlay({
 
         <footer className="onboarding__footer">
           <div className="onboarding__links">
-            <button
-              type="button"
-              className="onboarding__link"
-              onClick={() => openExternal("https://platform.deepseek.com/api_keys")}
-            >
-              {t("onboarding.getKey")}
-            </button>
-            <span className="onboarding__sep" aria-hidden="true">
-              ·
-            </span>
-            <span className="onboarding__privacy">{t("onboarding.privacy")}</span>
+            {helpUrl ? (
+              <button type="button" className="onboarding__link" onClick={() => openExternal(helpUrl)}>
+                {t("onboarding.getKey")}
+              </button>
+            ) : (
+              <span className="onboarding__privacy">{t("onboarding.customKeyHint")}</span>
+            )}
+            {helpUrl ? (
+              <>
+                <span className="onboarding__sep" aria-hidden="true">
+                  ·
+                </span>
+                <span className="onboarding__privacy">{t("onboarding.privacy")}</span>
+              </>
+            ) : null}
           </div>
           {!manual ? (
             <button

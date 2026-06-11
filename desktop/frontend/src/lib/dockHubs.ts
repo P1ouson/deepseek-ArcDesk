@@ -168,11 +168,15 @@ export function getPreviewPanelState(
 }
 
 export function isPreviewHubActive(
-  terminalOpen: boolean,
+  terminalActive: boolean,
   dockOpen: boolean,
   activeTab: RightDockTab | null | undefined,
+  latent?: PreviewPanelState,
 ): boolean {
-  const state = getPreviewPanelState(terminalOpen, dockOpen, activeTab);
+  if (latent) {
+    return latent.terminal || latent.browser || latent.page;
+  }
+  const state = getPreviewPanelState(terminalActive, dockOpen, activeTab);
   return state.terminal || state.browser || state.page;
 }
 
