@@ -48,11 +48,7 @@ export const ShellCommandCard = memo(function ShellCommandCard({ item }: { item:
   const tags = useMemo(() => shellTags(command), [command]);
   const body = shellBodyText(item);
   const hasBody = body.trim().length > 0;
-  const [open, setOpen] = useState(running || hasBody);
-
-  useEffect(() => {
-    if (running) setOpen(true);
-  }, [running]);
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (!shellExpand) return;

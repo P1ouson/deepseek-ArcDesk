@@ -1,26 +1,9 @@
 import type { ReactNode } from "react";
 import { useT, type Translator } from "../lib/i18n";
 import { formatMoney } from "../lib/formatMoney";
+import { sessionCacheRate, stepCacheRate } from "../lib/cacheRate";
 import { Tooltip } from "./Tooltip";
 import type { BalanceInfo, ContextInfo, WireCacheDiagnostics, WireUsage } from "../lib/types";
-
-function formatRate(hit: number, denom: number): string | null {
-  if (denom <= 0) return null;
-  return ((hit / denom) * 100).toFixed(1);
-}
-
-function stepRate(u?: WireUsage): string | null {
-  if (!u) return null;
-  let denom = u.cacheHitTokens + u.cacheMissTokens;
-  if (denom === 0) denom = u.promptTokens;
-  return formatRate(u.cacheHitTokens, denom);
-}
-
-function avgRate(u?: WireUsage): string | null {
-  if (!u) return null;
-  const denom = u.sessionCacheHitTokens + u.sessionCacheMissTokens;
-  return formatRate(u.sessionCacheHitTokens, denom);
-}
 
 function prefixWarning(
   diag: WireCacheDiagnostics | undefined,
@@ -52,21 +35,27 @@ export function ComposerDockFooter({
   const t = useT();
   const pct = context.window ? Math.min(100, Math.round((context.used / context.window) * 100)) : null;
   const compactPct = context.compactRatio ? Math.round(context.compactRatio * 100) : null;
-  const avgPct = avgRate(usage);
-  const stepPct = stepRate(usage);
-  const costLabel = formatMoney(sessionCost, sessionCurrency);
-  const balanceLabel = balance?.available && balance.display ? balance.display : "-";
+  const stepPct = stepCacheRate(usage);
+  const avgPct = sessionCacheRate(usage);
+  const billingAvailable = balance?.available === true;
+  const costLabel = billingAvailable ? formatMoney(sessionCost, sessionCurrency) : "--";
+  const balanceLabel = billingAvailable && balance.display ? balance.display : "--";
   const prefixWarn = prefixWarning(usage?.cacheDiagnostics, t);
 
+  // Reasonix desktop order: 本次命中 (latest step) primary · 平均命中 secondary.
   const cachePrimary = (
-    <Tooltip label={t("status.cacheAvgTip")} side="top">
-      <span className="composer-dock__footer-cache-primary">{t("status.cacheAvg", { pct: avgPct ?? "-" })}</span>
+    <Tooltip label={t("status.cacheTitle")} side="top">
+      <span className="composer-dock__footer-cache-primary">
+        {t("status.cacheLabel")} {stepPct ?? "-"}%
+      </span>
     </Tooltip>
   );
 
   const cacheSecondary = (
-    <Tooltip label={t("status.cacheStepTip")} side="top">
-      <span className="composer-dock__footer-cache-secondary">{t("status.cacheStep", { pct: stepPct ?? "-" })}</span>
+    <Tooltip label={t("status.cacheAvgTitle")} side="top">
+      <span className="composer-dock__footer-cache-secondary">
+        {t("status.cacheAvgLabel")} {avgPct ?? "-"}%
+      </span>
     </Tooltip>
   );
 

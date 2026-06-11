@@ -71,7 +71,7 @@ Function .onVerifyInstDir
     Goto allow
 
     block_dev:
-        MessageBox MB_OK|MB_ICONEXCLAMATION "所选文件夹像是源码或开发项目目录，不能作为安装位置。$\n$\n请使用默认路径（例如 %LOCALAPPDATA%\Programs\ArcDesk），或新建一个空文件夹。$\n$\n安装包只会安装 ArcDesk 程序本身，不会打包开发文件。"
+        MessageBox MB_OK|MB_ICONEXCLAMATION "This folder looks like a source or development tree.$\n$\nUse the default path (for example $LOCALAPPDATA\Programs\ArcDesk) or choose an empty folder.$\n$\nThe installer only copies the ArcDesk app binary."
         Abort
 
     allow:

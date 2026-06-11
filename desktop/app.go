@@ -79,6 +79,11 @@ type App struct {
 	clawRunCtrl    *control.Controller
 	term           *terminalManager
 	pagePreview    *pagePreviewServer
+
+	// sessionLeases maps a validated session file path to the tab ID that owns
+	// writes to it, preventing two open tabs from corrupting the same .jsonl.
+	sessionLeaseMu sync.Mutex
+	sessionLeases  map[string]string
 }
 
 // NewApp constructs the bound object. Tabs are restored in startup from the
@@ -90,6 +95,7 @@ func NewApp() *App {
 		pagePreview:    newPagePreviewServer(),
 		mobileDecision: newMobileDecisionStore(),
 		decisionRoutes: newDecisionRouteStore(),
+		sessionLeases:  map[string]string{},
 	}
 }
 
@@ -192,6 +198,9 @@ func (a *App) restoreOrBuildTabs() {
 	if len(f.Tabs) > 0 {
 		var pending []*WorkspaceTab
 		for _, entry := range f.Tabs {
+			if !restorableDesktopTabEntry(entry) {
+				continue
+			}
 			a.mu.Lock()
 			id := a.restoredTabIDLocked(entry.ID)
 			a.mu.Unlock()
@@ -208,7 +217,7 @@ func (a *App) restoreOrBuildTabs() {
 			}
 			tab.effort = cloneStringPtr(entry.Effort)
 			tab.mode = persistedTabMode(entry.Mode)
-			tab.sessionPath = strings.TrimSpace(entry.SessionPath)
+			tab.sessionPath = sanitizePersistedSessionPath(entry.SessionPath)
 			tab.sink = &tabEventSink{tabID: tab.ID, app: a, ctx: ctx}
 			a.mu.Lock()
 			a.tabs[tab.ID] = tab
@@ -223,27 +232,30 @@ func (a *App) restoreOrBuildTabs() {
 			ordered := a.orderedTabIDsLocked()
 			if len(ordered) > 0 {
 				a.activeTabID = ordered[0]
+			} else {
+				a.activeTabID = ""
 			}
+		}
+		if len(pending) == 0 {
+			a.tabs = map[string]*WorkspaceTab{}
+			a.tabOrder = nil
+			a.activeTabID = ""
+			a.saveTabsLocked()
 		}
 		a.mu.Unlock()
 		a.emitTabsShellReady()
+		if len(pending) == 0 {
+			a.emitReady(a.ctx)
+		}
 		for _, tab := range pending {
 			go a.buildTabController(tab)
 		}
 		return
 	}
 
-	// First launch: create a default Global tab.
-	tab := a.createTabEntry("global", globalTabWorkspaceRoot(), "")
-	tab.sink = &tabEventSink{tabID: tab.ID, app: a, ctx: ctx}
-	tab.TopicTitle = "Global"
-	a.mu.Lock()
-	a.tabs[tab.ID] = tab
-	a.tabOrder = append(a.tabOrder, tab.ID)
-	a.activeTabID = tab.ID
-	a.mu.Unlock()
+	// No persisted tabs: wait until the user opens a topic from the sidebar.
 	a.emitTabsShellReady()
-	go a.buildTabController(tab)
+	a.emitReady(a.ctx)
 }
 
 func (a *App) createTabEntry(scope, workspaceRoot, topicID string) *WorkspaceTab {
@@ -900,8 +912,36 @@ func (a *App) DeleteSession(path string) error {
 	if err := trashSessionArtifacts(dir, sessionPath, key); err != nil {
 		return err
 	}
+	a.clearSessionPathFromTabs(dir, sessionPath)
 	a.emitProjectTreeChanged()
 	return nil
+}
+
+func (a *App) clearSessionPathFromTabs(dir, deletedPath string) {
+	deletedNorm, _, err := validateSessionPath(dir, deletedPath)
+	if err != nil {
+		return
+	}
+	a.mu.Lock()
+	changed := false
+	for _, tab := range a.tabs {
+		if tab == nil {
+			continue
+		}
+		sp := strings.TrimSpace(tab.sessionPath)
+		if sp == "" {
+			continue
+		}
+		norm, _, err := validateSessionPath(dir, sp)
+		if err == nil && norm == deletedNorm {
+			tab.sessionPath = ""
+			changed = true
+		}
+	}
+	if changed {
+		a.saveTabsLocked()
+	}
+	a.mu.Unlock()
 }
 
 func (a *App) openSessionPaths(dir string) map[string]struct{} {
@@ -958,7 +998,17 @@ func (a *App) RestoreSession(path string) error {
 // PurgeTrashedSession permanently removes a trashed session and its title/display
 // sidecars.
 func (a *App) PurgeTrashedSession(path string) error {
-	return purgeTrashedSessionFile(config.SessionDir(), path)
+	dir := config.SessionDir()
+	_, key, _, err := validateTrashedSessionPath(dir, path)
+	if err != nil {
+		return err
+	}
+	if err := purgeTrashedSessionFile(dir, path); err != nil {
+		return err
+	}
+	a.clearSessionPathFromTabs(dir, key)
+	a.emitProjectTreeChanged()
+	return nil
 }
 
 // RenameSession sets a custom display name for a session (empty clears it back to
@@ -1115,44 +1165,11 @@ func (a *App) SwitchWorkspace(dir string) (string, error) {
 		return "", fmt.Errorf("%s is not a directory", dir)
 	}
 	saveWorkspace(dir)
-
-	// Reuse an existing project tab for this workspace instead of minting a new
-	// topic/session on every launch or passive restore.
-	a.mu.Lock()
-	var reuse *WorkspaceTab
-	for i := len(a.tabOrder) - 1; i >= 0; i-- {
-		tab := a.tabs[a.tabOrder[i]]
-		if tab == nil || tab.Scope != "project" {
-			continue
-		}
-		root := tab.WorkspaceRoot
-		if abs, err := filepath.Abs(root); err == nil {
-			root = abs
-		}
-		if root == dir {
-			reuse = tab
-			break
-		}
-	}
-	if reuse != nil {
-		a.activeTabID = reuse.ID
-		meta := a.tabMeta(reuse, true)
-		a.saveTabsLocked()
-		a.mu.Unlock()
-		return meta.WorkspaceRoot, nil
-	}
-	a.mu.Unlock()
-
-	// First time opening this workspace: register a topic so it appears in the tree.
-	topic, err := a.CreateTopic("project", dir, "")
-	if err != nil {
+	if err := addProject(dir, ""); err != nil {
 		return "", err
 	}
-	meta, err := a.OpenProjectTab(dir, topic.ID)
-	if err != nil {
-		return "", err
-	}
-	return meta.WorkspaceRoot, nil
+	a.emitProjectTreeChanged()
+	return dir, nil
 }
 
 // HistoryMessage is one prior turn, for the frontend to repopulate its transcript

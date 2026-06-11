@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, memo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import { ChevronDown, Info } from "lucide-react";
 import { MotionUnfold } from "./MotionUnfold";
 import { VList, type VListHandle } from "virtua";
@@ -162,7 +162,7 @@ const TimelineRow = memo(function TimelineRow({
 const VIRTUAL_ROW_THRESHOLD = 40;
 
 export function MessageTimeline({
-  tabId: _tabId,
+  tabId,
   items,
   pendingUser,
   live,
@@ -186,6 +186,7 @@ export function MessageTimeline({
   const listRef = useRef<VListHandle>(null);
   const staticScrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  const prevItemCountRef = useRef(0);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
   const [listHeight, setListHeight] = useState(480);
   const [showFab, setShowFab] = useState(false);
@@ -276,6 +277,42 @@ export function MessageTimeline({
   const totalRows = rows.length + pendingRowCount;
   const useVirtualList = totalRows > VIRTUAL_ROW_THRESHOLD;
 
+  const pinToBottom = useCallback(() => {
+    stick.current = true;
+    setPinnedToBottom(true);
+    setShowFab(false);
+  }, []);
+
+  const scrollTimelineToBottom = useCallback(
+    (behavior: ScrollBehavior = "auto") => {
+      if (useVirtualList) {
+        listRef.current?.scrollToIndex(Math.max(0, totalRows - 1), {
+          align: "end",
+          smooth: behavior === "smooth",
+        });
+        return;
+      }
+      const el = staticScrollRef.current;
+      if (!el) return;
+      if (behavior === "smooth") {
+        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      } else {
+        el.scrollTop = el.scrollHeight;
+      }
+    },
+    [totalRows, useVirtualList],
+  );
+
+  useEffect(() => {
+    pinToBottom();
+  }, [tabId, pinToBottom]);
+
+  useEffect(() => {
+    const hydrated = prevItemCountRef.current === 0 && items.length > 0;
+    prevItemCountRef.current = items.length;
+    if (hydrated) pinToBottom();
+  }, [items.length, pinToBottom]);
+
   useEffect(() => {
     if (openTurn == null) return;
     const onDown = (e: MouseEvent) => {
@@ -304,7 +341,17 @@ export function MessageTimeline({
 
   useEffect(() => {
     if (!stick.current || (empty && !pendingUser)) return;
-    listRef.current?.scrollToIndex(totalRows - 1, { align: "end" });
+    let outer = 0;
+    let inner = 0;
+    outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => {
+        scrollTimelineToBottom("auto");
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
   }, [
     totalRows,
     rows.length,
@@ -313,6 +360,9 @@ export function MessageTimeline({
     empty,
     pendingUser,
     pinnedToBottom,
+    useVirtualList,
+    tabId,
+    scrollTimelineToBottom,
   ]);
 
   const renderRow = (row: BuiltTimelineRow) => (
@@ -360,15 +410,8 @@ export function MessageTimeline({
   };
 
   const scrollToBottom = () => {
-    stick.current = true;
-    setPinnedToBottom(true);
-    if (useVirtualList) {
-      listRef.current?.scrollToIndex(totalRows - 1, { align: "end", smooth: true });
-    } else {
-      const el = staticScrollRef.current;
-      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-    }
-    setShowFab(false);
+    pinToBottom();
+    scrollTimelineToBottom("smooth");
   };
 
   if (empty) {

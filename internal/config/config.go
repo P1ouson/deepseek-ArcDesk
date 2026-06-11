@@ -18,6 +18,7 @@ import (
 
 	"arcdesk/internal/netclient"
 	"arcdesk/internal/provider"
+	"arcdesk/internal/provider/apikey"
 )
 
 var validSkillName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
@@ -1220,7 +1221,7 @@ func (e *ProviderEntry) APIKey() string {
 	if e.APIKeyEnv == "" {
 		return ""
 	}
-	return os.Getenv(e.APIKeyEnv)
+	return apikey.Normalize(os.Getenv(e.APIKeyEnv))
 }
 
 // Configured reports whether the provider's api_key_env is set 鈥?the same check

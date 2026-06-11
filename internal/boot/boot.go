@@ -35,6 +35,7 @@ import (
 	"arcdesk/internal/plugin"
 	"arcdesk/internal/prompt"
 	"arcdesk/internal/provider"
+	"arcdesk/internal/repomap"
 	"arcdesk/internal/sandbox"
 	"arcdesk/internal/skill"
 	"arcdesk/internal/tool"
@@ -186,6 +187,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	mem := memory.Load(memory.Options{CWD: root, UserDir: config.MemoryUserDir()})
 	projectChecks := instruction.ExtractHostChecks(mem.Docs)
 	sysPrompt = memory.Compose(sysPrompt, mem)
+	sysPrompt = repomap.Compose(sysPrompt, root)
 
 	// Skills: discover playbooks (built-in + project/custom/global) and fold their
 	// one-liner index into the same cache-stable prefix — names + descriptions
@@ -471,7 +473,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 				steps = 5
 			}
 		}
-		return agent.RunSubAgent(sctx, prov, subReg, sk.Body, task, agent.Options{
+		answer, err := agent.RunSubAgent(sctx, prov, subReg, sk.Body, task, agent.Options{
 			MaxSteps:      steps,
 			Temperature:   cfg.Agent.Temperature,
 			Pricing:       price,
@@ -479,6 +481,10 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 			ContextWindow: ctxWin,
 			ArchiveDir:    config.ArchiveDir(),
 		}, agent.NestedSink(sctx, event.Discard))
+		if err == nil && sk.Name == "explore" && strings.TrimSpace(root) != "" {
+			_ = repomap.RecordExploreSummary(root, task, answer)
+		}
+		return answer, err
 	}
 	reg.Add(skill.NewRunSkillTool(skillStore, skillRunner))
 	reg.Add(skill.NewInstallSkillTool(skillStore, nil, opts.SkillInstallGuard))

@@ -216,11 +216,7 @@
 
 .workbench--studio .right-dock {
   animation: motion-panel-in-right var(--duration-normal) var(--ease-out);
-  transition:
-    width var(--duration-normal) var(--ease-out),
-    flex-basis var(--duration-normal) var(--ease-out),
-    opacity var(--duration-normal) var(--ease-out);
-  will-change: width, transform;
+  transition: none;
 }
 
 .workbench--studio .right-dock.motion-panel--closing {
@@ -240,7 +236,7 @@
 }
 
 .workbench--studio .workbench__body--dock-open .workbench__stack {
-  transition: flex var(--duration-normal) var(--ease-out);
+  transition: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

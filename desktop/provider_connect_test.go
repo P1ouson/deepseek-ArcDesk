@@ -56,6 +56,29 @@ func TestNeedsOnboardingAnyConfiguredProvider(t *testing.T) {
 	}
 }
 
+func TestConnectProviderAPIStripsChatCompletionsPath(t *testing.T) {
+	isolateDesktopUserDirs(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"id": "relay-model"}},
+		})
+	}))
+	defer srv.Close()
+
+	app := NewApp()
+	result, err := app.ConnectProviderAPI(srv.URL+"/v1/chat/completions", "sk-test")
+	if err != nil {
+		t.Fatalf("ConnectProviderAPI: %v", err)
+	}
+	if result.BaseURL != srv.URL+"/v1" {
+		t.Fatalf("BaseURL = %q, want %q", result.BaseURL, srv.URL+"/v1")
+	}
+}
+
 func TestConnectProviderAPIRequiresBaseURL(t *testing.T) {
 	app := NewApp()
 	_, err := app.ConnectProviderAPI("", "sk-test")

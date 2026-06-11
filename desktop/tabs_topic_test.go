@@ -818,7 +818,7 @@ func TestCreateTopicDefaultsToAutoNewSessionTitle(t *testing.T) {
 	isolateDesktopUserDirs(t)
 
 	projectRoot := t.TempDir()
-	topic, err := NewApp().CreateTopic("project", projectRoot, "")
+	topic, err := NewApp().CreateTopic("project", projectRoot, "", "continue")
 	if err != nil {
 		t.Fatalf("create topic: %v", err)
 	}
@@ -838,11 +838,11 @@ func TestCreateTopicAppearsFirstInProjectTree(t *testing.T) {
 
 	projectRoot := t.TempDir()
 	app := NewApp()
-	first, err := app.CreateTopic("project", projectRoot, "")
+	first, err := app.CreateTopic("project", projectRoot, "", "continue")
 	if err != nil {
 		t.Fatalf("create first topic: %v", err)
 	}
-	second, err := app.CreateTopic("project", projectRoot, "")
+	second, err := app.CreateTopic("project", projectRoot, "", "continue")
 	if err != nil {
 		t.Fatalf("create second topic: %v", err)
 	}
@@ -863,11 +863,11 @@ func TestCreateGlobalTopicAppearsFirstInProjectTree(t *testing.T) {
 	isolateDesktopUserDirs(t)
 
 	app := NewApp()
-	first, err := app.CreateTopic("global", "", "")
+	first, err := app.CreateTopic("global", "", "", "continue")
 	if err != nil {
 		t.Fatalf("create first global topic: %v", err)
 	}
-	second, err := app.CreateTopic("global", "", "")
+	second, err := app.CreateTopic("global", "", "", "continue")
 	if err != nil {
 		t.Fatalf("create second global topic: %v", err)
 	}
@@ -923,7 +923,7 @@ func TestRenameTopicLocksTitleManual(t *testing.T) {
 
 	projectRoot := t.TempDir()
 	app := NewApp()
-	topic, err := app.CreateTopic("project", projectRoot, "")
+	topic, err := app.CreateTopic("project", projectRoot, "", "continue")
 	if err != nil {
 		t.Fatalf("create topic: %v", err)
 	}
@@ -943,7 +943,7 @@ func TestRenameTopicUpdatesOpenTabMeta(t *testing.T) {
 
 	projectRoot := t.TempDir()
 	app := NewApp()
-	topic, err := app.CreateTopic("project", projectRoot, "旧标题")
+	topic, err := app.CreateTopic("project", projectRoot, "旧标题", "continue")
 	if err != nil {
 		t.Fatalf("create topic: %v", err)
 	}
@@ -971,7 +971,7 @@ func TestAutoTitleTopicFromFirstUserMessage(t *testing.T) {
 	isolateDesktopUserDirs(t)
 
 	projectRoot := t.TempDir()
-	topic, err := NewApp().CreateTopic("project", projectRoot, "")
+	topic, err := NewApp().CreateTopic("project", projectRoot, "", "continue")
 	if err != nil {
 		t.Fatalf("create topic: %v", err)
 	}
@@ -1000,7 +1000,7 @@ func TestAutoTitleDoesNotOverrideManualTopicTitle(t *testing.T) {
 
 	projectRoot := t.TempDir()
 	app := NewApp()
-	topic, err := app.CreateTopic("project", projectRoot, "")
+	topic, err := app.CreateTopic("project", projectRoot, "", "continue")
 	if err != nil {
 		t.Fatalf("create topic: %v", err)
 	}

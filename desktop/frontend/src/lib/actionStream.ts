@@ -250,6 +250,12 @@ function stripTurnPreface(preamble: string | null, text: string): string {
   return rest || text;
 }
 
+/** Background job lifecycle notices should appear when the job finishes, not after the whole turn. */
+function isBackgroundJobNotice(item: Item): boolean {
+  if (item.kind !== "notice") return false;
+  return /background\s+(?:task|bash)\s+(?:started|finished|failed|killed)\b/i.test(item.text);
+}
+
 /** Interleave assistant narration and fold tool work into collapsible thinking blocks. */
 export function buildTimelineRows(
   items: Item[],
@@ -330,6 +336,11 @@ export function buildTimelineRows(
     }
 
     if (item.kind === "notice" || item.kind === "phase") {
+      if (item.kind === "notice" && isBackgroundJobNotice(item)) {
+        flushThinking();
+        rows.push({ kind: "single", item });
+        continue;
+      }
       if (thinking) {
         deferredNotices.push(item);
       } else {

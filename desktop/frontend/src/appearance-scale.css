@@ -27,6 +27,21 @@ body {
   font-size: calc(13px * var(--code-font-scale));
 }
 
+/* Preview body already bakes in --code-font-scale; avoid double-scaling nested code. */
+.app .file-preview-panel__body :is(.code-block, .code, .code__content, .code__gutter, .hljs, pre, pre code, .diff),
+.app .file-preview-panel__body .code-block * {
+  font-size: 1em;
+  font-family: var(--mono) !important;
+  font-variant-ligatures: none;
+  font-feature-settings: "calt" 0;
+}
+
+.app .file-preview-panel__body .md,
+.app .file-preview-panel__body .msg__body {
+  font-family: var(--sans);
+  font-size: 1rem;
+}
+
 .app .code-block .code,
 .app .code-block pre,
 .app .code-block .code__content {

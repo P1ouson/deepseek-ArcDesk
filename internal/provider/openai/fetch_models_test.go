@@ -41,6 +41,25 @@ func TestFetchModels(t *testing.T) {
 	}
 }
 
+func TestFetchModelsBearerPrefixStripped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test-key" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "relay-model"}}})
+	}))
+	defer srv.Close()
+
+	models, err := FetchModels(context.Background(), srv.URL, "Bearer test-key")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(models) != 1 || models[0] != "relay-model" {
+		t.Fatalf("models = %v", models)
+	}
+}
+
 func TestFetchModelsAuthError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"invalid key"}}`, http.StatusUnauthorized)

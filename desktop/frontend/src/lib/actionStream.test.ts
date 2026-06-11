@@ -165,6 +165,31 @@ describe("buildTimelineRows thinking blocks", () => {
     expect(answer.item.text).toBe("训练用了 3 小时，样本 12000 条。");
   });
 
+  it("shows background job completion notices immediately instead of batching at turn end", () => {
+    const items: Item[] = [
+      { kind: "user", id: "u1", text: "run tasks" },
+      assistant("a1", "", "dispatching subagents"),
+      tool("t1"),
+      { kind: "notice", id: "n1", level: "info", text: "background task finished: task-1" },
+      tool("t2"),
+      { kind: "notice", id: "n2", level: "info", text: "background task finished: task-2" },
+      assistant("a2", "both tasks finished"),
+    ];
+
+    const rows = buildTimelineRows(items, new Map());
+    expect(rowKinds(rows)).toEqual(["user", "thinking", "notice", "thinking", "notice", "assistant"]);
+
+    const firstNotice = rows[2];
+    expect(firstNotice?.kind).toBe("single");
+    if (firstNotice?.kind !== "single" || firstNotice.item.kind !== "notice") throw new Error("expected notice");
+    expect(firstNotice.item.text).toContain("task-1");
+
+    const secondNotice = rows[4];
+    expect(secondNotice?.kind).toBe("single");
+    if (secondNotice?.kind !== "single" || secondNotice.item.kind !== "notice") throw new Error("expected notice");
+    expect(secondNotice.item.text).toContain("task-2");
+  });
+
   it("drops duplicate preface and keeps thinking unified across truncation notices", () => {
     const items: Item[] = [
       { kind: "user", id: "u1", text: "analyze text flow" },

@@ -31,7 +31,7 @@ import {
   deepseekProviders,
 
   deepseekSyncedModels,
-
+  formatModelFetchError,
   isRelayBaseUrl,
 
   looksLikeStalePresetModels,
@@ -42,6 +42,7 @@ import {
 
   modelShortLabel,
 
+  normalizeProviderBaseUrl,
   primaryApiProvider,
 
   toRef,
@@ -102,7 +103,7 @@ function DeepSeekServiceUrlField({
 
   const save = () => {
 
-    const next = value.trim() || DEEPSEEK_OFFICIAL_BASE;
+    const next = normalizeProviderBaseUrl(value.trim() || DEEPSEEK_OFFICIAL_BASE);
 
     void apply(async () => {
 
@@ -262,7 +263,9 @@ export function ModelsServicesSection({ s, busy, apply }: SettingsSectionProps) 
 
       .catch((e) => {
 
-        setFetchError(String((e as Error)?.message ?? e));
+        const raw = String((e as Error)?.message ?? e);
+
+        setFetchError(formatModelFetchError(raw, relayMode, t));
 
       })
 

@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { useT } from "../lib/i18n";
 import { app, openExternal } from "../lib/bridge";
 import { logBridgeError } from "../lib/logBridgeError";
+import { normalizeProviderBaseUrl } from "./settings/modelUtils";
 
 type ApiPreset = "deepseek" | "openrouter" | "openai" | "custom";
 
@@ -68,7 +69,7 @@ export function OnboardingOverlay({
 
   const submit = useCallback(async () => {
     const key = value.trim();
-    const base = baseUrl.trim();
+    const base = normalizeProviderBaseUrl(baseUrl.trim());
     if (!base) {
       setError(t("onboarding.error.baseUrlRequired"));
       setState("error");
@@ -92,6 +93,8 @@ export function OnboardingOverlay({
         setError(t("onboarding.error.cancelled"));
       } else if (/status\s*401|status\s*403|unauthorized|invalid key/i.test(msg)) {
         setError(t("onboarding.error.invalid"));
+      } else if (/status\s*404|invalid url/i.test(msg) && /chat\/completions\/models/i.test(msg)) {
+        setError(t("settings.models.relayBaseUrlError"));
       } else if (/decode response|unexpected end of json|invalid character/i.test(msg)) {
         setError(t("onboarding.error.parse", { detail: msg }));
       } else if (/network|unreachable|timeout|dial tcp|connection refused|no such host/i.test(msg)) {

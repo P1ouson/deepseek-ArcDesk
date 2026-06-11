@@ -24,6 +24,7 @@ import (
 	"arcdesk/internal/control"
 	"arcdesk/internal/event"
 	"arcdesk/internal/provider"
+	"arcdesk/internal/repomap"
 )
 
 // --- WorkspaceTab -----------------------------------------------------------
@@ -59,6 +60,8 @@ type WorkspaceTab struct {
 	disabledMCP map[string]ServerView
 	mcpOrder    []string
 	sessionPath string // last active session file; persisted in desktop-tabs.json
+	freshSession  bool   // true: cold start (no shared workspace session reuse)
+	leaseNotice   string // one-shot notice when session lease forced a fresh file
 }
 
 type readFileRecord struct {
@@ -187,6 +190,9 @@ func (s *tabEventSink) recordReadTelemetry(e event.Event) {
 		Limit:     limit,
 		Truncated: truncated,
 	})
+	if tab.WorkspaceRoot != "" && path != "" {
+		go repomap.RecordRead(tab.WorkspaceRoot, path, "")
+	}
 	if ctrl == nil {
 		return
 	}
@@ -271,8 +277,13 @@ func tabSessionCandidates(tab *WorkspaceTab, dir string) []string {
 			candidates = append(candidates, p)
 		}
 	}
-	if p := findScopedTabSession(dir, tab.Scope, tab.WorkspaceRoot); p != "" {
-		candidates = append(candidates, p)
+	if !tab.freshSession {
+		if p := findWorkspaceLatestSession(dir, tab.Scope, tab.WorkspaceRoot); p != "" {
+			candidates = append(candidates, p)
+		}
+		if p := findScopedTabSession(dir, tab.Scope, tab.WorkspaceRoot); p != "" {
+			candidates = append(candidates, p)
+		}
 	}
 	return candidates
 }
@@ -381,14 +392,25 @@ func (a *App) ListTabs() []TabMeta {
 
 // OpenProjectTab builds a controller scoped to workspaceRoot and opens a tab
 // for the given topic. If a tab with the same (workspaceRoot, topicID) is
-// already open, it just activates the existing tab.
+// already open, it just activates the existing tab. Reuses the project's latest
+// session prefix when possible (cache-friendly).
 func (a *App) OpenProjectTab(workspaceRoot, topicID string) (TabMeta, error) {
+	return a.openProjectTab(workspaceRoot, topicID, false)
+}
+
+// OpenProjectTabFresh opens a project tab with a cold session (no shared prefix).
+func (a *App) OpenProjectTabFresh(workspaceRoot, topicID string) (TabMeta, error) {
+	return a.openProjectTab(workspaceRoot, topicID, true)
+}
+
+func (a *App) openProjectTab(workspaceRoot, topicID string, freshSession bool) (TabMeta, error) {
 	if workspaceRoot == "" {
 		return TabMeta{}, fmt.Errorf("workspaceRoot is required")
 	}
 	if abs, err := filepath.Abs(workspaceRoot); err == nil {
 		workspaceRoot = abs
 	}
+	a.warmupProject(workspaceRoot)
 
 	a.mu.Lock()
 	// If already open, just activate.
@@ -412,6 +434,7 @@ func (a *App) OpenProjectTab(workspaceRoot, topicID string) (TabMeta, error) {
 		TopicTitle:    topicTitle,
 		mode:          "normal",
 		disabledMCP:   map[string]ServerView{},
+		freshSession:  freshSession,
 	}
 	tab.sink = &tabEventSink{tabID: tabID, app: a}
 
@@ -428,6 +451,15 @@ func (a *App) OpenProjectTab(workspaceRoot, topicID string) (TabMeta, error) {
 // OpenGlobalTab opens a new global-scope tab (no project root). The global
 // workspace root is the ARCDESK user config directory.
 func (a *App) OpenGlobalTab(topicID string) (TabMeta, error) {
+	return a.openGlobalTab(topicID, false)
+}
+
+// OpenGlobalTabFresh opens a global tab with a cold session.
+func (a *App) OpenGlobalTabFresh(topicID string) (TabMeta, error) {
+	return a.openGlobalTab(topicID, true)
+}
+
+func (a *App) openGlobalTab(topicID string, freshSession bool) (TabMeta, error) {
 	globalRoot := globalWorkspaceRoot()
 	if err := os.MkdirAll(globalRoot, 0o755); err != nil {
 		return TabMeta{}, fmt.Errorf("create global workspace: %w", err)
@@ -454,6 +486,7 @@ func (a *App) OpenGlobalTab(topicID string) (TabMeta, error) {
 		TopicTitle:    topicTitle,
 		mode:          "normal",
 		disabledMCP:   map[string]ServerView{},
+		freshSession:  freshSession,
 	}
 	tab.sink = &tabEventSink{tabID: tabID, app: a}
 
@@ -465,6 +498,18 @@ func (a *App) OpenGlobalTab(topicID string) (TabMeta, error) {
 
 	go a.buildTabController(tab)
 	return a.tabMeta(tab, true), nil
+}
+
+func (a *App) warmupProject(workspaceRoot string) {
+	root := strings.TrimSpace(workspaceRoot)
+	if root == "" {
+		return
+	}
+	go func() {
+		if err := repomap.RefreshIfStale(root); err != nil {
+			slog.Debug("repomap warmup", "root", root, "err", err)
+		}
+	}()
 }
 
 // SetActiveTab switches the frontend's active tab. A no-op when tabID is
@@ -509,18 +554,14 @@ func (a *App) ReorderTabs(tabIDs []string) error {
 }
 
 // CloseTab shuts down a tab's controller (snapshot + cancel + close) and
-// removes it. The active tab cannot be closed when it is the last one; the
-// frontend should prompt first.
+// removes it. Closing the last tab leaves an empty tab strip until the user
+// opens a topic from the sidebar.
 func (a *App) CloseTab(tabID string) error {
 	a.mu.Lock()
 	tab, ok := a.tabs[tabID]
 	if !ok {
 		a.mu.Unlock()
 		return fmt.Errorf("tab %q not found", tabID)
-	}
-	if len(a.tabs) <= 1 {
-		a.mu.Unlock()
-		return fmt.Errorf("cannot close the last tab")
 	}
 	ordered := a.orderedTabIDsLocked()
 	closedIndex := -1
@@ -558,6 +599,7 @@ func (a *App) CloseTab(tabID string) error {
 	if tab.sink != nil {
 		tab.sink.ctx = nil // stop further emissions (nil ctx → Emit becomes no-op)
 	}
+	a.releaseSessionLease(tabID)
 	return nil
 }
 
@@ -578,6 +620,11 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 	if root == "" {
 		if wd, err := os.Getwd(); err == nil {
 			root = wd
+		}
+	}
+	if tab.Scope == "project" && strings.TrimSpace(tab.WorkspaceRoot) != "" {
+		if err := repomap.EnsureReady(tab.WorkspaceRoot); err != nil {
+			slog.Debug("repomap ensure before boot", "root", tab.WorkspaceRoot, "err", err)
 		}
 	}
 
@@ -665,6 +712,15 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 			path = agent.NewSessionPath(dir, ctrl.Label())
 			ctrl.SetSessionPath(path)
 		}
+		if path != "" {
+			if !a.claimSessionPath(tab.ID, path) {
+				path = agent.NewSessionPath(dir, ctrl.Label())
+				ctrl.SetSessionPath(path)
+				if tab.leaseNotice == "" {
+					tab.leaseNotice = "无法占用共享会话文件，本标签页已改为独立会话。"
+				}
+			}
+		}
 		tab.sessionPath = path
 		// Write/update scope/session meta.
 		if path != "" {
@@ -692,6 +748,10 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 	a.saveTabsLocked()
 	a.mu.Unlock()
 	a.emitReady(wailsCtx)
+	if notice := strings.TrimSpace(tab.leaseNotice); notice != "" && tab.sink != nil {
+		tab.leaseNotice = ""
+		tab.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: notice})
+	}
 }
 
 // --- active tab helpers -----------------------------------------------------
@@ -1246,7 +1306,11 @@ func addProject(root, title string) error {
 		}
 	}
 	f.Projects = append(f.Projects, desktopProject{Root: root, Title: title})
-	return saveProjectsFile(f)
+	if err := saveProjectsFile(f); err != nil {
+		return err
+	}
+	go func() { _ = repomap.RefreshIfStale(root) }()
+	return nil
 }
 
 func renameProject(root, title string) error {
@@ -1726,13 +1790,25 @@ func legacySessionTopicID(path string) string {
 
 // TopicMeta describes a topic for the project tree.
 type TopicMeta struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	CreatedAt int64  `json:"createdAt"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	CreatedAt   int64  `json:"createdAt"`
+	Continuity  string `json:"continuity,omitempty"` // "continue" | "fresh"
+}
+
+func normalizeTopicContinuity(continuity string) string {
+	switch strings.ToLower(strings.TrimSpace(continuity)) {
+	case "fresh", "cold", "new":
+		return "fresh"
+	default:
+		return "continue"
+	}
 }
 
 // CreateTopic creates a new topic under a project workspace and returns its metadata.
-func (a *App) CreateTopic(scope, workspaceRoot, title string) (TopicMeta, error) {
+// continuity is "continue" (reuse warm project session) or "fresh" (cold start).
+func (a *App) CreateTopic(scope, workspaceRoot, title, continuity string) (TopicMeta, error) {
+	cont := normalizeTopicContinuity(continuity)
 	trimmedTitle := strings.TrimSpace(title)
 	titleSource := topicTitleSourceManual
 	if trimmedTitle == "" {
@@ -1768,7 +1844,7 @@ func (a *App) CreateTopic(scope, workspaceRoot, title string) (TopicMeta, error)
 		}
 	}
 	a.emitProjectTreeChanged()
-	return TopicMeta{ID: topicID, Title: trimmedTitle, CreatedAt: time.Now().UnixMilli()}, nil
+	return TopicMeta{ID: topicID, Title: trimmedTitle, CreatedAt: time.Now().UnixMilli(), Continuity: cont}, nil
 }
 
 // RenameProject updates the sidebar-only display title for a project folder.
@@ -1990,11 +2066,7 @@ func (a *App) TrashTopic(topicID string) error {
 		}
 	}
 
-	var fallbackScope, fallbackRoot string
-	needsFallback := false
 	if len(openTabs) > 0 {
-		fallbackScope = openTabs[0].scope
-		fallbackRoot = openTabs[0].workspaceRoot
 		a.mu.Lock()
 		removedActive := false
 		for _, item := range openTabs {
@@ -2013,7 +2085,6 @@ func (a *App) TrashTopic(topicID string) error {
 				a.activeTabID = a.tabOrder[0]
 			}
 		}
-		needsFallback = len(a.tabs) == 0
 		a.saveTabsLocked()
 		a.mu.Unlock()
 	}
@@ -2036,23 +2107,6 @@ func (a *App) TrashTopic(topicID string) error {
 	}
 	if err := a.DeleteTopic(topicID); err != nil {
 		return err
-	}
-	if needsFallback {
-		if fallbackScope == "global" {
-			fallbackRoot = ""
-		}
-		topic, err := a.CreateTopic(fallbackScope, fallbackRoot, "")
-		if err != nil {
-			return err
-		}
-		if fallbackScope == "global" {
-			_, err = a.OpenGlobalTab(topic.ID)
-		} else {
-			_, err = a.OpenProjectTab(fallbackRoot, topic.ID)
-		}
-		if err != nil {
-			return err
-		}
 	}
 	a.emitProjectTreeChanged()
 	return nil
@@ -2196,6 +2250,79 @@ func topicSummaryKey(scope, workspaceRoot, topicID string) string {
 		return "global::" + topicID
 	}
 	return "project:" + workspaceRoot + ":" + topicID
+}
+
+func restorableDesktopTabEntry(entry desktopTabEntry) bool {
+	topicID := strings.TrimSpace(entry.TopicID)
+	if topicID == "" || isWriteModeTopicID(topicID) {
+		return false
+	}
+	scope := strings.TrimSpace(entry.Scope)
+	if scope == "global" {
+		return topicListedInTree("global", "", topicID)
+	}
+	if scope != "project" {
+		return false
+	}
+	root := strings.TrimSpace(entry.WorkspaceRoot)
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	if root == "" {
+		return false
+	}
+	return topicListedInTree("project", root, topicID)
+}
+
+func topicListedInTree(scope, workspaceRoot, topicID string) bool {
+	topicID = strings.TrimSpace(topicID)
+	if topicID == "" {
+		return false
+	}
+	f := loadProjectsFile()
+	if scope == "global" {
+		for _, id := range f.GlobalTopics {
+			if id == topicID {
+				return true
+			}
+		}
+		if _, ok := loadTopicTitles("")[topicID]; ok {
+			return true
+		}
+		return false
+	}
+	root := normalizeProjectRoot(workspaceRoot)
+	for _, p := range f.Projects {
+		if normalizeProjectRoot(p.Root) != root {
+			continue
+		}
+		for _, id := range p.Topics {
+			if id == topicID {
+				return true
+			}
+		}
+		if _, ok := loadTopicTitles(root)[topicID]; ok {
+			return true
+		}
+		return false
+	}
+	return false
+}
+
+func sanitizePersistedSessionPath(sessionPath string) string {
+	sessionPath = strings.TrimSpace(sessionPath)
+	if sessionPath == "" {
+		return ""
+	}
+	dir := config.SessionDir()
+	abs, _, err := validateSessionPath(dir, sessionPath)
+	if err != nil {
+		return ""
+	}
+	if _, err := os.Stat(abs); err != nil {
+		return ""
+	}
+	return sessionPath
 }
 
 // ContextPanelInfo is the right-side panel's data for one tab.
@@ -2373,16 +2500,120 @@ func (a *App) resumeTabSession(ctrl *control.Controller, tab *WorkspaceTab, dir 
 	if ctrl == nil || tab == nil || dir == "" {
 		return ""
 	}
-	path := resolveTabSessionPath(tab, dir)
-	if path == "" {
+	raw := resolveTabSessionPath(tab, dir)
+	if raw == "" {
 		return ""
 	}
-	loaded, err := agent.LoadSession(path)
+	sessionPath, _, err := validateSessionPath(dir, raw)
 	if err != nil {
 		return ""
 	}
-	ctrl.Resume(loaded, path)
-	return path
+	if !a.claimSessionPath(tab.ID, sessionPath) {
+		tab.leaseNotice = "另一标签页已在占用同一会话文件，本话题已改为独立会话，避免历史记录损坏。"
+		return ""
+	}
+	loaded, err := agent.LoadSession(sessionPath)
+	if err != nil {
+		a.releaseSessionLease(tab.ID)
+		return ""
+	}
+	ctrl.Resume(loaded, sessionPath)
+	syncTabSessionTopicMeta(sessionPath, tab)
+	return sessionPath
+}
+
+func (a *App) claimSessionPath(tabID, sessionPath string) bool {
+	sessionPath = strings.TrimSpace(sessionPath)
+	tabID = strings.TrimSpace(tabID)
+	if sessionPath == "" || tabID == "" {
+		return true
+	}
+	if dir := config.SessionDir(); dir != "" {
+		if validated, _, err := validateSessionPath(dir, sessionPath); err == nil {
+			sessionPath = validated
+		}
+	}
+	a.sessionLeaseMu.Lock()
+	defer a.sessionLeaseMu.Unlock()
+	if a.sessionLeases == nil {
+		a.sessionLeases = map[string]string{}
+	}
+	if owner, ok := a.sessionLeases[sessionPath]; ok && owner != tabID {
+		return false
+	}
+	a.sessionLeases[sessionPath] = tabID
+	return true
+}
+
+func (a *App) releaseSessionLease(tabID string) {
+	tabID = strings.TrimSpace(tabID)
+	if tabID == "" {
+		return
+	}
+	a.sessionLeaseMu.Lock()
+	defer a.sessionLeaseMu.Unlock()
+	if a.sessionLeases == nil {
+		return
+	}
+	for path, owner := range a.sessionLeases {
+		if owner == tabID {
+			delete(a.sessionLeases, path)
+		}
+	}
+}
+
+func syncTabSessionTopicMeta(sessionPath string, tab *WorkspaceTab) {
+	if tab == nil || strings.TrimSpace(sessionPath) == "" || strings.TrimSpace(tab.TopicID) == "" {
+		return
+	}
+	m, err := agent.EnsureBranchMeta(sessionPath)
+	if err != nil {
+		return
+	}
+	m.Scope = tab.Scope
+	m.WorkspaceRoot = tab.WorkspaceRoot
+	m.TopicID = tab.TopicID
+	m.TopicTitle = tab.TopicTitle
+	_ = agent.SaveBranchMeta(sessionPath, m)
+}
+
+// findWorkspaceLatestSession returns the most recently updated session for a
+// workspace (any topic), used to keep prefix cache warm across new topics.
+func findWorkspaceLatestSession(dir, scope, workspaceRoot string) string {
+	if dir == "" {
+		return ""
+	}
+	wantScope := strings.TrimSpace(scope)
+	if wantScope == "" {
+		wantScope = "global"
+	}
+	infos, err := agent.ListSessions(dir)
+	if err != nil {
+		return ""
+	}
+	var bestPath string
+	var bestTime time.Time
+	for _, info := range infos {
+		gotScope := strings.TrimSpace(info.Scope)
+		if gotScope == "" {
+			gotScope = "global"
+		}
+		if gotScope != wantScope {
+			continue
+		}
+		if !sessionWorkspaceMatches(workspaceRoot, info.WorkspaceRoot) {
+			continue
+		}
+		when := info.LastActivityAt
+		if when.IsZero() {
+			when = info.ModTime
+		}
+		if when.After(bestTime) {
+			bestTime = when
+			bestPath = info.Path
+		}
+	}
+	return bestPath
 }
 
 // findScopedTabSession returns the most recently updated session for a tab

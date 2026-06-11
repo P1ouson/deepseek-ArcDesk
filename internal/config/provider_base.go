@@ -8,13 +8,38 @@ import (
 // DeepSeekOfficialBase is the default DeepSeek API origin (no /v1 suffix).
 const DeepSeekOfficialBase = "https://api.deepseek.com"
 
-// NormalizeProviderBaseURL trims input and maps empty to DeepSeekOfficialBase.
+// openAIBaseURLSuffixes are endpoint paths users paste by mistake. Base URL should
+// stop at /v1 (or the gateway root); chat/models paths are appended by the client.
+var openAIBaseURLSuffixes = []string{
+	"/chat/completions",
+	"/completions",
+	"/embeddings",
+	"/models",
+}
+
+// NormalizeProviderBaseURL trims input, strips accidental endpoint paths, and maps
+// empty to DeepSeekOfficialBase.
 func NormalizeProviderBaseURL(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return DeepSeekOfficialBase
 	}
-	return strings.TrimRight(raw, "/")
+	base := strings.TrimRight(raw, "/")
+	for {
+		lower := strings.ToLower(base)
+		trimmed := false
+		for _, suffix := range openAIBaseURLSuffixes {
+			if strings.HasSuffix(lower, suffix) {
+				base = strings.TrimRight(base[:len(base)-len(suffix)], "/")
+				trimmed = true
+				break
+			}
+		}
+		if !trimmed {
+			break
+		}
+	}
+	return base
 }
 
 // IsDeepSeekOfficialBase reports whether baseURL targets DeepSeek's official API host.
@@ -68,10 +93,11 @@ func (c *Config) SyncProvidersBaseURL(apiKeyEnv, base string) {
 	if apiKeyEnv == "" {
 		return
 	}
-	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	base = strings.TrimSpace(base)
 	if base == "" {
 		return
 	}
+	base = NormalizeProviderBaseURL(base)
 	balance := ""
 	if apiKeyEnv == "DEEPSEEK_API_KEY" {
 		balance = DeepSeekBalanceURL(base)

@@ -2,6 +2,20 @@ package config
 
 import "testing"
 
+func TestNormalizeProviderBaseURLStripsEndpointPaths(t *testing.T) {
+	cases := map[string]string{
+		"https://apihub.agnes-ai.com/v1/chat/completions": "https://apihub.agnes-ai.com/v1",
+		"https://relay.example.com/v1/models":             "https://relay.example.com/v1",
+		"https://openrouter.ai/api/v1/completions":        "https://openrouter.ai/api/v1",
+		"https://api.deepseek.com":                        "https://api.deepseek.com",
+	}
+	for in, want := range cases {
+		if got := NormalizeProviderBaseURL(in); got != want {
+			t.Errorf("NormalizeProviderBaseURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestIsDeepSeekOfficialBase(t *testing.T) {
 	if !IsDeepSeekOfficialBase("") {
 		t.Fatal("empty should normalize to official")

@@ -245,7 +245,9 @@ export interface AppBindings {
   RespondMobileDecision(decisionId: string, allow: boolean, answers?: QuestionAnswer[]): Promise<void>;
   ListTabs(): Promise<TabMeta[]>;
   OpenProjectTab(workspaceRoot: string, topicID: string): Promise<TabMeta>;
+  OpenProjectTabFresh(workspaceRoot: string, topicID: string): Promise<TabMeta>;
   OpenGlobalTab(topicID: string): Promise<TabMeta>;
+  OpenGlobalTabFresh(topicID: string): Promise<TabMeta>;
   SetActiveTab(tabID: string): Promise<void>;
   ReorderTabs(tabIDs: string[]): Promise<void>;
   CloseTab(tabID: string): Promise<void>;
@@ -253,7 +255,7 @@ export interface AppBindings {
   RenameProject(workspaceRoot: string, title: string): Promise<void>;
   SetProjectColor(workspaceRoot: string, color: string): Promise<void>;
   ReorderProjects(workspaceRoots: string[]): Promise<void>;
-  CreateTopic(scope: string, workspaceRoot: string, title: string): Promise<TopicMeta>;
+  CreateTopic(scope: string, workspaceRoot: string, title: string, continuity: string): Promise<TopicMeta>;
   RenameTopic(topicID: string, title: string): Promise<void>;
   DeleteTopic(topicID: string): Promise<void>;
   TrashTopic(topicID: string): Promise<void>;
@@ -436,7 +438,7 @@ export function onReady(cb: () => void): () => void {
       .ListTabs()
       .then((tabs) => {
         if (!Array.isArray(tabs)) return;
-        if (tabs.some((tab) => tab.ready || tab.startupErr)) invoke();
+        if (tabs.length === 0 || tabs.some((tab) => tab.ready || tab.startupErr)) invoke();
       })
       .catch(() => {});
   };
@@ -485,7 +487,8 @@ export function onTabsShell(cb: () => void): () => void {
     void bindings
       .ListTabs()
       .then((tabs) => {
-        if (Array.isArray(tabs) && tabs.length > 0) invoke();
+        if (!Array.isArray(tabs)) return;
+        invoke();
       })
       .catch(() => {});
   };
@@ -2158,6 +2161,9 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
       mockTabs = [...mockTabs.map((item) => ({ ...item, active: false })), tab];
       return { ...tab };
     },
+    async OpenProjectTabFresh(workspaceRoot: string, topicID: string) {
+      return this.OpenProjectTab(workspaceRoot, topicID);
+    },
     async OpenGlobalTab(_topicID: string) {
       const existing = mockTabs.find((tab) => tab.scope === "global" && tab.topicId === _topicID);
       if (existing) {
@@ -2180,6 +2186,9 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
       };
       mockTabs = [...mockTabs.map((item) => ({ ...item, active: false })), tab];
       return { ...tab };
+    },
+    async OpenGlobalTabFresh(topicID: string) {
+      return this.OpenGlobalTab(topicID);
     },
     async SetActiveTab(_tabID: string) {
       setMockActiveTab(_tabID);
@@ -2228,7 +2237,7 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
       const globals = mockProjectTree.filter((node) => node.kind !== "project");
       mockProjectTree.splice(0, mockProjectTree.length, ...globals, ...ordered);
     },
-    async CreateTopic(_scope: string, _workspaceRoot: string, title: string) {
+    async CreateTopic(_scope: string, _workspaceRoot: string, title: string, _continuity?: string) {
       const id = "topic_" + Date.now();
       const topicTitle = title.trim() || t("mock.newSession");
       const parent = _scope === "global"

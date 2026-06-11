@@ -168,6 +168,7 @@ export interface TopicMeta {
   id: string;
   title: string;
   createdAt: number;
+  continuity?: string;
 }
 
 export interface ContextPanelInfo {

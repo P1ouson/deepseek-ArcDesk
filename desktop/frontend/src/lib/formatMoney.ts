@@ -1,15 +1,27 @@
+import { getLocale } from "./i18n";
+
 export function currencySymbol(currency?: string): string {
   const value = (currency || "CNY").trim();
-  if (/^(cny|rmb|yuan|¥)$/i.test(value)) return "¥";
+  if (/^(cny|rmb|yuan|¥)$/i.test(value)) return getLocale() === "zh" ? "" : "¥";
   if (/^(usd|dollar|\$)$/i.test(value)) return "$";
   if (value.length === 1) return value;
-  return "¥";
+  return getLocale() === "zh" ? "" : "¥";
+}
+
+function moneySuffix(currency?: string): string {
+  const value = (currency || "CNY").trim();
+  if (/^(cny|rmb|yuan|¥)$/i.test(value) && getLocale() === "zh") return "元";
+  return "";
 }
 
 export function formatMoney(amount?: number, currency?: string): string {
   const symbol = currencySymbol(currency);
-  if (typeof amount !== "number" || amount <= 0) return `${symbol}0.0000`;
-  return `${symbol}${amount < 1 ? amount.toFixed(4) : amount.toFixed(2)}`;
+  const suffix = moneySuffix(currency);
+  if (typeof amount !== "number" || amount <= 0) {
+    return suffix ? `0.0000${suffix}` : `${symbol}0.0000`;
+  }
+  const num = amount < 1 ? amount.toFixed(4) : amount.toFixed(2);
+  return suffix ? `${num}${suffix}` : `${symbol}${num}`;
 }
 
 export function formatTokens(n: number): string {

@@ -17,9 +17,10 @@ import {
   IPC_META_TIMEOUT_MS,
   withIPCTimeout,
 } from "./ipc";
+import { notifyBackgroundTabDecision } from "./agentNotifications";
 import { notifyTabMetasChanged } from "./events";
-import { recordCompactionActivity, recordUsageActivity } from "./usageActivity";
 import { t } from "./i18n";
+import { recordCompactionActivity, recordUsageActivity } from "./usageActivity";
 import type {
   BalanceInfo,
   CheckpointMeta,
@@ -104,6 +105,7 @@ export interface State {
   sessionCost: number;
   sessionCurrency: string;
   retry?: { attempt: number; max: number };
+  recentlyCompleted: boolean;
   seq: number;
 }
 
@@ -118,6 +120,7 @@ const initialState: State = {
   turnTokens: 0,
   sessionCost: 0,
   sessionCurrency: "¥",
+  recentlyCompleted: false,
   seq: 0,
 };
 
@@ -148,6 +151,7 @@ export type Action =
   | { type: "local_notice"; level: "info" | "warn"; text: string }
   | { type: "clearApproval" }
   | { type: "clearAsk" }
+  | { type: "clearRecentCompletion" }
   | { type: "resolveAsk"; id: string; answers: QuestionAnswer[]; dismissed: boolean }
   | { type: "reset" };
 
@@ -236,6 +240,22 @@ function shouldEmitTurnWatchdogNotice(
   return now - state.turnStartAt >= TURN_WATCHDOG_MS;
 }
 
+function shouldForceClearTurnWatchdog(
+  state: Pick<State, "running" | "turnStartAt">,
+  now: number,
+  alreadyForceClearedForTurnStartAt: number | undefined,
+): boolean {
+  if (!state.running || !state.turnStartAt) return false;
+  if (alreadyForceClearedForTurnStartAt === state.turnStartAt) return false;
+  return now - state.turnStartAt >= TURN_WATCHDOG_FORCE_CLEAR_MS;
+}
+
+/** Suppress a late backend stream error after the UI already force-stopped the turn. */
+function isStaleStreamDoneErr(state: Pick<State, "running" | "turnActive">, err?: string): boolean {
+  if (!err || state.running || state.turnActive) return false;
+  return /read stream: unexpected EOF|read stream:.*EOF/i.test(err);
+}
+
 function historyItemsFromMessages(messages: HistoryMessage[], seq: number): { items: Item[]; nextSeq: number } {
   const visible = messages.filter(
     (m) => (m.role === "user" && m.content.trim() !== "") ||
@@ -308,7 +328,7 @@ function applyEvent(s: State, e: WireEvent): State {
   if (s.retry) s = { ...s, retry: undefined };
   switch (e.kind) {
     case "turn_started":
-      return { ...s, running: true, turnActive: true, currentAssistant: undefined, turnStartAt: Date.now(), turnTokens: 0 };
+      return { ...s, running: true, turnActive: true, recentlyCompleted: false, currentAssistant: undefined, turnStartAt: Date.now(), turnTokens: 0 };
     case "text":
     case "reasoning": {
       const { items, id, seq } = ensureAssistant(s);
@@ -440,8 +460,22 @@ function applyEvent(s: State, e: WireEvent): State {
         if (it.kind === "tool" && it.status === "running") return { ...it, status: "stopped" as const };
         return it;
       });
-      const items: Item[] = e.err ? [...finalized, { kind: "notice", id: `e${s.seq}`, level: "warn", text: e.err }] : finalized;
-      return { ...s, items, live: undefined, running: false, turnActive: false, currentAssistant: undefined, approval: undefined, ask: undefined, seq: s.seq + 1 };
+      const errText = e.err && !isStaleStreamDoneErr(s, e.err) ? e.err : undefined;
+      const items: Item[] = errText
+        ? [...finalized, { kind: "notice", id: `e${s.seq}`, level: "warn", text: errText }]
+        : finalized;
+      return {
+        ...s,
+        items,
+        live: undefined,
+        running: false,
+        turnActive: false,
+        recentlyCompleted: !errText,
+        currentAssistant: undefined,
+        approval: undefined,
+        ask: undefined,
+        seq: s.seq + 1,
+      };
     }
     default: return s;
   }
@@ -482,6 +516,7 @@ function reducer(s: State, a: Action): State {
     case "local_notice": return { ...s, seq: s.seq + 1, items: [...s.items, { kind: "notice", id: `n${s.seq}`, level: a.level, text: a.text }] };
     case "clearApproval": return { ...s, approval: undefined };
     case "clearAsk": return { ...s, ask: undefined };
+    case "clearRecentCompletion": return { ...s, recentlyCompleted: false };
     case "resolveAsk": {
       const items = s.items.map((it) =>
         it.kind === "ask" && it.id === a.id
@@ -524,16 +559,35 @@ function messageActionBusyText(scope: MessageActionScope): string {
 
 export function useController() {
   const statesRef = useRef<TabStates>(new Map());
+  const tabTitlesRef = useRef<Map<string, string>>(new Map());
   const turnWatchdogFiredRef = useRef<Map<string, number>>(new Map());
+  const turnWatchdogForceClearedRef = useRef<Map<string, number>>(new Map());
   const [activeTabId, setActiveTabId] = useState<string | undefined>();
   // A render-triggering counter so that mutations to a non-active tab's state still
   // cause a re-render when that tab becomes active.
   const [, setVersion] = useState(0);
   const [bootPhase, setBootPhase] = useState<string | null>(null);
+  const [idleReady, setIdleReady] = useState(false);
   const bump = useCallback(() => setVersion((v) => v + 1), []);
 
+  const idleMeta: Meta = {
+    label: "",
+    ready: true,
+    eventChannel: "agent:event",
+    cwd: "",
+    bypass: false,
+  };
+
+  const getAllTabStates = useCallback((): Map<string, State> => {
+    return new Map(statesRef.current);
+  }, []);
+
   // The active tab's current state, with a stable identity for cancel().
-  const activeState = activeTabId ? getOrCreateState(statesRef.current, activeTabId) : initialState;
+  const activeState = activeTabId
+    ? getOrCreateState(statesRef.current, activeTabId)
+    : idleReady
+      ? { ...initialState, meta: idleMeta }
+      : initialState;
   const stateRef = useRef(activeState);
   stateRef.current = activeState;
 
@@ -638,13 +692,42 @@ export function useController() {
     }
   }, []);
 
+  const rememberTabTitles = useCallback((tabs: TabMeta[]) => {
+    for (const tab of tabs) {
+      const title = tab.topicTitle?.trim() || tab.workspaceName?.trim();
+      if (title) tabTitlesRef.current.set(tab.id, title);
+    }
+  }, []);
+
+  const markIdleReady = useCallback(() => {
+    setBootPhase(null);
+    setIdleReady(true);
+    bump();
+  }, [bump]);
+
   const syncActiveTabFromBackend = useCallback(async (reset = false): Promise<string | undefined> => {
-    const active = await activeTabFromBackend();
-    if (!active) return undefined;
+    const tabs = asArray(
+      await app.ListTabs().catch((err) => {
+        logBridgeError("ListTabs", err);
+        return [] as TabMeta[];
+      }),
+    );
+    if (tabs.length === 0) {
+      setActiveTabId(undefined);
+      markIdleReady();
+      return undefined;
+    }
+    const active = tabs.find((tab) => tab.active) ?? tabs[0];
+    if (!active) {
+      markIdleReady();
+      return undefined;
+    }
+    setIdleReady(false);
     setActiveTabId(active.id);
+    rememberTabTitles([active]);
     await loadSessionDataForTab(active.id, reset);
     return active.id;
-  }, [activeTabFromBackend, loadSessionDataForTab]);
+  }, [loadSessionDataForTab, markIdleReady, rememberTabTitles]);
 
   const activeTabIdRef = useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
@@ -700,6 +783,22 @@ export function useController() {
 
       flushStreamBuf();
       dispatchTo(targetTabId, { type: "event", e });
+      if (e.kind === "turn_started" || e.kind === "turn_done") {
+        notifyTabMetasChanged();
+      }
+      if (
+        (e.kind === "approval_request" || e.kind === "ask_request") &&
+        targetTabId &&
+        targetTabId !== activeTabIdRef.current
+      ) {
+        const tabTitle = tabTitlesRef.current.get(targetTabId) ?? targetTabId;
+        notifyBackgroundTabDecision(tabTitle, e.approval, e.ask, {
+          titleApproval: t("decision.notifyApproval"),
+          titleAsk: t("decision.notifyAsk"),
+          bodyApproval: (tool) => t("decision.pendingApproval", { tool }),
+          bodyAsk: t("decision.pendingAsk"),
+        });
+      }
       if (e.kind === "usage" && e.usage) {
         recordUsageActivity(e.usage);
       }
@@ -708,6 +807,12 @@ export function useController() {
       }
       if (e.kind === "turn_done") {
         turnWatchdogFiredRef.current.delete(targetTabId);
+        turnWatchdogForceClearedRef.current.delete(targetTabId);
+        if (!e.err) {
+          window.setTimeout(() => {
+            dispatchTo(targetTabId, { type: "clearRecentCompletion" });
+          }, 12000);
+        }
         void Promise.all([
           app.ContextUsageForTab(targetTabId),
           app.BalanceForTab(targetTabId),
@@ -747,6 +852,13 @@ export function useController() {
     void (async () => {
       if (activeTabIdRef.current) return;
       for (let attempt = 0; attempt < BOOT_READY_MAX_POLLS && !cancelled; attempt += 1) {
+        const tabs = asArray(
+          await app.ListTabs().catch(() => [] as TabMeta[]),
+        );
+        if (tabs.length === 0) {
+          markIdleReady();
+          return;
+        }
         const id = await syncActiveTabFromBackend();
         if (id) return;
         setBootPhase(t("boot.loadingWorkspace"));
@@ -756,7 +868,7 @@ export function useController() {
     return () => {
       cancelled = true;
     };
-  }, [syncActiveTabFromBackend]);
+  }, [markIdleReady, syncActiveTabFromBackend]);
 
   useEffect(() => {
     if (!activeTabId) return;
@@ -822,11 +934,9 @@ export function useController() {
             text: t("turnWatchdog.stillWaiting"),
           });
         }
-        if (
-          s.running &&
-          s.turnStartAt &&
-          now - s.turnStartAt >= TURN_WATCHDOG_FORCE_CLEAR_MS
-        ) {
+        if (shouldForceClearTurnWatchdog(s, now, turnWatchdogForceClearedRef.current.get(tabId))) {
+          turnWatchdogForceClearedRef.current.set(tabId, s.turnStartAt);
+          app.CancelTab(tabId).catch((err) => logBridgeError("watchdog.cancel", err));
           dispatchTo(tabId, {
             type: "event",
             e: { kind: "turn_done", err: t("turnWatchdog.timeout") },
@@ -1083,6 +1193,7 @@ export function useController() {
   const switchTab = useCallback(async (tabId: string) => {
     try {
       await app.SetActiveTab(tabId);
+      setIdleReady(false);
       setActiveTabId(tabId);
       // Load session data into the tab's state if it hasn't been loaded yet.
       const states = statesRef.current;
@@ -1095,10 +1206,14 @@ export function useController() {
     }
   }, [loadSessionDataForTab]);
 
-  const openProjectTab = useCallback(async (workspaceRoot: string, topicId: string, reload = false): Promise<TabMeta | undefined> => {
+  const openProjectTab = useCallback(async (workspaceRoot: string, topicId: string, reload = false, freshSession = false): Promise<TabMeta | undefined> => {
     try {
-      const meta = await app.OpenProjectTab(workspaceRoot, topicId);
+      const meta = freshSession
+        ? await app.OpenProjectTabFresh(workspaceRoot, topicId)
+        : await app.OpenProjectTab(workspaceRoot, topicId);
+      rememberTabTitles([meta]);
       await app.SetActiveTab(meta.id).catch((err) => logBridgeError("SetActiveTab", err));
+      setIdleReady(false);
       setActiveTabId(meta.id);
       const cached = statesRef.current.get(meta.id);
       if (reload || !cached?.meta) {
@@ -1110,12 +1225,16 @@ export function useController() {
       logBridgeError("openProjectTab", err);
       return undefined;
     }
-  }, [loadSessionDataForTab]);
+  }, [loadSessionDataForTab, rememberTabTitles]);
 
-  const openGlobalTab = useCallback(async (topicId: string, reload = false): Promise<TabMeta | undefined> => {
+  const openGlobalTab = useCallback(async (topicId: string, reload = false, freshSession = false): Promise<TabMeta | undefined> => {
     try {
-      const meta = await app.OpenGlobalTab(topicId);
+      const meta = freshSession
+        ? await app.OpenGlobalTabFresh(topicId)
+        : await app.OpenGlobalTab(topicId);
+      rememberTabTitles([meta]);
       await app.SetActiveTab(meta.id).catch((err) => logBridgeError("SetActiveTab", err));
+      setIdleReady(false);
       setActiveTabId(meta.id);
       const cached = statesRef.current.get(meta.id);
       if (reload || !cached?.meta) {
@@ -1127,19 +1246,28 @@ export function useController() {
       logBridgeError("openGlobalTab", err);
       return undefined;
     }
-  }, [loadSessionDataForTab]);
+  }, [loadSessionDataForTab, rememberTabTitles]);
 
   const closeTab = useCallback(async (tabId: string) => {
     try {
       await app.CloseTab(tabId);
       statesRef.current.delete(tabId);
+      tabTitlesRef.current.delete(tabId);
       bump();
-      if (tabId === activeTabId) await syncActiveTabFromBackend(true);
+      if (tabId === activeTabId) {
+        const tabs = asArray(await app.ListTabs().catch(() => [] as TabMeta[]));
+        if (tabs.length === 0) {
+          setActiveTabId(undefined);
+          markIdleReady();
+        } else {
+          await syncActiveTabFromBackend(true);
+        }
+      }
       notifyTabMetasChanged();
     } catch (err) {
       logBridgeError("closeTab", err);
     }
-  }, [activeTabId, bump, syncActiveTabFromBackend]);
+  }, [activeTabId, bump, markIdleReady, syncActiveTabFromBackend]);
 
   const reorderTabs = useCallback(async (tabIds: string[]) => {
     try {
@@ -1160,6 +1288,8 @@ export function useController() {
     fetchMemory, remember, forget, saveDoc,
     switchTab, openProjectTab, openGlobalTab, closeTab, reorderTabs,
     syncActiveTab: syncActiveTabFromBackend,
+    getAllTabStates,
+    rememberTabTitles,
   };
 }
 
@@ -1170,6 +1300,8 @@ export {
   shouldBlockConcurrentSend,
   shouldArmTurnWatchdog,
   shouldEmitTurnWatchdogNotice,
+  shouldForceClearTurnWatchdog,
+  isStaleStreamDoneErr,
   TURN_WATCHDOG_MS,
   TURN_WATCHDOG_FORCE_CLEAR_MS,
 };

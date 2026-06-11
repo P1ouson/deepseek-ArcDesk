@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"arcdesk/internal/proc"
 )
 
 const (
@@ -41,12 +43,14 @@ func ensureMobileLANFirewallRule(port int) {
 
 func deleteFirewallRule(name string) {
 	cmd := exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+name)
+	proc.HideWindowDetached(cmd)
 	_, _ = cmd.CombinedOutput()
 }
 
 func addFirewallRule(name string, args ...string) {
 	params := append([]string{"advfirewall", "firewall", "add", "rule", "name=" + name}, args...)
 	cmd := exec.Command("netsh", params...)
+	proc.HideWindowDetached(cmd)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		slog.Warn("mobile LAN firewall rule not added", "rule", name, "err", err, "out", strings.TrimSpace(string(out)))
 	}
@@ -54,6 +58,7 @@ func addFirewallRule(name string, args ...string) {
 
 func ruleExists(name string) bool {
 	cmd := exec.Command("netsh", "advfirewall", "firewall", "show", "rule", "name="+name)
+	proc.HideWindowDetached(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return false

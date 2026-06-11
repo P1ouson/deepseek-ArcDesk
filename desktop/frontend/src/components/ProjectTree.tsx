@@ -213,10 +213,9 @@ export function ProjectTree({
       return next;
     });
     try {
-      const topic = await app.CreateTopic(scope, workspaceRoot, "");
+      await app.CreateTopic(scope, workspaceRoot, "", "continue");
       await refresh();
       await onTopicsChanged?.();
-      await onOpenTopic(scope, workspaceRoot, topic.id);
     } catch {
       /* ignore */
     } finally {

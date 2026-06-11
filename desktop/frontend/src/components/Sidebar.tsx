@@ -30,6 +30,7 @@ export interface SidebarProps {
   onOpenTopic: (scope: string, workspaceRoot: string, topicId: string) => void;
   onOpenWorkspace: () => void;
   onNewChat: () => void;
+  onNewFreshChat?: () => void;
   onModeChange: (mode: AppMode) => void;
   onOpenSdd: () => void;
   onAddProject: () => Promise<void>;
@@ -93,6 +94,7 @@ export function Sidebar({
   onOpenTopic,
   onOpenWorkspace,
   onNewChat,
+  onNewFreshChat,
   onModeChange,
   onOpenSdd,
   onAddProject,
@@ -177,6 +179,9 @@ export function Sidebar({
           <div className="studio-drawer__actions">
             <DrawerAction icon={<FolderOpen size={15} />} label={t("sidebar.importWorkspace")} onClick={onOpenWorkspace} />
             <DrawerAction icon={<Plus size={15} />} label={t("sidebar.newSession")} onClick={onNewChat} />
+            {onNewFreshChat ? (
+              <DrawerAction icon={<Plus size={15} />} label={t("sidebar.newFreshSession")} onClick={onNewFreshChat} />
+            ) : null}
             {!writeMode ? (
               <DrawerAction icon={<Sparkles size={15} />} label={t("sidebar.newRequirement")} onClick={onOpenSdd} />
             ) : null}

@@ -6,7 +6,10 @@ import {
   shouldArmTurnWatchdog,
   shouldBlockConcurrentSend,
   shouldEmitTurnWatchdogNotice,
+  shouldForceClearTurnWatchdog,
+  isStaleStreamDoneErr,
   TURN_WATCHDOG_MS,
+  TURN_WATCHDOG_FORCE_CLEAR_MS,
 } from "./useController";
 
 describe("useController reducer", () => {
@@ -127,5 +130,36 @@ describe("turn watchdog", () => {
     expect(state.running).toBe(false);
     expect(state.turnActive).toBe(false);
     expect(shouldArmTurnWatchdog(state)).toBe(false);
+  });
+
+  it("force-clears only once per turnStartAt", () => {
+    const turnStartAt = 1_000;
+    const activeTurn = { running: true, turnStartAt };
+    const now = turnStartAt + TURN_WATCHDOG_FORCE_CLEAR_MS;
+    expect(shouldForceClearTurnWatchdog(activeTurn, now, undefined)).toBe(true);
+    expect(shouldForceClearTurnWatchdog(activeTurn, now, turnStartAt)).toBe(false);
+  });
+});
+
+describe("stale stream errors", () => {
+  it("suppresses unexpected EOF after the UI already stopped the turn", () => {
+    const idle = { running: false, turnActive: false };
+    expect(isStaleStreamDoneErr(idle, "deepseek-flash: read stream: unexpected EOF")).toBe(true);
+    expect(isStaleStreamDoneErr({ running: true, turnActive: true }, "deepseek-flash: read stream: unexpected EOF")).toBe(false);
+  });
+
+  it("does not add a second notice for stale EOF turn_done", () => {
+    let state = controllerApplyWireEvent(
+      { ...controllerInitialState, running: true, turnActive: true, turnStartAt: Date.now() },
+      { kind: "turn_done", err: "timed out" },
+    );
+    state = controllerApplyWireEvent(state, {
+      kind: "turn_done",
+      err: "deepseek-flash: read stream: unexpected EOF",
+    });
+    const errNotices = state.items.filter((it): it is Extract<typeof it, { kind: "notice" }> => it.kind === "notice");
+    const errTexts = errNotices.map((it) => it.text).filter((text) => /EOF|timed out/i.test(text));
+    expect(errTexts).toHaveLength(1);
+    expect(errTexts[0]).toBe("timed out");
   });
 });

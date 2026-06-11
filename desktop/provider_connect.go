@@ -11,6 +11,7 @@ import (
 
 	"arcdesk/internal/config"
 	"arcdesk/internal/netclient"
+	"arcdesk/internal/provider/apikey"
 	"arcdesk/internal/provider/openai"
 )
 
@@ -23,8 +24,8 @@ type ProviderConnectResult struct {
 }
 
 func normalizeConnectBaseURL(raw string) (string, error) {
-	base := strings.TrimRight(strings.TrimSpace(raw), "/")
-	if base == "" {
+	base := config.NormalizeProviderBaseURL(raw)
+	if strings.TrimSpace(raw) == "" {
 		return "", fmt.Errorf("base URL is required")
 	}
 	return base, nil
@@ -74,7 +75,7 @@ func (a *App) providerHTTPClient() (*http.Client, error) {
 // No native confirm dialog — the onboarding/settings form is the confirmation.
 func (a *App) ConnectProviderAPI(baseURL, apiKey string) (ProviderConnectResult, error) {
 	var out ProviderConnectResult
-	apiKey = strings.TrimSpace(apiKey)
+	apiKey = apikey.Normalize(apiKey)
 	if apiKey == "" {
 		return out, fmt.Errorf("api key is required")
 	}

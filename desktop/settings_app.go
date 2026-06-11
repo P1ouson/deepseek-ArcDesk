@@ -15,6 +15,7 @@ import (
 	"arcdesk/internal/config"
 	"arcdesk/internal/outputstyle"
 	"arcdesk/internal/provider"
+	"arcdesk/internal/provider/apikey"
 )
 
 // settings_app.go is the desktop Settings panel's command surface: it reads the
@@ -699,6 +700,7 @@ func (a *App) SetProviderKey(apiKeyEnv, value string) error {
 	if strings.TrimSpace(apiKeyEnv) == "" {
 		return fmt.Errorf("this provider has no api_key_env set")
 	}
+	value = apikey.Normalize(value)
 	if err := upsertDotEnv(apiKeyEnv, value); err != nil {
 		return err
 	}

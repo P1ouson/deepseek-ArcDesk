@@ -20,6 +20,8 @@ export interface TopbarProps {
   onOpenSideConversation?: () => void;
   pendingDecisionLabel?: string;
   onFocusPendingDecision?: () => void;
+  backgroundAttentionCount?: number;
+  onFocusBackgroundSession?: () => void;
   dockOpen?: boolean;
   activeDockTab?: RightDockTab | null;
   terminalOpen?: boolean;
@@ -43,6 +45,8 @@ export function Topbar({
   onOpenSideConversation,
   pendingDecisionLabel,
   onFocusPendingDecision,
+  backgroundAttentionCount = 0,
+  onFocusBackgroundSession,
 }: TopbarProps) {
   const t = useT();
 
@@ -100,6 +104,11 @@ export function Topbar({
       </div>
 
       <div className="studio-header__aside wails-no-drag">
+        {backgroundAttentionCount > 0 && onFocusBackgroundSession ? (
+          <button type="button" className="studio-header__decision-pill studio-header__decision-pill--muted" onClick={onFocusBackgroundSession}>
+            {t("openTabs.backgroundBadge", { count: backgroundAttentionCount })}
+          </button>
+        ) : null}
         {pendingDecisionLabel && onFocusPendingDecision ? (
           <button type="button" className="studio-header__decision-pill" onClick={onFocusPendingDecision}>
             {pendingDecisionLabel}

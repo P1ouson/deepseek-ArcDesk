@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useT } from "../lib/i18n";
 import { loadLayoutSize, saveLayoutSize, type LayoutSizeKey } from "../lib/layoutPreferences";
+import { attachPointerResize } from "../lib/panelResize";
 
 const DRAWER_DEFAULT_WIDTH = 440;
 const DRAWER_MIN_WIDTH = 360;
@@ -75,29 +76,21 @@ export function ResizableDrawer({
 
   const startResize = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (event.button !== 0) return;
-      event.preventDefault();
-      setResizing(true);
       let nextWidth = effectiveWidth;
-      const onMove = (moveEvent: PointerEvent) => {
-        nextWidth = clampDrawerWidth(window.innerWidth - moveEvent.clientX, wide, window.innerWidth);
-        setWidth(nextWidth);
-      };
-      const onDone = () => {
-        setWidth(nextWidth);
-        saveLayoutSize(config.key, nextWidth);
-        setResizing(false);
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onDone);
-        window.removeEventListener("pointercancel", onDone);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onDone);
-      window.addEventListener("pointercancel", onDone);
+      attachPointerResize({
+        event,
+        cursor: "col-resize",
+        onStart: () => setResizing(true),
+        onMove: (moveEvent) => {
+          nextWidth = clampDrawerWidth(window.innerWidth - moveEvent.clientX, wide, window.innerWidth);
+          setWidth(nextWidth);
+        },
+        onCommit: () => {
+          setWidth(nextWidth);
+          saveLayoutSize(config.key, nextWidth);
+          setResizing(false);
+        },
+      });
     },
     [config.key, effectiveWidth, wide],
   );

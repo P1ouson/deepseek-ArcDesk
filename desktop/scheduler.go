@@ -160,13 +160,13 @@ func (a *App) runScheduledTask(task ScheduledTask, source string) error {
 		title = "Scheduled task"
 	}
 	if root == "" || root == "." {
-		topic, topicErr := a.CreateTopic("global", "", title)
+		topic, topicErr := a.CreateTopic("global", "", title, "continue")
 		if topicErr != nil {
 			return topicErr
 		}
 		tabMeta, err = a.OpenGlobalTab(topic.ID)
 	} else {
-		topic, topicErr := a.CreateTopic("project", root, title)
+		topic, topicErr := a.CreateTopic("project", root, title, "continue")
 		if topicErr != nil {
 			return topicErr
 		}

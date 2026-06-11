@@ -15,7 +15,9 @@ import { BottomTerminalPanel } from "./components/TerminalPanel";
 import type { CodeReviewState } from "./components/CodeReviewSection";
 import type { ReviewMode, ReviewScope } from "./lib/codeReview";
 import { Sidebar } from "./components/Sidebar";
+import { OpenTabsBar } from "./components/OpenTabsBar";
 import { Topbar } from "./components/Topbar";
+import { countBackgroundAttention, listTabAttention, openTabsBarItems } from "./lib/tabSessionActivity";
 import { StudioToolRail } from "./components/StudioToolRail";
 import { RightDock } from "./components/RightDock";
 import type { RightDockTab } from "./components/Topbar";
@@ -172,9 +174,12 @@ export default function App() {
     openProjectTab,
     openGlobalTab,
     switchTab,
+    closeTab,
     syncActiveTab,
     rewind,
     bootPhase,
+    getAllTabStates,
+    rememberTabTitles,
   } = useController();
   const runtimeReady = useRuntimeReady();
   const { locale, setPref: setLocalePref } = useI18n();
@@ -182,6 +187,24 @@ export default function App() {
   const [modesByTab, setModesByTab] = useState<Record<string, Mode>>({});
   const [composerModePref, setComposerModePref] = useState<Mode>("normal");
   const { tabMetas, refreshTabMetas } = useTabMetas();
+  useEffect(() => {
+    rememberTabTitles(tabMetas);
+  }, [rememberTabTitles, tabMetas]);
+
+  const tabAttention = useMemo(
+    () =>
+      listTabAttention(tabMetas, getAllTabStates(), {
+        plan: t("decision.pendingPlan"),
+        approval: (tool) => t("decision.pendingApproval", { tool }),
+        ask: t("decision.pendingAsk"),
+      }),
+    [getAllTabStates, state, tabMetas, t],
+  );
+  const openTabs = useMemo(() => openTabsBarItems(tabAttention), [tabAttention]);
+  const backgroundAttentionCount = useMemo(
+    () => countBackgroundAttention(tabAttention, activeTabId),
+    [activeTabId, tabAttention],
+  );
   const { projectDrawerOpen, setProjectDrawerOpen, closeProjectDrawer, toggleProjectDrawer } = useProjectDrawer();
   // null until the mount probe resolves; true shows the overlay. Probed once —
   // clearing the key mid-session is the Settings panel's job, not the gate's.
@@ -241,7 +264,7 @@ export default function App() {
     layoutRef,
     layoutStyle,
     workspacePanelOpen,
-    dockAnimWidth,
+    dockPanelWidth,
     dockMotionKey,
     dockClosing,
     dockResizing,
@@ -275,7 +298,9 @@ export default function App() {
     startDockResize,
     startFilePreviewResize,
     resizeFilePreviewWithKeyboard,
+    resizeDockWithKeyboard,
     resetFilePreviewWidthFromDock,
+    resetDockWidthFromDefault,
     clearFilePreviewComposerOpen,
     addWorkspaceTextToComposer,
   } = useWorkbenchDock({
@@ -867,7 +892,7 @@ export default function App() {
     }
   }, [appMode]);
 
-  const handleOpenTopic = useCallback(async (scope: string, workspaceRoot: string, topicId: string) => {
+  const handleOpenTopic = useCallback(async (scope: string, workspaceRoot: string, topicId: string, freshSession = false) => {
     const trimmedTopicId = topicId.trim();
     if (!trimmedTopicId) return;
     setAppMode("code");
@@ -880,8 +905,8 @@ export default function App() {
     }
     const meta =
       scope === "global"
-        ? await openGlobalTab(trimmedTopicId)
-        : await openProjectTab(workspaceRoot, trimmedTopicId);
+        ? await openGlobalTab(trimmedTopicId, false, freshSession)
+        : await openProjectTab(workspaceRoot, trimmedTopicId, false, freshSession);
     if (!meta?.id) return;
     await refreshTabMetas();
   }, [openGlobalTab, openProjectTab, refreshTabMetas]);
@@ -1094,7 +1119,7 @@ export default function App() {
     }
   }, [activeTabId, refreshTabMetas, syncActiveTab]);
 
-  const startNewSession = useCallback(async () => {
+  const startNewTopic = useCallback(async (freshSession = false) => {
     setAppMode("code");
     let scope: "global" | "project" = activeTab?.scope === "global" ? "global" : "project";
     let workspaceRoot = scope === "global" ? "" : (activeTab?.workspaceRoot?.trim() || getStoredCodeWorkspaceRoot() || "");
@@ -1109,29 +1134,46 @@ export default function App() {
       notice(t("sidebar.newSessionNotReady"), "warn");
       return;
     }
-    if (state.running) cancel();
+    const continuity = freshSession ? "fresh" : "continue";
     try {
-      const topic = await app.CreateTopic(scope, workspaceRoot, "");
+      await app.CreateTopic(scope, workspaceRoot, "", continuity);
       setProjectDrawerOpen(true);
       await refreshProjectsAndTabs();
-      await handleOpenTopic(scope, workspaceRoot, topic.id);
     } catch {
       notice(t("sidebar.newSessionNotReady"), "warn");
     }
   }, [
     activeTab?.scope,
     activeTab?.workspaceRoot,
-    cancel,
     handleOpenTopic,
     notice,
     refreshProjectsAndTabs,
     refreshTabMetas,
     setProjectDrawerOpen,
     state.meta?.ready,
-    state.running,
     switchFolder,
     t,
   ]);
+
+  const startNewSession = useCallback(() => startNewTopic(false), [startNewTopic]);
+  const startFreshSession = useCallback(() => startNewTopic(true), [startNewTopic]);
+
+  const handleCloseOpenTab = useCallback(
+    async (tabId: string) => {
+      const row = tabAttention.find((tab) => tab.tabId === tabId);
+      if (row?.running && !window.confirm(t("openTabs.closeRunningConfirm"))) return;
+      await closeTab(tabId);
+      await refreshTabMetas();
+    },
+    [closeTab, refreshTabMetas, t, tabAttention],
+  );
+
+  const focusBackgroundSession = useCallback(() => {
+    const next = tabAttention.find(
+      (tab) => tab.tabId !== activeTabId && (tab.needsDecision || tab.running),
+    );
+    if (next) void switchTab(next.tabId);
+  }, [activeTabId, switchTab, tabAttention]);
 
   const renameTopic = useCallback(async (topicId: string, title: string) => {
     const nextTitle = title.trim();
@@ -1365,6 +1407,9 @@ export default function App() {
           onNewChat={() => {
             void startNewSession();
           }}
+          onNewFreshChat={() => {
+            void startFreshSession();
+          }}
           onModeChange={setAppMode}
           onOpenSdd={() => {
             setAppMode("code");
@@ -1386,24 +1431,34 @@ export default function App() {
           style={{ "--studio-footer-band-h": `${footerHeight}px` } as CSSProperties}
         >
           {chatMode ? (
-            <Topbar
-              title={topicTitle(activeTab)}
-              workspacePath={showTopbarWorkspace ? topbarWorkspacePath : undefined}
-              editing={topicbarEditing}
-              titleDraft={topicTitleDraft}
-              onTitleDraftChange={setTopicTitleDraft}
-              onStartRename={startActiveTopicRename}
-              onCommitRename={() => void commitActiveTopicRename()}
-              onCancelRename={cancelActiveTopicRename}
-              running={agentActive}
-              goalLabel={goalLabel || undefined}
-              sideConversationCount={sideConversationCount}
-              onOpenSideConversation={() => {
-                document.querySelector(".side-conversation")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-              }}
-              pendingDecisionLabel={pendingDecisionLabel}
-              onFocusPendingDecision={decisionPending ? focusPendingDecision : undefined}
-            />
+            <>
+              <Topbar
+                title={topicTitle(activeTab)}
+                workspacePath={showTopbarWorkspace ? topbarWorkspacePath : undefined}
+                editing={topicbarEditing}
+                titleDraft={topicTitleDraft}
+                onTitleDraftChange={setTopicTitleDraft}
+                onStartRename={startActiveTopicRename}
+                onCommitRename={() => void commitActiveTopicRename()}
+                onCancelRename={cancelActiveTopicRename}
+                running={agentActive}
+                goalLabel={goalLabel || undefined}
+                sideConversationCount={sideConversationCount}
+                onOpenSideConversation={() => {
+                  document.querySelector(".side-conversation")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                }}
+                pendingDecisionLabel={pendingDecisionLabel}
+                onFocusPendingDecision={decisionPending ? focusPendingDecision : undefined}
+                backgroundAttentionCount={backgroundAttentionCount}
+                onFocusBackgroundSession={backgroundAttentionCount > 0 ? focusBackgroundSession : undefined}
+              />
+              <OpenTabsBar
+                tabs={openTabs}
+                activeTabId={activeTabId}
+                onSelectTab={(tabId) => void switchTab(tabId)}
+                onCloseTab={(tabId) => void handleCloseOpenTab(tabId)}
+              />
+            </>
           ) : null}
 
           {state.meta?.startupErr && (
@@ -1422,7 +1477,7 @@ export default function App() {
             ]
               .filter(Boolean)
               .join(" ")}
-            style={{ "--studio-dock-w": `${dockAnimWidth}px` } as CSSProperties}
+            style={{ "--studio-dock-w": `${dockPanelWidth}px` } as CSSProperties}
           >
             <div className="workbench__stack">
               <div className="workbench__center">
@@ -1628,7 +1683,6 @@ export default function App() {
                         balance={state.balance}
                         sessionCost={state.sessionCost}
                         sessionCurrency={state.sessionCurrency}
-                        agentItems={state.items}
                       />
                     </div>
                     {terminalPanelShown && !filePreviewComposerOpen && terminalTabs.length > 0 && resolvedActiveTerminalId && (
@@ -1684,13 +1738,15 @@ export default function App() {
                     aria-orientation="vertical"
                     aria-label={t("rightDock.resize")}
                     onPointerDown={startDockResize}
+                    onKeyDown={resizeDockWithKeyboard}
+                    onDoubleClick={resetDockWidthFromDefault}
                   />
                 ) : null}
                 <div
                   className={`workbench__dock-slot${dockBackgroundSessions && !workspacePanelOpen ? " workbench__dock-slot--background" : ""}`}
                   style={
                     {
-                      width: workspacePanelOpen ? dockAnimWidth : 0,
+                      width: workspacePanelOpen ? dockPanelWidth : 0,
                       minWidth: workspacePanelOpen ? undefined : 0,
                       flex: workspacePanelOpen ? undefined : "0 0 0px",
                     } as CSSProperties

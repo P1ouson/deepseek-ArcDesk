@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { Minus, Plus, SquareTerminal, X } from "lucide-react";
 import { useT } from "../lib/i18n";
+import { attachPointerResize } from "../lib/panelResize";
 import { shortCwd } from "../lib/workspaceFilePreview";
 import { TerminalView } from "./TerminalView";
 
@@ -54,29 +55,22 @@ export function BottomTerminalPanel({
 
   const startResize = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
-      event.preventDefault();
-      setResizing(true);
       const startY = event.clientY;
       const startHeight = height;
       let nextHeight = startHeight;
-      const onMove = (moveEvent: PointerEvent) => {
-        nextHeight = clampTerminalPanelHeight(startHeight - (moveEvent.clientY - startY));
-        onResizeHeight(nextHeight);
-      };
-      const onDone = () => {
-        onResizeHeight(nextHeight);
-        setResizing(false);
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onDone);
-        window.removeEventListener("pointercancel", onDone);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-      document.body.style.cursor = "row-resize";
-      document.body.style.userSelect = "none";
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onDone);
-      window.addEventListener("pointercancel", onDone);
+      attachPointerResize({
+        event,
+        cursor: "row-resize",
+        onStart: () => setResizing(true),
+        onMove: (moveEvent) => {
+          nextHeight = clampTerminalPanelHeight(startHeight - (moveEvent.clientY - startY));
+          onResizeHeight(nextHeight);
+        },
+        onCommit: () => {
+          onResizeHeight(nextHeight);
+          setResizing(false);
+        },
+      });
     },
     [height, onResizeHeight],
   );

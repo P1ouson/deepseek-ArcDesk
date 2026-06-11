@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"arcdesk/internal/provider/apikey"
 )
 
 // Large gateways (e.g. OpenRouter) return multi-hundred-KiB /models payloads.
@@ -31,7 +33,7 @@ func FetchModelsHTTP(ctx context.Context, client *http.Client, baseURL, apiKey s
 	if err != nil {
 		return nil, fmt.Errorf("fetch models: build request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Authorization", "Bearer "+apikey.Normalize(apiKey))
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := client.Do(req)

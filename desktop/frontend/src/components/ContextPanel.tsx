@@ -3,6 +3,7 @@ import { ArrowLeft, GitBranch } from "lucide-react";
 import { asArray } from "../lib/array";
 import { app } from "../lib/bridge";
 import { formatMoney } from "../lib/formatMoney";
+import { sessionCacheRate, stepCacheRate } from "../lib/cacheRate";
 import { useT, type Translator } from "../lib/i18n";
 import type { DictKey } from "../locales/en";
 import { useWorkspaceChanges } from "../lib/useWorkspaceChanges";
@@ -76,6 +77,110 @@ function contextHealth(usagePct: number, cachePct: number, readCount: number): H
     bodyKey: "context.healthGoodBody",
     vars: {},
   };
+}
+
+function fmtPct(pct: string | null): string {
+  return pct != null ? `${pct}%` : "—";
+}
+
+function TokenUsageCard({ usage, info }: { usage?: WireUsage; info: ContextPanelInfo | null }) {
+  const t = useT();
+  const prompt = usage?.promptTokens ?? info?.promptTokens ?? 0;
+  const completion = usage?.completionTokens ?? info?.completionTokens ?? 0;
+  const reasoning = usage?.reasoningTokens ?? info?.reasoningTokens ?? 0;
+  const total = usage?.totalTokens ?? prompt + completion + reasoning;
+  const stepHit = usage?.cacheHitTokens ?? info?.cacheHitTokens ?? 0;
+  const stepMiss = usage?.cacheMissTokens ?? info?.cacheMissTokens ?? 0;
+  const sessHit = usage?.sessionCacheHitTokens ?? 0;
+  const sessMiss = usage?.sessionCacheMissTokens ?? 0;
+  const stepDenom = stepHit + stepMiss;
+  const sessDenom = sessHit + sessMiss;
+  const hasUsage = total > 0 || prompt > 0 || completion > 0;
+  const hasCache = stepDenom > 0 || sessDenom > 0;
+  const stepPct = stepCacheRate(usage) ?? (stepDenom > 0 ? ((stepHit / stepDenom) * 100).toFixed(1) : null);
+  const sessionPct = sessionCacheRate(usage) ?? (sessDenom > 0 ? ((sessHit / sessDenom) * 100).toFixed(1) : null);
+  const stepBarHit = stepDenom > 0 ? Math.round((stepHit / stepDenom) * 100) : 0;
+
+  const rows: Array<{ label: string; value: string }> = [
+    { label: t("context.prompt"), value: hasUsage ? fmtTokens(prompt) : "—" },
+    { label: t("context.completion"), value: hasUsage ? fmtTokens(completion) : "—" },
+  ];
+  if (reasoning > 0) {
+    rows.push({ label: t("context.reasoning"), value: fmtTokens(reasoning) });
+  }
+  rows.push({ label: t("context.total"), value: hasUsage ? fmtTokens(total) : "—" });
+
+  return (
+    <section className="dock-panel__card context-panel__tokens">
+      <header className="context-panel__tokens-head">
+        <h3 className="context-panel__tokens-title">{t("context.tokenUsage")}</h3>
+        <span className="context-panel__tokens-sub">{t("context.latestRequest")}</span>
+      </header>
+
+      <div className="context-panel__token-grid">
+        {rows.map((row) => (
+          <div key={row.label} className="context-panel__token-row">
+            <span>{row.label}</span>
+            <strong>{row.value}</strong>
+          </div>
+        ))}
+      </div>
+
+      <div className="context-panel__tokens-divider" />
+
+      <header className="context-panel__tokens-head context-panel__tokens-head--cache">
+        <h3 className="context-panel__tokens-title">{t("context.cacheTokens")}</h3>
+      </header>
+
+      {!hasCache ? (
+        <p className="context-panel__tokens-empty">{t("context.noUsageYet")}</p>
+      ) : (
+        <>
+          {stepDenom > 0 && (
+            <div
+              className="context-panel__cache-bar"
+              role="img"
+              aria-label={`${t("context.cacheStepRate")} ${stepPct ?? "0"}%`}
+            >
+              <div className="context-panel__cache-bar-hit" style={{ width: `${stepBarHit}%` }} />
+              <div className="context-panel__cache-bar-miss" style={{ width: `${100 - stepBarHit}%` }} />
+            </div>
+          )}
+
+          <div className="context-panel__token-grid">
+            <div className="context-panel__token-row">
+              <span className="context-panel__token-label context-panel__token-label--hit">{t("context.cacheHitTokens")}</span>
+              <strong>{fmtTokens(stepDenom > 0 ? stepHit : sessHit)}</strong>
+            </div>
+            <div className="context-panel__token-row">
+              <span className="context-panel__token-label context-panel__token-label--miss">{t("context.cacheMissTokens")}</span>
+              <strong>{fmtTokens(stepDenom > 0 ? stepMiss : sessMiss)}</strong>
+            </div>
+            {stepDenom > 0 && (
+              <div className="context-panel__token-row">
+                <span>{t("context.cacheStepRate")}</span>
+                <strong>{fmtPct(stepPct)}</strong>
+              </div>
+            )}
+            {sessDenom > 0 && (
+              <>
+                <div className="context-panel__token-row">
+                  <span>{t("context.cacheSessionRate")}</span>
+                  <strong>{fmtPct(sessionPct)}</strong>
+                </div>
+                <div className="context-panel__token-row context-panel__token-row--muted">
+                  <span>{t("context.cacheSessionTokens")}</span>
+                  <strong>
+                    {fmtTokens(sessHit)} / {fmtTokens(sessDenom)}
+                  </strong>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
 }
 
 function modeLabel(mode: Mode | undefined, t: Translator): string {
@@ -213,7 +318,8 @@ export function ContextPanel({
   const detailNote = detailView === "changed"
     ? t("context.changedNote", { count: detailCount })
     : t("context.readNote", { count: detailCount });
-  const balanceText = balance?.available && balance.display ? balance.display : "-";
+  const billingAvailable = balance?.available === true;
+  const balanceText = billingAvailable && balance.display ? balance.display : "--";
   const effortLevel = effort?.supported ? effort.current || "auto" : null;
   const gitStats = summarizeGitChanges(asArray(changes?.files));
   const gitPreviewRows = asArray(changes?.files)
@@ -309,20 +415,16 @@ export function ContextPanel({
                 )}
                 <div className="context-panel__kv-row">
                   <span>{t("context.sessionCost")}</span>
-                  <strong>{formatMoney(cost, currency)}</strong>
+                  <strong>{billingAvailable ? formatMoney(cost, currency) : "--"}</strong>
                 </div>
                 <div className="context-panel__kv-row">
                   <span>{t("status.balanceTitle")}</span>
                   <strong>{balanceText}</strong>
                 </div>
-                {cachePct > 0 && (
-                  <div className="context-panel__kv-row">
-                    <span>{t("context.cacheHit")}</span>
-                    <strong>{cachePct}%</strong>
-                  </div>
-                )}
               </div>
             </div>
+
+            <TokenUsageCard usage={usage} info={info} />
 
             <GitOverviewCard
               loading={gitLoading}

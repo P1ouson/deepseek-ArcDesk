@@ -53,7 +53,7 @@
 
   /* Typography — prose: Segoe UI; code: Cascadia Mono (no Arial / loose fallbacks) */
   --sans: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
-  --mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
+  --mono: "Cascadia Code", "Cascadia Mono", Consolas, "Lucida Console", monospace;
   --display: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
 
   /* Sizing */
@@ -359,6 +359,16 @@ a[href] { cursor: pointer; }
   cursor: col-resize !important;
 }
 
+.workbench--resizing .workbench__dock-slot,
+.workbench--resizing .workbench__dock-slot > .right-dock,
+.workbench--resizing .file-preview-panel,
+.workbench--resizing .file-preview-panel__body,
+.workbench--resizing .workbench__resizer--dock,
+.workbench--resizing .workbench__resizer--preview {
+  transition: none !important;
+  animation: none !important;
+}
+
 .workbench__main {
   grid-column: 3;
   grid-row: 1;
@@ -404,8 +414,8 @@ a[href] { cursor: pointer; }
 }
 
 .workbench__body .file-preview-panel {
-  flex: 0 0 var(--file-preview-render-width, 300px);
-  width: var(--file-preview-render-width, 300px);
+  flex: 0 0 var(--file-preview-render-width, 620px);
+  width: var(--file-preview-render-width, 620px);
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -2506,6 +2516,9 @@ button:disabled:active,
   overflow: visible;
   white-space: pre;
   color: var(--fg);
+  font-family: var(--mono);
+  line-height: 1.55;
+  font-variant-ligatures: none;
 }
 .tool,
 .tool-card {
@@ -4663,7 +4676,7 @@ button:disabled:active,
   min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   border: 0;
   background: transparent;
   color: var(--fg-dim);
@@ -4672,6 +4685,22 @@ button:disabled:active,
   padding-top: 4px;
   padding-bottom: 4px;
 }
+.project-tree__folder-main > svg,
+.project-tree__folder-main > .project-tree__chevron {
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+}
+.project-tree__folder-color {
+  flex: 0 0 3px;
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--project-accent);
+}
+.project-tree__folder:not([style*="--project-accent"]) .project-tree__folder-color {
+  display: none;
+}
 .project-tree__topic-main { flex: 1 1 auto; min-width: 0; }
 .project-tree__folder-label,
 .project-tree__topic-label {
@@ -4679,6 +4708,24 @@ button:disabled:active,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.project-tree__topic-copy--open::before,
+.project-tree__topic-copy--running::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.project-tree__topic-copy--open::before {
+  background: color-mix(in srgb, var(--fg-faint) 55%, transparent);
+}
+
+.project-tree__topic-copy--running::before {
+  background: var(--accent);
+  animation: studio-status-breathe 1.2s ease-in-out infinite;
 }
 .project-tree__folder-hint,
 .project-tree__topic-time {
@@ -5637,6 +5684,124 @@ button:disabled:active,
   text-align: right;
 }
 
+.context-panel__tokens {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-bottom: 4px;
+}
+
+.context-panel__tokens-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.context-panel__tokens-head--cache {
+  margin-top: 2px;
+}
+
+.context-panel__tokens-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--fg-dim);
+}
+
+.context-panel__tokens-sub {
+  font-size: 10px;
+  color: var(--fg-faint);
+}
+
+.context-panel__tokens-divider {
+  height: 1px;
+  margin: 10px 0;
+  background: var(--border-soft);
+}
+
+.context-panel__token-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.context-panel__token-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.context-panel__token-row span {
+  color: var(--fg-muted);
+}
+
+.context-panel__token-row strong {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  font-family: var(--mono);
+}
+
+.context-panel__token-row--muted span,
+.context-panel__token-row--muted strong {
+  color: var(--fg-faint);
+  font-weight: 600;
+}
+
+.context-panel__token-label--hit::before,
+.context-panel__token-label--miss::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  vertical-align: 0.5px;
+}
+
+.context-panel__token-label--hit::before {
+  background: #22c55e;
+  box-shadow: 0 0 4px color-mix(in srgb, #22c55e 45%, transparent);
+}
+
+.context-panel__token-label--miss::before {
+  background: #eab308;
+  box-shadow: 0 0 4px color-mix(in srgb, #eab308 45%, transparent);
+}
+
+.context-panel__cache-bar {
+  display: flex;
+  height: 6px;
+  margin-bottom: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--border-soft) 70%, transparent);
+}
+
+.context-panel__cache-bar-hit {
+  background: linear-gradient(90deg, #16a34a, #22c55e);
+  transition: width 0.3s ease;
+}
+
+.context-panel__cache-bar-miss {
+  background: color-mix(in srgb, #eab308 35%, var(--bg-soft));
+  transition: width 0.3s ease;
+}
+
+.context-panel__tokens-empty {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--fg-faint);
+}
+
 .context-panel__health {
   display: flex;
   align-items: flex-start;
@@ -6484,6 +6649,11 @@ button:disabled:active,
   min-height: 0;
   overflow: auto;
   padding: 10px 12px 12px;
+  font-family: var(--mono);
+}
+
+.file-preview-panel__body .md {
+  font-family: var(--sans);
 }
 
 .file-preview-panel__body .code-block--flat {
@@ -6493,6 +6663,15 @@ button:disabled:active,
 .file-preview-panel__body .code-block--flat > .code,
 .file-preview-panel__body .code-block--flat > .code--with-lines {
   min-height: 100%;
+}
+
+/* File preview code: force mono — WebView2 hljs tokens otherwise inherit Segoe UI. */
+.file-preview-panel__body .code-block,
+.file-preview-panel__body .code-block *,
+.file-preview-panel__body :is(.code, .code--with-lines, .code__content, .code__gutter, pre, pre code, .hljs, .diff) {
+  font-family: var(--mono) !important;
+  font-variant-ligatures: none;
+  font-feature-settings: "calt" 0;
 }
 
 .file-preview-panel__empty {

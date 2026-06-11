@@ -59,8 +59,19 @@ Get-ChildItem -LiteralPath $bin -File -ErrorAction SilentlyContinue | ForEach-Ob
 }
 
 $installer = Join-Path $DesktopRoot "build\bin\arcdesk-desktop-amd64-installer.exe"
+$appExe = Join-Path $DesktopRoot "build\bin\arcdesk-desktop.exe"
+if (-not (Test-Path $appExe)) {
+    throw "Desktop app not produced: $appExe"
+}
+
+Write-Host ""
+Write-Host "Desktop app built:" -ForegroundColor Green
+Write-Host "  $appExe" -ForegroundColor Green
+
 if (-not (Test-Path $installer)) {
-    throw "Installer not produced: $installer"
+    Write-Host ""
+    Write-Host "NSIS installer was not produced (you can still run arcdesk-desktop.exe directly)." -ForegroundColor Yellow
+    exit 0
 }
 
 $item = Get-Item $installer

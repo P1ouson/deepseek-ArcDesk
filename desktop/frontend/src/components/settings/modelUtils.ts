@@ -1,9 +1,25 @@
 import { asArray } from "../../lib/array";
+import type { Translator } from "../../lib/i18n";
 import { modelLabelFromRef, modelShortLabel } from "../../lib/modelLabel";
 import type { ProviderView, SettingsView } from "../../lib/types";
 
 export { modelLabelFromRef, modelShortLabel };
 export const DEEPSEEK_OFFICIAL_BASE = "https://api.deepseek.com";
+
+const OPENAI_BASE_SUFFIXES = ["/chat/completions", "/completions", "/embeddings", "/models"];
+
+/** Strip endpoint paths users paste by mistake; keep up to /v1. */
+export function normalizeProviderBaseUrl(raw: string): string {
+  let base = raw.trim().replace(/\/+$/, "");
+  if (!base) return DEEPSEEK_OFFICIAL_BASE;
+  for (;;) {
+    const lower = base.toLowerCase();
+    const hit = OPENAI_BASE_SUFFIXES.find((suffix) => lower.endsWith(suffix));
+    if (!hit) break;
+    base = base.slice(0, -hit.length).replace(/\/+$/, "");
+  }
+  return base;
+}
 
 export function isRelayBaseUrl(baseUrl: string | undefined | null): boolean {
   const base = (baseUrl ?? "").trim().replace(/\/$/, "");
@@ -47,6 +63,23 @@ export function primaryApiProvider(providers: ProviderView[]): ProviderView | un
 
 export function modelRef(providerName: string, modelId: string): string {
   return `${providerName}/${modelId}`;
+}
+
+export function formatModelFetchError(raw: string, relayMode: boolean, t: Translator): string {
+  const msg = raw.replace(/^fetch models:\s*/i, "").replace(/^validate:\s*/i, "").trim();
+  if (
+    relayMode &&
+    /status\s*401|status\s*403|无效的令牌|未提供令牌|unauthorized|invalid.*token/i.test(msg)
+  ) {
+    return t("settings.models.relayAuthError");
+  }
+  if (
+    relayMode &&
+    (/status\s*404|invalid url/i.test(msg) && /chat\/completions\/models|\/completions\/models/i.test(msg))
+  ) {
+    return t("settings.models.relayBaseUrlError");
+  }
+  return msg || raw;
 }
 
 export function looksLikeStalePresetModels(models: string[]): boolean {
