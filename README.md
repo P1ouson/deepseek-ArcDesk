@@ -79,6 +79,8 @@
 
 与 Cursor 同类的是 **Agent 循环**（对话 → 工具 → Diff → 审批），不是完整 IDE 替代品。可与 VS Code、JetBrains 等并行使用。
 
+**v0.1.6 要点：** 可维护性重构（主题同步、浮层生命周期、Dock 共享 hooks、`TurnProgressLine` 进度条）、Context 面板 DeepSeek 缓存费用节省估算、清理仓库内 benchmark 跑分产物、修复 Windows 完整构建链。Windows Release **仅分发 NSIS 安装包**（不单独提供裸 exe）。
+
 <br/>
 
 ## 更多界面 {#更多界面}

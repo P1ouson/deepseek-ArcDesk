@@ -72,7 +72,9 @@
 
 Same agent loop family as Cursor (chat → tools → diff → approval), **not** a full IDE replacement. Pairs with VS Code, JetBrains, or your terminal.
 
-**v0.1.5 highlights:** multi-tab workspaces with status dots (green idle / yellow running), right-panel token & cache metrics, scroll-to-bottom on session open, immediate background-task completion notices.
+**v0.1.6 highlights:** deep maintainability refactor (theme sync, overlay lifecycle, shared dock hooks, `TurnProgressLine`), Context panel DeepSeek cache savings estimate, repo cleanup of local benchmark artifacts, Windows build chain fixes. Release ships **installer only** on Windows (no separate bare exe).
+
+**v0.1.5:** multi-tab workspaces, token & cache metrics, scroll-to-bottom on session open, immediate background-task notices.
 
 <br/>
 
