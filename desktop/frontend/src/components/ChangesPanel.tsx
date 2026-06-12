@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from "react";
-import { MessageSquarePlus, RefreshCw, Search } from "lucide-react";
+import { MessageSquarePlus, Search } from "lucide-react";
 import { useT } from "../lib/i18n";
-import { useDismissOnClickOutside } from "../lib/useDismissOnClickOutside";
+import { useDismissOverlay } from "../lib/useDismissOverlay";
 import { useWorkspaceChanges } from "../lib/useWorkspaceChanges";
 import type { WorkspaceChangeView } from "../lib/types";
-import { addWorkspaceFileContentToChat } from "../lib/workspaceAddToChat";
 import { basename, shortCwd } from "../lib/workspaceFilePreview";
-import { formatWorkspaceReference, WORKSPACE_REF_DRAG_TYPE } from "../lib/workspaceDrag";
+import {
+  addWorkspaceFileToChat,
+  addWorkspaceReferenceToChat,
+  openWorkspaceRowMenu,
+  startWorkspaceDrag,
+} from "../lib/workspaceDockActions";
+import { DockEmptyState } from "./dock/DockEmptyState";
+import { DockPanelHeader } from "./dock/DockPanelHeader";
 import { FloatingMenu, FloatingMenuItems } from "./FloatingMenu";
-import { Tooltip } from "./Tooltip";
 import { CodeReviewSection, type CodeReviewState } from "./CodeReviewSection";
 import type { ReviewMode, ReviewScope } from "../lib/codeReview";
 import {
@@ -99,7 +104,7 @@ export function ChangesPanel({
     setSourceFilter(getCodeReviewDefaultScope());
   }, [cwd]);
 
-  useDismissOnClickOutside(Boolean(rowMenu), () => setRowMenu(null));
+  useDismissOverlay(Boolean(rowMenu), () => setRowMenu(null), { mode: "click" });
 
   const allRows = useMemo(() => sortChanges(changes?.files ?? []), [changes?.files]);
 
@@ -124,44 +129,31 @@ export function ChangesPanel({
   };
 
   const startRowDrag = (event: ReactDragEvent<HTMLElement>, path: string) => {
-    const ref = formatWorkspaceReference(path, false);
-    event.dataTransfer.effectAllowed = "copy";
-    event.dataTransfer.setData(WORKSPACE_REF_DRAG_TYPE, JSON.stringify({ path, isDir: false }));
-    event.dataTransfer.setData("text/plain", ref);
+    startWorkspaceDrag(event, path);
   };
 
   const openRowMenu = (event: ReactMouseEvent<HTMLElement>, path: string) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setRowMenu({ x: event.clientX, y: event.clientY, path });
+    openWorkspaceRowMenu<{ x: number; y: number; path: string }>(event, { path }, (menu) => setRowMenu(menu));
   };
 
   const addReferenceToChat = (path: string) => {
-    onAddToChat?.(formatWorkspaceReference(path, false));
-    setRowMenu(null);
+    void addWorkspaceReferenceToChat(path, onAddToChat, () => setRowMenu(null));
   };
 
   const addFileContentToChat = async (path: string) => {
-    setRowMenu(null);
-    if (!onAddToChat) return;
-    await addWorkspaceFileContentToChat(path, onAddToChat, t("workspace.truncated"));
+    await addWorkspaceFileToChat(path, onAddToChat, () => setRowMenu(null), t("workspace.truncated"));
   };
 
   return (
     <div className="dock-panel changes-panel">
-      <header className="dock-panel__head">
-        <div className="dock-panel__head-main">
-          <h2 className="dock-panel__title">{t("workspace.changedTab")}</h2>
-          <Tooltip label={cwd ?? undefined}>
-            <p className="dock-panel__meta">{shortCwd(cwd) || t("workspace.title")}</p>
-          </Tooltip>
-        </div>
-        <Tooltip label={t("workspace.refreshChanges")}>
-          <button type="button" className="dock-panel__ghost" onClick={() => void loadChanges()} aria-label={t("workspace.refreshChanges")}>
-            <RefreshCw size={14} strokeWidth={1.75} className={loadingChanges ? "dock-panel__spin" : undefined} />
-          </button>
-        </Tooltip>
-      </header>
+      <DockPanelHeader
+        title={t("workspace.changedTab")}
+        cwd={cwd}
+        cwdLabel={shortCwd(cwd) || t("workspace.title")}
+        refreshLabel={t("workspace.refreshChanges")}
+        refreshing={loadingChanges}
+        onRefresh={() => void loadChanges()}
+      />
 
       {changes && !changes.gitAvailable && changes.gitErr && (
         <p className="dock-panel__banner dock-panel__banner--warn">{t("workspace.gitUnavailable")}</p>
@@ -208,10 +200,11 @@ export function ChangesPanel({
         {loadingChanges && !changes ? (
           <li className="dock-panel__empty">{t("workspace.loadingChanges")}</li>
         ) : filteredRows.length === 0 ? (
-          <li className={`dock-panel__empty${scopeRows.length > 0 ? " dock-panel__search-empty" : ""}`}>
-            <span>{scopeRows.length > 0 ? t("workspace.noSearchResults") : t("workspace.noChanges")}</span>
-            <small>{scopeRows.length > 0 ? t("workspace.noSearchResultsHint") : t("changes.emptyHint")}</small>
-          </li>
+          <DockEmptyState
+            title={scopeRows.length > 0 ? t("workspace.noSearchResults") : t("workspace.noChanges")}
+            hint={scopeRows.length > 0 ? t("workspace.noSearchResultsHint") : t("changes.emptyHint")}
+            searchMode={scopeRows.length > 0}
+          />
         ) : (
           filteredRows.map((row) => {
             const deleted = isDeletedGitChange(row);

@@ -8,7 +8,6 @@ import {
   Loader2,
   MessageSquarePlus,
   Plus,
-  RefreshCw,
   RotateCcw,
   Sparkles,
   Undo2,
@@ -20,16 +19,21 @@ import { openGitHubCliSettings } from "../lib/gitHubCliSettingsNav";
 import { GitHubCliSetupModal, type GitHubCliSetupReason } from "./GitHubCliSetupModal";
 import { useT } from "../lib/i18n";
 import { shellQuote } from "../lib/shellQuote";
-import { useDismissOnClickOutside } from "../lib/useDismissOnClickOutside";
+import { useDismissOverlay } from "../lib/useDismissOverlay";
 import { useWorkspaceChanges } from "../lib/useWorkspaceChanges";
 import type { WorkspaceChangeView } from "../lib/types";
 import { buildCommitMessagePrompt, buildPRPrompt, ghPRMergeCommand } from "../lib/gitPrompts";
 import { probeGitHubCli, probeReasonKey, type GitHubCliProbe } from "../lib/gitHubCli";
-import { addWorkspaceFileContentToChat } from "../lib/workspaceAddToChat";
 import { basename, shortCwd } from "../lib/workspaceFilePreview";
 import { DESKTOP_GIT_SETTINGS_EVENT } from "../lib/events";
-import { formatWorkspaceReference } from "../lib/workspaceDrag";
 import { hasGitChange, isDeletedGitChange } from "../lib/workspaceChangeHelpers";
+import {
+  addWorkspaceFileToChat,
+  addWorkspaceReferenceToChat,
+  openWorkspaceRowMenu,
+} from "../lib/workspaceDockActions";
+import { DockEmptyState } from "./dock/DockEmptyState";
+import { DockPanelHeader } from "./dock/DockPanelHeader";
 import { FloatingMenu, FloatingMenuItems } from "./FloatingMenu";
 import { Tooltip } from "./Tooltip";
 
@@ -119,7 +123,7 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
     return () => window.removeEventListener(DESKTOP_GIT_SETTINGS_EVENT, onGitPrefs);
   }, [refreshGhProbe]);
 
-  useDismissOnClickOutside(Boolean(rowMenu), () => setRowMenu(null));
+  useDismissOverlay(Boolean(rowMenu), () => setRowMenu(null), { mode: "click" });
 
   const gitRows = useMemo(() => sortGitRows((changes?.files ?? []).filter(hasGitChange)), [changes?.files]);
 
@@ -212,20 +216,15 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
   const ghBannerKey = useMemo(() => probeReasonKey(ghProbe?.reason ?? null), [ghProbe?.reason]);
 
   const openRowMenu = (event: ReactMouseEvent<HTMLElement>, row: WorkspaceChangeView) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setRowMenu({ x: event.clientX, y: event.clientY, row });
+    openWorkspaceRowMenu<{ x: number; y: number; row: WorkspaceChangeView }>(event, { row }, (menu) => setRowMenu(menu));
   };
 
   const addReferenceToChat = (path: string) => {
-    onAddToChat?.(formatWorkspaceReference(path, false));
-    setRowMenu(null);
+    void addWorkspaceReferenceToChat(path, onAddToChat, () => setRowMenu(null));
   };
 
   const addFileContentToChat = async (path: string) => {
-    setRowMenu(null);
-    if (!onAddToChat) return;
-    await addWorkspaceFileContentToChat(path, onAddToChat, t("workspace.truncated"));
+    await addWorkspaceFileToChat(path, onAddToChat, () => setRowMenu(null), t("workspace.truncated"));
   };
 
   const statusSummary = lastStatus
@@ -236,19 +235,14 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
 
   return (
     <div className="dock-panel git-panel">
-      <header className="dock-panel__head">
-        <div className="dock-panel__head-main">
-          <h2 className="dock-panel__title">{t("rightDock.tab.git")}</h2>
-          <Tooltip label={cwd ?? undefined}>
-            <p className="dock-panel__meta">{shortCwd(cwd) || t("workspace.title")}</p>
-          </Tooltip>
-        </div>
-        <Tooltip label={t("git.refresh")}>
-          <button type="button" className="dock-panel__ghost" onClick={() => void loadChanges()} aria-label={t("git.refresh")}>
-            <RefreshCw size={14} strokeWidth={1.75} className={loading ? "dock-panel__spin" : undefined} />
-          </button>
-        </Tooltip>
-      </header>
+      <DockPanelHeader
+        title={t("rightDock.tab.git")}
+        cwd={cwd}
+        cwdLabel={shortCwd(cwd) || t("workspace.title")}
+        refreshLabel={t("git.refresh")}
+        refreshing={loading}
+        onRefresh={() => void loadChanges()}
+      />
 
       {changes && !changes.gitAvailable && changes.gitErr && (
         <p className="dock-panel__banner dock-panel__banner--warn">{t("workspace.gitUnavailable")}</p>
@@ -383,10 +377,11 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
           {loading && !changes ? (
             <li className="dock-panel__empty">{t("workspace.loadingChanges")}</li>
           ) : filteredRows.length === 0 ? (
-            <li className={`dock-panel__empty${gitRows.length > 0 ? " dock-panel__search-empty" : ""}`}>
-              <span>{gitRows.length > 0 ? t("workspace.noSearchResults") : t("git.empty")}</span>
-              <small>{gitRows.length > 0 ? t("workspace.noSearchResultsHint") : t("git.emptyHint")}</small>
-            </li>
+            <DockEmptyState
+              title={gitRows.length > 0 ? t("workspace.noSearchResults") : t("git.empty")}
+              hint={gitRows.length > 0 ? t("workspace.noSearchResultsHint") : t("git.emptyHint")}
+              searchMode={gitRows.length > 0}
+            />
           ) : (
             filteredRows.map((row) => {
               const deleted = isDeletedGitChange(row);

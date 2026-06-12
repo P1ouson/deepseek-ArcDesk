@@ -16,13 +16,15 @@ import type { DictKey } from "../locales/en";
 import { parentDirs, shortCwd } from "../lib/workspaceFilePreview";
 import { addWorkspaceFileContentToChat } from "../lib/workspaceAddToChat";
 import type { DirEntry } from "../lib/types";
-import { formatWorkspaceReference, WORKSPACE_REF_DRAG_TYPE } from "../lib/workspaceDrag";
+import { formatWorkspaceReference } from "../lib/workspaceDrag";
+import { startWorkspaceDrag } from "../lib/workspaceDockActions";
+import { DockPanelHeader } from "./dock/DockPanelHeader";
+import { DockEmptyState } from "./dock/DockEmptyState";
 import { isPreviewablePagePath } from "../lib/previewPage";
-import { useDismissOnClickOutside } from "../lib/useDismissOnClickOutside";
+import { useDismissOverlay } from "../lib/useDismissOverlay";
 import { ContextMenu, contextMenuPointFromEvent, type ContextMenuItem, type ContextMenuPoint } from "./ContextMenu";
 import { MotionUnfold } from "./MotionUnfold";
 import { FloatingMenu, FloatingMenuItems } from "./FloatingMenu";
-import { Tooltip } from "./Tooltip";
 
 interface FilesPanelProps {
   cwd?: string;
@@ -145,13 +147,10 @@ export function FilesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onPrev
     });
   }, [activeFilePath, entriesByDir, loadDir]);
 
-  useDismissOnClickOutside(Boolean(treeMenu), () => setTreeMenu(null));
+  useDismissOverlay(Boolean(treeMenu), () => setTreeMenu(null), { mode: "click" });
 
   const startTreeDrag = (event: ReactDragEvent<HTMLElement>, path: string, isDir: boolean) => {
-    const ref = formatWorkspaceReference(path, isDir);
-    event.dataTransfer.effectAllowed = "copy";
-    event.dataTransfer.setData(WORKSPACE_REF_DRAG_TYPE, JSON.stringify({ path, isDir }));
-    event.dataTransfer.setData("text/plain", ref);
+    startWorkspaceDrag(event, path, isDir);
   };
 
   const openTreeMenu = (event: ReactMouseEvent<HTMLElement>, path: string, isDir: boolean) => {
@@ -208,17 +207,14 @@ export function FilesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onPrev
       if (!isRoot) return <></>;
       return (
         <ul className="dock-panel__list files-panel__tree">
-          <li className="dock-panel__empty">{t("workspace.loading")}</li>
+          <DockEmptyState title={t("workspace.loading")} />
         </ul>
       );
     }
     if (entries.length === 0 && isRoot) {
       return (
         <ul className="dock-panel__list files-panel__tree">
-          <li className="dock-panel__empty">
-            <span>{t("files.empty")}</span>
-            <small>{t("files.emptyHint")}</small>
-          </li>
+          <DockEmptyState title={t("files.empty")} hint={t("files.emptyHint")} />
         </ul>
       );
     }
@@ -270,19 +266,14 @@ export function FilesPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onPrev
 
   return (
     <div className="dock-panel files-panel">
-      <header className="dock-panel__head">
-        <div className="dock-panel__head-main">
-          <h2 className="dock-panel__title">{t("rightDock.tab.files")}</h2>
-          <Tooltip label={cwd ?? undefined}>
-            <p className="dock-panel__meta">{shortCwd(cwd) || t("workspace.title")}</p>
-          </Tooltip>
-        </div>
-        <Tooltip label={t("workspace.refreshTree")}>
-          <button type="button" className="dock-panel__ghost" aria-label={t("workspace.refreshTree")} onClick={() => void refreshTree()}>
-            <RefreshCw size={14} strokeWidth={1.75} className={refreshing ? "dock-panel__spin" : undefined} />
-          </button>
-        </Tooltip>
-      </header>
+      <DockPanelHeader
+        title={t("rightDock.tab.files")}
+        cwd={cwd}
+        cwdLabel={shortCwd(cwd) || t("workspace.title")}
+        refreshLabel={t("workspace.refreshTree")}
+        refreshing={refreshing}
+        onRefresh={() => void refreshTree()}
+      />
 
       {renderBranch("", true)}
 

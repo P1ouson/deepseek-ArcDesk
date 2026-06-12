@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
-import { useDismissOnOutsidePointerDown } from "../lib/useDismissOnOutsidePointerDown";
-import { MOTION_UNFOLD_MS } from "./MotionUnfold";
+import { clamp } from "../lib/clamp";
+import { useDismissOverlay } from "../lib/useDismissOverlay";
+import { useMountTransition } from "../lib/useMountTransition";
 
 type PopoverPosition = {
   left: number;
@@ -11,10 +12,6 @@ type PopoverPosition = {
 
 const EDGE_GAP = 8;
 const DEFAULT_OFFSET = 8;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
 
 function samePosition(a: PopoverPosition | null, b: PopoverPosition): boolean {
   return !!a && Math.abs(a.left - b.left) < 0.5 && Math.abs(a.top - b.top) < 0.5;
@@ -90,18 +87,12 @@ export function AnchoredPopover({
   style?: CSSProperties;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
-  const [mounted, setMounted] = useState(open);
+  const { mounted } = useMountTransition(open);
   const [unfolded, setUnfolded] = useState(false);
   const [position, setPosition] = useState<PopoverPosition | null>(null);
 
   useEffect(() => {
-    if (open) {
-      setMounted(true);
-      return;
-    }
-    setUnfolded(false);
-    const timer = window.setTimeout(() => setMounted(false), MOTION_UNFOLD_MS);
-    return () => window.clearTimeout(timer);
+    if (!open) setUnfolded(false);
   }, [open]);
 
   useLayoutEffect(() => {
@@ -117,7 +108,7 @@ export function AnchoredPopover({
     };
   }, [mounted, open]);
 
-  useDismissOnOutsidePointerDown(mounted && open, onClose, {
+  useDismissOverlay(mounted && open, onClose, {
     excludeRefs: [anchorRef, menuRef],
   });
 

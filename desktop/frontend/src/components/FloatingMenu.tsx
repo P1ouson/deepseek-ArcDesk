@@ -1,6 +1,6 @@
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useMemo, useRef } from "react";
-import { useDismissOnOutsidePointerDown } from "../lib/useDismissOnOutsidePointerDown";
+import { useDismissOverlay } from "../lib/useDismissOverlay";
 
 const FLOATING_MENU_MARGIN = 8;
 
@@ -41,7 +41,7 @@ export function FloatingMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const pos = useMemo(() => clampFloatingMenuPosition(x, y, width, estimatedHeight), [estimatedHeight, width, x, y]);
 
-  useDismissOnOutsidePointerDown(true, onClose, {
+  useDismissOverlay(true, onClose, {
     excludeRefs: [menuRef],
   });
 

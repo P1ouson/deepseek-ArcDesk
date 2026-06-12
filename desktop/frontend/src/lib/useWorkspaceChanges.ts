@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { app } from "./bridge";
+import { toErrorMessage } from "./errors";
 import type { WorkspaceChangesView } from "./types";
 
 export function useWorkspaceChanges(cwd?: string, refreshKey?: number) {
@@ -16,7 +17,7 @@ export function useWorkspaceChanges(cwd?: string, refreshKey?: number) {
       if (requestRef.current === requestId) setChanges(next);
     } catch (err) {
       if (requestRef.current === requestId) {
-        setChanges({ files: [], gitAvailable: false, gitErr: String((err as Error)?.message ?? err) });
+        setChanges({ files: [], gitAvailable: false, gitErr: toErrorMessage(err) });
       }
     } finally {
       if (requestRef.current === requestId) setLoading(false);

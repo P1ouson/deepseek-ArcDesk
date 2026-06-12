@@ -2,9 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clampTerminalPanelHeight, TERMINAL_PANEL_DEFAULT_HEIGHT, type TerminalTab } from "../components/TerminalPanel";
 import { closeAllTerminals, closeTerminal, startTerminal } from "./terminalBridge";
 import { loadLayoutSize, saveLayoutSize } from "./layoutPreferences";
-
-/** Panel slide duration — keep in sync with --duration-normal in design-system.css */
-const MOTION_PANEL_MS = 220;
+import { usePanelSlide, usePanelSlideMeasure } from "./usePanelSlide";
+import { useTabCollection } from "./useTabCollection";
 
 export type TerminalPanelDeps = {
   notice: (text: string, level?: "info" | "warn") => void;
@@ -14,63 +13,41 @@ export function useTerminalPanel(deps: TerminalPanelDeps) {
   const { notice } = deps;
 
   const [terminalOpen, setTerminalOpen] = useState(false);
-  const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
-  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
+  const { tabs: terminalTabs, activeId, setActiveId, openTab, replaceTabs } = useTabCollection<TerminalTab>();
   const [terminalHeight, setTerminalHeight] = useState(() =>
     loadLayoutSize("terminalPanelHeight", TERMINAL_PANEL_DEFAULT_HEIGHT, clampTerminalPanelHeight),
   );
-  const [terminalPanelShown, setTerminalPanelShown] = useState(false);
   const [terminalAnimHeight, setTerminalAnimHeight] = useState(0);
   const [terminalMotionKey, setTerminalMotionKey] = useState(0);
-  const terminalCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const terminalTabKeyRef = useRef(0);
 
   const terminalHasSessions = terminalTabs.length > 0;
   const terminalPanelVisible = terminalOpen;
+  const slideOpen = terminalOpen && terminalTabs.length > 0;
+  const { shown: terminalPanelShown } = usePanelSlide(slideOpen);
+  const measureSlide = usePanelSlideMeasure(() => setTerminalAnimHeight(terminalHeight));
 
   useEffect(() => {
-    if (!terminalOpen) {
+    if (!slideOpen) {
       if (!terminalPanelShown) return;
       setTerminalAnimHeight(0);
-      if (terminalCloseTimerRef.current) clearTimeout(terminalCloseTimerRef.current);
-      terminalCloseTimerRef.current = setTimeout(() => {
-        setTerminalPanelShown(false);
-        terminalCloseTimerRef.current = null;
-      }, MOTION_PANEL_MS);
-      return () => {
-        if (terminalCloseTimerRef.current) {
-          clearTimeout(terminalCloseTimerRef.current);
-          terminalCloseTimerRef.current = null;
-        }
-      };
-    }
-    if (terminalTabs.length === 0) return;
-    if (terminalCloseTimerRef.current) {
-      clearTimeout(terminalCloseTimerRef.current);
-      terminalCloseTimerRef.current = null;
+      return;
     }
     setTerminalMotionKey((key) => key + 1);
-    setTerminalPanelShown(true);
     setTerminalAnimHeight(0);
-    const id = window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        setTerminalAnimHeight(terminalHeight);
-      });
-    });
-    return () => window.cancelAnimationFrame(id);
-  }, [terminalOpen, terminalTabs.length]);
+    return measureSlide();
+  }, [slideOpen, terminalPanelShown, measureSlide]);
 
   useEffect(() => {
-    if (!terminalOpen || !terminalPanelShown || terminalAnimHeight <= 0) return;
+    if (!slideOpen || !terminalPanelShown || terminalAnimHeight <= 0) return;
     setTerminalAnimHeight(terminalHeight);
-  }, [terminalHeight, terminalOpen, terminalPanelShown, terminalAnimHeight]);
+  }, [terminalHeight, slideOpen, terminalPanelShown, terminalAnimHeight]);
 
   const closeTerminalPanel = useCallback(() => {
     closeAllTerminals();
-    setTerminalTabs([]);
-    setActiveTerminalId(null);
+    replaceTabs([], null);
     setTerminalOpen(false);
-  }, []);
+  }, [replaceTabs]);
 
   const minimizeTerminalPanel = useCallback(() => {
     setTerminalOpen(false);
@@ -90,52 +67,50 @@ export function useTerminalPanel(deps: TerminalPanelDeps) {
     const shellName = result.shell.split(/[/\\]/).pop() || result.shell;
     terminalTabKeyRef.current += 1;
     const clientKey = `terminal-tab-${terminalTabKeyRef.current}`;
-    setTerminalTabs((current) => {
-      const title =
-        current.some((tab) => tab.title === shellName) ? `${shellName} ${current.length + 1}` : shellName;
-      return [...current, { id: result.id, clientKey, title, shell: result.shell }];
-    });
-    setActiveTerminalId(result.id);
+    const title =
+      terminalTabs.some((tab) => tab.title === shellName) ? `${shellName} ${terminalTabs.length + 1}` : shellName;
+    openTab({ id: result.id, clientKey, title, shell: result.shell });
     setTerminalOpen(true);
-  }, [notice]);
+  }, [notice, openTab, terminalTabs]);
 
   const resolvedActiveTerminalId = useMemo(() => {
     if (terminalTabs.length === 0) return null;
-    if (activeTerminalId && terminalTabs.some((tab) => tab.id === activeTerminalId)) {
-      return activeTerminalId;
+    if (activeId && terminalTabs.some((tab) => tab.id === activeId)) {
+      return activeId;
     }
     return terminalTabs[terminalTabs.length - 1]?.id ?? null;
-  }, [activeTerminalId, terminalTabs]);
+  }, [activeId, terminalTabs]);
 
   useEffect(() => {
-    if (!resolvedActiveTerminalId || resolvedActiveTerminalId === activeTerminalId) return;
-    setActiveTerminalId(resolvedActiveTerminalId);
-  }, [activeTerminalId, resolvedActiveTerminalId]);
+    if (!resolvedActiveTerminalId || resolvedActiveTerminalId === activeId) return;
+    setActiveId(resolvedActiveTerminalId);
+  }, [activeId, resolvedActiveTerminalId, setActiveId]);
 
-  const closeTerminalTab = useCallback((id: string, index?: number) => {
-    setTerminalTabs((current) => {
+  const closeTerminalTab = useCallback(
+    (id: string, index?: number) => {
       const removeAt =
-        typeof index === "number" && index >= 0 && index < current.length && current[index]?.id === id
+        typeof index === "number" && index >= 0 && index < terminalTabs.length && terminalTabs[index]?.id === id
           ? index
-          : current.findIndex((tab) => tab.id === id);
-      if (removeAt === -1) return current;
-      const next = [...current.slice(0, removeAt), ...current.slice(removeAt + 1)];
+          : terminalTabs.findIndex((tab) => tab.id === id);
+      if (removeAt === -1) return;
+
+      const next = [...terminalTabs.slice(0, removeAt), ...terminalTabs.slice(removeAt + 1)];
       if (!next.some((tab) => tab.id === id)) {
         closeTerminal(id);
       }
+
+      let nextActiveId = activeId;
       if (next.length === 0) {
         setTerminalOpen(false);
-        setActiveTerminalId(null);
-      } else {
-        setActiveTerminalId((active) => {
-          if (active !== id) return active;
-          const fallbackIndex = Math.min(removeAt, next.length - 1);
-          return next[fallbackIndex]!.id;
-        });
+        nextActiveId = null;
+      } else if (activeId === id) {
+        const fallbackIndex = Math.min(removeAt, next.length - 1);
+        nextActiveId = next[fallbackIndex]!.id;
       }
-      return next;
-    });
-  }, []);
+      replaceTabs(next, nextActiveId);
+    },
+    [activeId, replaceTabs, terminalTabs],
+  );
 
   const setSavedTerminalHeight = useCallback((height: number) => {
     const next = clampTerminalPanelHeight(height);
@@ -156,8 +131,8 @@ export function useTerminalPanel(deps: TerminalPanelDeps) {
     terminalPanelShown,
     terminalAnimHeight,
     terminalMotionKey,
-    activeTerminalId,
-    setActiveTerminalId,
+    activeTerminalId: activeId,
+    setActiveTerminalId: setActiveId,
     resolvedActiveTerminalId,
     activeTerminalTab,
     openNewTerminal,

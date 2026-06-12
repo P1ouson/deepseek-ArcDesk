@@ -1,19 +1,13 @@
 import { NO_WORKSPACE_VALUE } from "./composerWorkspace";
+import { stringStore } from "./localStorageStore";
 
-const ROOT_KEY = "ARCDESK.writeWorkspaceRoot.v1";
+const writeRootStore = stringStore("ARCDESK.writeWorkspaceRoot.v1");
 
 export { NO_WORKSPACE_VALUE };
 
 export function getStoredWriteWorkspaceRoot(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    const raw = window.localStorage.getItem(ROOT_KEY);
-    if (typeof raw !== "string") return "";
-    const trimmed = raw.trim();
-    return trimmed === NO_WORKSPACE_VALUE ? NO_WORKSPACE_VALUE : trimmed;
-  } catch {
-    return "";
-  }
+  const stored = writeRootStore.get();
+  return stored === NO_WORKSPACE_VALUE ? NO_WORKSPACE_VALUE : stored;
 }
 
 /** Initial write workspace from cache only — never auto-pick a default folder. */
@@ -24,14 +18,9 @@ export function getInitialWriteWorkspaceRoot(): string {
 }
 
 export function setStoredWriteWorkspaceRoot(path: string) {
-  if (typeof window === "undefined") return;
   const normalized = path.trim();
   if (!normalized) return;
-  try {
-    window.localStorage.setItem(ROOT_KEY, normalized);
-  } catch {
-    /* ignore quota errors */
-  }
+  writeRootStore.set(normalized);
 }
 
 export function isNoWriteWorkspace(path: string | undefined | null): boolean {
@@ -40,5 +29,5 @@ export function isNoWriteWorkspace(path: string | undefined | null): boolean {
 
 export function isUsableWriteWorkspaceRoot(path: string | undefined | null): boolean {
   const normalized = (path ?? "").trim();
-  return normalized !== "" && normalized !== "." && normalized !== NO_WORKSPACE_VALUE;
+  return normalized !== "" && normalized !== "." && !isNoWriteWorkspace(normalized);
 }

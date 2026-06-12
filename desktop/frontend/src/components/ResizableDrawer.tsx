@@ -3,6 +3,7 @@ import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent, R
 import { useT } from "../lib/i18n";
 import { loadLayoutSize, saveLayoutSize, type LayoutSizeKey } from "../lib/layoutPreferences";
 import { attachPointerResize } from "../lib/panelResize";
+import { useDeferredClose } from "../lib/useDeferredClose";
 
 const DRAWER_DEFAULT_WIDTH = 440;
 const DRAWER_MIN_WIDTH = 360;
@@ -50,6 +51,7 @@ export function ResizableDrawer({
   wide?: boolean;
 }) {
   const t = useT();
+  const { status, requestClose } = useDeferredClose(onClose);
   const config = drawerConfig(wide);
   const [viewportWidth, setViewportWidth] = useState(() => (typeof window === "undefined" ? 1440 : window.innerWidth));
   const [width, setWidth] = useState(() =>
@@ -112,9 +114,14 @@ export function ResizableDrawer({
   );
 
   return (
-    <div className={`drawer-backdrop${subtle ? " drawer-backdrop--subtle" : ""}`} onClick={onClose}>
+    <div
+      className={`drawer-backdrop${subtle ? " drawer-backdrop--subtle" : ""}`}
+      data-state={status}
+      onClick={requestClose}
+    >
       <aside
         className={`drawer${wide ? " drawer--wide" : ""}${resizing ? " drawer--resizing" : ""}`}
+        data-state={status}
         onClick={(e) => e.stopPropagation()}
         style={style}
       >

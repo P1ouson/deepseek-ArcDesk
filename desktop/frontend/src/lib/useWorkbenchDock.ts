@@ -42,8 +42,7 @@ import {
 const STUDIO_RAIL_WIDTH = 76;
 const STUDIO_DRAWER_WIDTH = 280;
 const CHAT_MIN_WIDTH = 760;
-/** Panel slide duration — keep in sync with --duration-normal in design-system.css */
-const MOTION_PANEL_MS = 220;
+import { MOTION_DURATION_NORMAL_MS } from "./motion/constants";
 
 const RIGHT_DOCK_DEFAULT_WIDTH = 380;
 const RIGHT_DOCK_DEFAULT_RATIO = 0.28;
@@ -276,7 +275,7 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
         setDockAnimWidth(targetDockWidthRef.current);
       });
     });
-    const openingTimer = window.setTimeout(() => setDockOpening(false), MOTION_PANEL_MS);
+    const openingTimer = window.setTimeout(() => setDockOpening(false), MOTION_DURATION_NORMAL_MS);
     return () => {
       window.cancelAnimationFrame(id);
       window.clearTimeout(openingTimer);
@@ -321,7 +320,7 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
       setDockClosing(false);
       setFilePreviewPath(null);
       dockCloseTimerRef.current = null;
-    }, MOTION_PANEL_MS);
+    }, MOTION_DURATION_NORMAL_MS);
   }, [workspacePanelOpen]);
 
   const toggleBrowserPreviewExpanded = useCallback(() => {
