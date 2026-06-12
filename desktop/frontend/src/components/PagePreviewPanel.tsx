@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Maximize2, Minimize2, RefreshCw } from "lucide-react";
 import { app } from "../lib/bridge";
+import { toErrorMessage } from "../lib/errors";
 import { useT } from "../lib/i18n";
 import { PREVIEW_IFRAME_SANDBOX } from "../lib/webPreviewUrl";
 import { basename, isPreviewablePagePath } from "../lib/previewPage";
@@ -53,7 +54,7 @@ export function PagePreviewPanel({
         onPagePathChange?.(trimmed);
       } catch (err) {
         setSrc(null);
-        setError(String((err as Error)?.message ?? err ?? t("pagePreview.loadFailed")));
+        setError(toErrorMessage(err, t("pagePreview.loadFailed")));
       } finally {
         setLoading(false);
       }

@@ -1,7 +1,7 @@
 import type { WireUsage } from "./types";
 
 /** Same formulas as Reasonix / internal/usage/cache_rate.go */
-export function hitRatePct(hit: number, denom: number): string | null {
+function hitRatePct(hit: number, denom: number): string | null {
   if (denom <= 0) return null;
   return ((hit / denom) * 100).toFixed(2);
 }

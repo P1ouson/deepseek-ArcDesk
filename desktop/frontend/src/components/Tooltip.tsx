@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import { clamp } from "../lib/clamp";
 import { createPortal } from "react-dom";
 
 type TooltipSide = "top" | "bottom" | "left" | "right";
@@ -8,10 +9,6 @@ const GAP = 8;
 const EDGE_PAD = 8;
 const ARROW_SIZE = 7;
 const ARROW_PAD = 12;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
 
 function oppositeSide(side: TooltipSide): TooltipSide {
   if (side === "top") return "bottom";

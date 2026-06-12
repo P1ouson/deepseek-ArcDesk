@@ -1,11 +1,11 @@
 import { useCallback, useState, type ComponentProps } from "react";
 import { Composer, type ComposerSendState } from "./Composer";
-import { ComposerModeBar, ComposerModeToggle } from "./ComposerModeBar";
+import { ComposerModeBar } from "./ComposerModeBar";
 import { ComposerDockFooter, type ComposerDockFooterProps } from "./ComposerDockFooter";
 import { ComposerSendButton } from "./ComposerSendButton";
 export type FloatingComposerProps = ComponentProps<typeof Composer> & ComposerDockFooterProps;
 
-export { ComposerModeBar, ComposerModeToggle };
+export { ComposerModeBar };
 
 export function FloatingComposer({
   context,

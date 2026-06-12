@@ -17,6 +17,7 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-fast: 140ms;
   --duration-normal: 220ms;
+  --motion-fast: var(--duration-fast);
   --z-overlay: 9000;
   --z-modal: 9100;
   --z-tooltip: 9200;
@@ -24,6 +25,15 @@
 
 @keyframes ds-spin {
   to { transform: rotate(360deg); }
+}
+
+@keyframes motion-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes motion-drawer-out {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(16px); opacity: 0.72; }
 }
 
 @keyframes ds-pulse {
@@ -45,7 +55,7 @@
 .onboarding__spinner,
 .dock-panel__spin,
 .loading-screen__spinner {
-  animation: ds-spin 0.75s linear infinite;
+  animation: motion-spin var(--duration-normal) linear infinite;
 }
 
 .onboarding__spinner,

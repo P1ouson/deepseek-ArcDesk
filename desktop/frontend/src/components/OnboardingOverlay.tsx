@@ -119,7 +119,7 @@ export function OnboardingOverlay({
 
   return createPortal(
     <div className="onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
-      <div className="onboarding__card motion-panel-in">
+      <div className="onboarding__card motion-panel-in-up">
         {manual ? (
           <button
             type="button"

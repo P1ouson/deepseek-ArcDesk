@@ -54,14 +54,3 @@ export function ComposerModeBar({
   if (inline) return bar;
   return <div className="composer-shell__cmdrow">{bar}</div>;
 }
-
-/** @deprecated Use ComposerModeBar */
-export function ComposerModeToggle({
-  mode,
-  onSetMode,
-}: {
-  mode: Mode;
-  onSetMode: (mode: Mode) => void;
-}) {
-  return <ComposerModeBar mode={mode} onSetMode={onSetMode} />;
-}

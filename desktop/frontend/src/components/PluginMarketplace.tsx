@@ -17,6 +17,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { app, openExternal } from "../lib/bridge";
+import { toErrorMessage } from "../lib/errors";
 import { MotionUnfold } from "./MotionUnfold";
 import { useT } from "../lib/i18n";
 import type { CapabilitiesView, MCPCatalogEntry, MCPServerInput, ServerView, SkillView } from "../lib/types";
@@ -173,7 +174,7 @@ export function PluginMarketplace() {
       await reload();
       if (success) setNotice(success);
     } catch (e) {
-      setErr(String((e as Error)?.message ?? e));
+      setErr(toErrorMessage(e));
       await reload();
     } finally {
       setBusy(false);

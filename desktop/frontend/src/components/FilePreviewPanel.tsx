@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Copy, FileText, FolderOpen, Maximize2, MessageSquarePlus, Minimize2, X } from "lucide-react";
 import { app } from "../lib/bridge";
+import { toErrorMessage } from "../lib/errors";
 import { useT } from "../lib/i18n";
 import type { DictKey } from "../locales/en";
 import {
@@ -84,7 +85,7 @@ export function FilePreviewPanel({ path, diff, expanded, onToggleExpanded, onClo
         setPreview(next);
         if (next.err) setLoadErr(next.err);
       } catch (err) {
-        if (!cancelled) setLoadErr(String((err as Error)?.message ?? err));
+        if (!cancelled) setLoadErr(toErrorMessage(err));
       } finally {
         if (!cancelled) setLoading(false);
       }

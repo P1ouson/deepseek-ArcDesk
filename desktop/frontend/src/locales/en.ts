@@ -1679,6 +1679,7 @@ export const en = {
   "context.cacheStepRate": "Step hit rate",
   "context.cacheSessionRate": "Avg hit rate",
   "context.cacheSessionTokens": "Session cache total",
+  "context.cacheSavingsEstimate": "Est. ~{pct}% prompt savings vs no cache (DeepSeek cache pricing)",
   "context.noUsageYet": "No usage data yet — send a message to start",
   "context.cacheHit": "Cache hit",
   "context.sessionCost": "Session cost",

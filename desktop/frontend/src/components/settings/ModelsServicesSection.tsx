@@ -4,9 +4,11 @@ import { ChevronDown, Loader2 } from "lucide-react";
 
 import { app } from "../../lib/bridge";
 
+import { toErrorMessage } from "../../lib/errors";
+
 import { useT } from "../../lib/i18n";
 
-import { useDismissOnOutsidePointerDown } from "../../lib/useDismissOnOutsidePointerDown";
+import { useDismissOverlay } from "../../lib/useDismissOverlay";
 
 import type { ProviderView } from "../../lib/types";
 
@@ -233,7 +235,7 @@ export function ModelsServicesSection({ s, busy, apply }: SettingsSectionProps) 
 
 
 
-  useDismissOnOutsidePointerDown(modelsExpanded, () => setModelsExpanded(false), {
+  useDismissOverlay(modelsExpanded, () => setModelsExpanded(false), {
 
     excludeRefs: [modelsToggleRef, modelsPanelRef],
 
@@ -263,7 +265,7 @@ export function ModelsServicesSection({ s, busy, apply }: SettingsSectionProps) 
 
       .catch((e) => {
 
-        const raw = String((e as Error)?.message ?? e);
+        const raw = toErrorMessage(e);
 
         setFetchError(formatModelFetchError(raw, relayMode, t));
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarClock, FolderOpen, Pause, Play, Trash2 } from "lucide-react";
 import { StudioSelect } from "./StudioSelect";
 import { app, onScheduleTask } from "../lib/bridge";
+import { toErrorMessage } from "../lib/errors";
 import { useT } from "../lib/i18n";
 import type { ScheduledTask, SettingsView } from "../lib/types";
 
@@ -204,7 +205,7 @@ export function ScheduleTasksView({ workspaceRoot }: ScheduleTasksViewProps) {
       });
       setNotice(t("schedule.saved"));
     } catch (e) {
-      setErr(String((e as Error)?.message ?? e));
+      setErr(toErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -216,7 +217,7 @@ export function ScheduleTasksView({ workspaceRoot }: ScheduleTasksViewProps) {
     try {
       await saveTask({ ...task, enabled: !task.enabled }, { requirePrompt: false, syncDraft: selectedId === task.id });
     } catch (e) {
-      setErr(String((e as Error)?.message ?? e));
+      setErr(toErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -230,7 +231,7 @@ export function ScheduleTasksView({ workspaceRoot }: ScheduleTasksViewProps) {
       if (selectedId === id) beginCreate();
       await reload();
     } catch (e) {
-      setErr(String((e as Error)?.message ?? e));
+      setErr(toErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -245,7 +246,7 @@ export function ScheduleTasksView({ workspaceRoot }: ScheduleTasksViewProps) {
       setNotice(t("schedule.triggered"));
       await reload();
     } catch (e) {
-      setErr(String((e as Error)?.message ?? e));
+      setErr(toErrorMessage(e));
     } finally {
       setBusy(false);
     }

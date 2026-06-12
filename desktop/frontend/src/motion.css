@@ -13,6 +13,11 @@
   to { opacity: 1; }
 }
 
+@keyframes motion-drawer-in {
+  from { transform: translateX(16px); opacity: 0.72; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
 @keyframes motion-reveal-down {
   from {
     opacity: 0;
@@ -200,6 +205,10 @@
   animation: motion-panel-in-left var(--duration-normal) var(--ease-out);
 }
 
+.motion-panel-in-up {
+  animation: motion-panel-in-up var(--duration-normal) var(--ease-out);
+}
+
 .workbench--studio .workbench__resizer--dock {
   flex: 0 0 4px;
   width: 4px;
@@ -237,6 +246,14 @@
 
 .workbench--studio .workbench__body--dock-open .workbench__stack {
   transition: none;
+}
+
+.drawer-backdrop[data-state="closing"] {
+  animation: motion-fade-in reverse var(--duration-fast) var(--ease-out) both;
+}
+
+.drawer[data-state="closing"] {
+  animation: motion-drawer-out var(--duration-normal) var(--ease-out) both;
 }
 
 @media (prefers-reduced-motion: reduce) {

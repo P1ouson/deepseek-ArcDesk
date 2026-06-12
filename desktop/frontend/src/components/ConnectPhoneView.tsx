@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { asArray } from "../lib/array";
 import { app } from "../lib/bridge";
+import { toErrorMessage } from "../lib/errors";
 import { useT } from "../lib/i18n";
 import type { MobileConnectConfig, MobilePairingInfo, MobilePendingDecision, MobileTunnelStatus, ModelInfo } from "../lib/types";
 
@@ -254,7 +255,7 @@ export function ConnectPhoneView({
       }
     } catch (e) {
       rollback?.();
-      const raw = String((e as Error)?.message ?? e);
+      const raw = toErrorMessage(e);
       const normalized = raw.trim().toLowerCase();
       if (normalized === "cancelled" || normalized.includes("cancelled")) {
         setErr(t("phone.lanEnableCancelled"));
@@ -314,7 +315,7 @@ export function ConnectPhoneView({
       setPairing(await app.RefreshMobilePairing());
       setNotice(t("phone.qrRefreshed"));
     } catch (e) {
-      setErr(String((e as Error)?.message ?? e));
+      setErr(toErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -338,7 +339,7 @@ export function ConnectPhoneView({
       setNotice(t("phone.tunnelStarting"));
       await reload();
     } catch (e) {
-      setErr(String((e as Error)?.message ?? e));
+      setErr(toErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -353,7 +354,7 @@ export function ConnectPhoneView({
       setNotice(t("phone.deviceRevoked"));
       await reload();
     } catch (e) {
-      setErr(String((e as Error)?.message ?? e));
+      setErr(toErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -367,7 +368,7 @@ export function ConnectPhoneView({
       await reload();
       setNotice(t("phone.tunnelStopped"));
     } catch (e) {
-      setErr(String((e as Error)?.message ?? e));
+      setErr(toErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -417,7 +418,7 @@ export function ConnectPhoneView({
                   void app
                     .RespondMobileDecision(pendingDecision.id, true, [])
                     .then(() => setPendingDecision(null))
-                    .catch((e) => setErr(String((e as Error)?.message ?? e)))
+                    .catch((e) => setErr(toErrorMessage(e)))
                     .finally(() => setBusy(false));
                 }}
               >

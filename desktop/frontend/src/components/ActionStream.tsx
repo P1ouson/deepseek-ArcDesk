@@ -138,7 +138,7 @@ const ActionToolRow = memo(function ActionToolRow({
   const files = filesForTool(item, workspaceRoot);
   const subject = subjectLabel(item);
   const hasFileLinks = files.length > 0;
-  const hasDetails = !!(item.output || item.error || (item.args && !hasFileLinks && item.isShell));
+  const hasDetails = !!(item.output || item.error || (item.args && !hasFileLinks));
   const expandable = hasDetails && !running;
 
   const handleFileOpen = (req: ActionFileOpenRequest) => {
@@ -152,7 +152,7 @@ const ActionToolRow = memo(function ActionToolRow({
 
   return (
     <div
-      className={`action-row action-row--${item.status}${item.isShell ? " action-row--shell" : ""}${item.readOnly ? " action-row--readonly" : ""}`}
+      className={`action-row action-row--${item.status}${item.readOnly ? " action-row--readonly" : ""}`}
     >
       <div className="action-row__main">
         <span className="action-row__verb">{verb}</span>
@@ -181,10 +181,7 @@ const ActionToolRow = memo(function ActionToolRow({
         <MotionUnfold open={detailOpen}>
           <div className="action-row__detail">
             {item.error ? <div className="action-row__err">{item.error}</div> : null}
-            {item.isShell && item.output ? (
-              <CodeViewer flat value={item.output} maxHeight={260} />
-            ) : null}
-            {!item.isShell && item.output ? <CodeViewer flat value={item.output} maxHeight={220} /> : null}
+            {item.output ? <CodeViewer flat value={item.output} maxHeight={220} /> : null}
             {!item.output && item.args ? <CodeViewer flat value={prettyJson(item.args)} language="json" maxHeight={160} /> : null}
             {item.truncated ? (
               <div className="action-row__note">

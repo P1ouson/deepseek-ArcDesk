@@ -2106,13 +2106,11 @@ button:disabled:active,
 .statusbar__item,
 .status-strip__item { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
 .statusbar__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-faint); }
-.statusbar__dot--busy { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.statusbar__dot--busy { background: var(--accent); animation: ds-pulse 1.2s ease-in-out infinite; }
 .statusbar__sep { opacity: 0.5; }
 .statusbar__model, .statusbar__ctx, .statusbar__workspace { color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; }
 .statusbar__workspace { max-width: 124px; }
 .statusbar__cost, .statusbar__balance { color: var(--ok); }
-
-@keyframes pulse { 50% { opacity: 0.35; } }
 
 /* Input chips / buttons / chips */
 .btn,
@@ -2739,7 +2737,7 @@ button:disabled:active,
 .action-row__spin {
   flex: 0 0 auto;
   color: var(--accent);
-  animation: spin 1s linear infinite;
+  animation: motion-spin var(--duration-normal) linear infinite;
 }
 .action-row__detail {
   margin: 4px 0 6px 0;
@@ -2832,10 +2830,10 @@ button:disabled:active,
 
 /* Loading / banner / alerts */
 .loading, .loading-screen {
-  flex: 1; display: grid; place-items: center; gap: 14px; opacity: 0; animation: fade-in 260ms ease forwards;
+  flex: 1; display: grid; place-items: center; gap: 14px; opacity: 0; animation: motion-fade-in var(--duration-normal) var(--ease-out) forwards;
 }
 .loading__spinner, .loading-screen__spinner {
-  width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite;
+  width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: motion-spin var(--duration-normal) linear infinite;
 }
 .loading__text, .loading-screen__text { color: var(--fg-faint); font-size: 13px; }
 .banner { padding: 8px 16px; font-size: 12px; }
@@ -3466,7 +3464,7 @@ button:disabled:active,
   display: flex;
   justify-content: flex-end;
   background: rgba(15, 23, 42, 0.38);
-  animation: fade-in 0.16s ease;
+  animation: motion-fade-in var(--duration-fast) var(--ease-out);
 }
 .drawer-backdrop--subtle { background: rgba(15, 23, 42, 0.16); }
 .drawer {
@@ -3478,7 +3476,7 @@ button:disabled:active,
   border-left: 1px solid var(--border-soft);
   background: var(--bg-elev);
   box-shadow: none;
-  animation: drawer-in 0.18s ease;
+  animation: motion-drawer-in var(--duration-normal) var(--ease-out);
 }
 .drawer--wide { width: min(var(--drawer-width, 720px), 94vw); }
 .drawer--resizing,
@@ -3641,13 +3639,7 @@ button:disabled:active,
 .hljs-emphasis { font-style: italic; }
 .hljs-strong { font-weight: 700; }
 
-/* Animations */
-@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes drawer-in {
-  from { transform: translateX(16px); opacity: 0.72; }
-  to { transform: translateX(0); opacity: 1; }
-}
-@keyframes spin { to { transform: rotate(360deg); } }
+/* Animations — keyframes live in motion.css / design-system.css */
 
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
@@ -3823,7 +3815,7 @@ button:disabled:active,
   border: 2px solid color-mix(in srgb, var(--accent-fg) 35%, transparent);
   border-top-color: var(--accent-fg);
   border-radius: 50%;
-  animation: dock-panel-spin 0.7s linear infinite;
+  animation: motion-spin var(--duration-normal) linear infinite;
 }
 .onboarding__footer {
   margin-top: 16px;
@@ -5088,7 +5080,7 @@ button:disabled:active,
 }
 
 .dock-panel__spin {
-  animation: spin .75s linear infinite;
+  animation: motion-spin var(--duration-normal) linear infinite;
 }
 
 .dock-panel__text-btn {
@@ -5445,7 +5437,7 @@ button:disabled:active,
   gap: 5px;
 }
 .code-review__spin {
-  animation: dock-panel-spin 0.9s linear infinite;
+  animation: motion-spin var(--duration-normal) linear infinite;
 }
 .code-review__scope {
   margin-top: 6px;
@@ -5608,7 +5600,7 @@ button:disabled:active,
   height: 7px;
   border-radius: 999px;
   background: var(--accent);
-  animation: pulse 1.2s ease-in-out infinite;
+  animation: ds-pulse 1.2s ease-in-out infinite;
 }
 
 .context-panel__meter-head {
@@ -5795,6 +5787,13 @@ button:disabled:active,
   transition: width 0.3s ease;
 }
 
+.context-panel__cache-savings {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: color-mix(in srgb, #16a34a 75%, var(--fg-muted));
+}
+
 .context-panel__tokens-empty {
   margin: 0;
   font-size: 11px;
@@ -5968,11 +5967,6 @@ button:disabled:active,
   color: var(--fg-dim);
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
-
 /* Right dock head / placeholders */
 .right-dock__head {
   display: flex;
@@ -6100,9 +6094,8 @@ button:disabled:active,
 .loading-screen__spinner--sm { width: 14px; height: 14px; margin: 0; }
 .loading-screen__spinner {
   width: 28px; height: 28px; margin: 0 auto; border-radius: 999px;
-  border: 2px solid var(--border); border-top-color: var(--accent); animation: spin .8s linear infinite;
+  border: 2px solid var(--border); border-top-color: var(--accent); animation: motion-spin var(--duration-normal) linear infinite;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Git panel — workflow (shared chrome via .dock-panel) */
 .git-panel {
@@ -6923,7 +6916,7 @@ button:disabled:active,
 }
 
 .terminal-panel__boot svg {
-  animation: spin .8s linear infinite;
+  animation: motion-spin var(--duration-normal) linear infinite;
 }
 
 .terminal-panel__err {
@@ -7002,7 +6995,7 @@ button:disabled:active,
 }
 
 .terminal-panel__running svg {
-  animation: spin .8s linear infinite;
+  animation: motion-spin var(--duration-normal) linear infinite;
 }
 
 .terminal-panel__prompt {
@@ -9318,7 +9311,7 @@ button:disabled:active,
   height: 8px;
   border-radius: 999px;
   background: var(--accent);
-  animation: pulse 1.2s ease-in-out infinite;
+  animation: ds-pulse 1.2s ease-in-out infinite;
   flex: 0 0 auto;
 }
 .plan-revision { padding-top: 10px; }

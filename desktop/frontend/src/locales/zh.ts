@@ -1681,6 +1681,7 @@ export const zh: Record<DictKey, string> = {
   "context.cacheStepRate": "本次命中率",
   "context.cacheSessionRate": "平均命中率",
   "context.cacheSessionTokens": "会话累计缓存",
+  "context.cacheSavingsEstimate": "相对无缓存约省 {pct}% prompt 费用（按 DeepSeek 缓存价估算）",
   "context.noUsageYet": "暂无用量数据，发送消息后开始统计",
   "context.cacheHit": "缓存命中",
   "context.sessionCost": "本次费用",

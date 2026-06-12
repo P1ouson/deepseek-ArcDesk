@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, GitBranch } from "lucide-react";
 import { asArray } from "../lib/array";
 import { app } from "../lib/bridge";
-import { formatMoney } from "../lib/formatMoney";
+import { formatMoney, formatTokens } from "../lib/formatMoney";
 import { sessionCacheRate, stepCacheRate } from "../lib/cacheRate";
+import { estimatePromptCacheSavingsPct } from "../lib/cacheEconomy";
 import { useT, type Translator } from "../lib/i18n";
 import type { DictKey } from "../locales/en";
 import { useWorkspaceChanges } from "../lib/useWorkspaceChanges";
@@ -28,11 +29,6 @@ interface ContextPanelProps {
 }
 
 type ContextDetail = "read" | "changed";
-
-function fmtTokens(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
-  return String(n);
-}
 
 function fmtTime(ms?: number): string {
   if (!ms) return "";
@@ -100,15 +96,19 @@ function TokenUsageCard({ usage, info }: { usage?: WireUsage; info: ContextPanel
   const stepPct = stepCacheRate(usage) ?? (stepDenom > 0 ? ((stepHit / stepDenom) * 100).toFixed(1) : null);
   const sessionPct = sessionCacheRate(usage) ?? (sessDenom > 0 ? ((sessHit / sessDenom) * 100).toFixed(1) : null);
   const stepBarHit = stepDenom > 0 ? Math.round((stepHit / stepDenom) * 100) : 0;
+  const cacheTokensForSavings = sessDenom > 0 ? { hit: sessHit, miss: sessMiss } : stepDenom > 0 ? { hit: stepHit, miss: stepMiss } : null;
+  const savingsPct = cacheTokensForSavings
+    ? estimatePromptCacheSavingsPct(cacheTokensForSavings.hit, cacheTokensForSavings.miss)
+    : null;
 
   const rows: Array<{ label: string; value: string }> = [
-    { label: t("context.prompt"), value: hasUsage ? fmtTokens(prompt) : "—" },
-    { label: t("context.completion"), value: hasUsage ? fmtTokens(completion) : "—" },
+    { label: t("context.prompt"), value: hasUsage ? formatTokens(prompt) : "—" },
+    { label: t("context.completion"), value: hasUsage ? formatTokens(completion) : "—" },
   ];
   if (reasoning > 0) {
-    rows.push({ label: t("context.reasoning"), value: fmtTokens(reasoning) });
+    rows.push({ label: t("context.reasoning"), value: formatTokens(reasoning) });
   }
-  rows.push({ label: t("context.total"), value: hasUsage ? fmtTokens(total) : "—" });
+  rows.push({ label: t("context.total"), value: hasUsage ? formatTokens(total) : "—" });
 
   return (
     <section className="dock-panel__card context-panel__tokens">
@@ -150,11 +150,11 @@ function TokenUsageCard({ usage, info }: { usage?: WireUsage; info: ContextPanel
           <div className="context-panel__token-grid">
             <div className="context-panel__token-row">
               <span className="context-panel__token-label context-panel__token-label--hit">{t("context.cacheHitTokens")}</span>
-              <strong>{fmtTokens(stepDenom > 0 ? stepHit : sessHit)}</strong>
+              <strong>{formatTokens(stepDenom > 0 ? stepHit : sessHit)}</strong>
             </div>
             <div className="context-panel__token-row">
               <span className="context-panel__token-label context-panel__token-label--miss">{t("context.cacheMissTokens")}</span>
-              <strong>{fmtTokens(stepDenom > 0 ? stepMiss : sessMiss)}</strong>
+              <strong>{formatTokens(stepDenom > 0 ? stepMiss : sessMiss)}</strong>
             </div>
             {stepDenom > 0 && (
               <div className="context-panel__token-row">
@@ -171,10 +171,15 @@ function TokenUsageCard({ usage, info }: { usage?: WireUsage; info: ContextPanel
                 <div className="context-panel__token-row context-panel__token-row--muted">
                   <span>{t("context.cacheSessionTokens")}</span>
                   <strong>
-                    {fmtTokens(sessHit)} / {fmtTokens(sessDenom)}
+                    {formatTokens(sessHit)} / {formatTokens(sessDenom)}
                   </strong>
                 </div>
               </>
+            )}
+            {savingsPct != null && savingsPct > 0 && (
+              <p className="context-panel__cache-savings">
+                {t("context.cacheSavingsEstimate", { pct: savingsPct })}
+              </p>
             )}
           </div>
         </>
@@ -395,7 +400,7 @@ export function ContextPanel({
                 />
               </div>
               <div className="context-panel__meter-meta">
-                {fmtTokens(usedTokens)} / {fmtTokens(windowTokens)} {t("status.tokens")}
+                {formatTokens(usedTokens)} / {formatTokens(windowTokens)} {t("status.tokens")}
               </div>
 
               <div className="context-panel__kv">

@@ -36,7 +36,6 @@ export type TimelineRow =
   | { kind: "action-segment"; segment: ActionSegment };
 
 const WRITE_TOOLS = new Set(["edit_file", "write_file", "multi_edit"]);
-const READ_TOOLS = new Set(["read_file", "grep", "glob", "ls"]);
 
 function normalizeSlashes(path: string): string {
   return path.replace(/\\/g, "/");
@@ -160,26 +159,8 @@ export function isWriteTool(name: string): boolean {
   return WRITE_TOOLS.has(name);
 }
 
-export function isReadTool(name: string): boolean {
-  return READ_TOOLS.has(name);
-}
-
-export function canOpenFileFromTool(item: ToolItem): boolean {
-  if (item.status === "running") return false;
-  if (isWriteTool(item.name)) return filesForTool(item, "").length > 0 || !!item.fileDiff?.diff;
-  if (isReadTool(item.name) || item.name === "read_file") return filesForTool(item, "").length > 0;
-  return filesForTool(item, "").length > 0;
-}
-
 export function subjectLabel(item: ToolItem): string {
   return subjectOf(item.name, item.args);
-}
-
-export function segmentIsRunning(segment: ActionSegment): boolean {
-  return segment.entries.some((entry) => {
-    if (entry.kind === "thinking") return entry.status === "running";
-    return entry.item.status === "running";
-  });
 }
 
 export function thinkingBlockIsActive(block: ThinkingBlock): boolean {

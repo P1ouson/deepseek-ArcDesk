@@ -1,3 +1,4 @@
+import { toErrorMessage } from "./errors";
 import type { GitPRMergeMethod } from "./types";
 import type { ShellRunResult } from "./types";
 import type { DictKey } from "./i18n";
@@ -22,7 +23,7 @@ async function runQuiet(run: RunQuiet, command: string): Promise<ShellRunResult>
   try {
     return await run(command);
   } catch (e) {
-    return { output: "", err: String((e as Error)?.message ?? e) };
+    return { output: "", err: toErrorMessage(e) };
   }
 }
 

@@ -1,9 +1,8 @@
 import { useEffect, useRef } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { Loader2, User } from "lucide-react";
 import { useT } from "../lib/i18n";
 import type { WriteTurn } from "../lib/writeConversation";
+import { Markdown } from "./Markdown";
 
 export interface WriteConversationThreadProps {
   turns: WriteTurn[];
@@ -63,7 +62,7 @@ export function WriteConversationThread({
             <p className="write-conversation__preview">{previewText(turn.text, 72)}</p>
           ) : turn.role === "assistant" ? (
             <div className="write-conversation__body write-conversation__body--md">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{turn.text || t("write.assistantStreaming")}</ReactMarkdown>
+              <Markdown text={turn.text || t("write.assistantStreaming")} />
             </div>
           ) : (
             <p className="write-conversation__body">{turn.text}</p>

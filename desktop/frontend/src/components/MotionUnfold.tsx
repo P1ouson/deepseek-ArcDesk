@@ -1,8 +1,5 @@
 import type { ReactNode } from "react";
 
-/** Matches `--duration-normal` in design-system.css */
-export const MOTION_UNFOLD_MS = 220;
-
 type MotionUnfoldProps = {
   open: boolean;
   children: ReactNode;

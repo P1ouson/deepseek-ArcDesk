@@ -1,4 +1,5 @@
 import type { Translator } from "./i18n";
+import { basename } from "./workspaceFilePreview";
 import { parseToolArgs, toolArgString } from "./parseToolArgs";
 import type { Item } from "./useController";
 
@@ -15,12 +16,6 @@ export interface TurnProgress {
 
 const SCAN_TOOLS = new Set(["grep", "glob", "ls", "task", "explore", "research"]);
 const READ_TOOLS = new Set(["read_file", "web_fetch"]);
-
-function basename(path: string): string {
-  const normalized = path.replace(/\\/g, "/");
-  const parts = normalized.split("/").filter(Boolean);
-  return parts[parts.length - 1] ?? path;
-}
 
 function toolPath(item: Extract<Item, { kind: "tool" }>): string {
   const args = parseToolArgs(item.args);
