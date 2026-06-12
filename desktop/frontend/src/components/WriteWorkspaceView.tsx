@@ -14,6 +14,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { app } from "../lib/bridge";
+import { toErrorMessage } from "../lib/errors";
 import { useT } from "../lib/i18n";
 import type { ComposerWriteContext } from "../lib/types";
 import type { WriteTurn } from "../lib/writeConversation";
@@ -121,7 +122,7 @@ export function WriteWorkspaceView({
       setStagedAction(null);
       setFimSuggestion("");
     } catch (e) {
-      setErr(String((e as Error)?.message ?? e));
+      setErr(toErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -154,7 +155,7 @@ export function WriteWorkspaceView({
       setAutoSaved(true);
       onSaved?.();
     } catch (e) {
-      setErr(String((e as Error)?.message ?? e));
+      setErr(toErrorMessage(e));
     } finally {
       setBusy(false);
     }

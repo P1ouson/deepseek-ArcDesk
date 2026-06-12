@@ -5,12 +5,14 @@ import { clearLegacyLangPref, normalizeLangPref, readLegacyLangPref, t, useI18n,
 import { useController } from "./lib/useController";
 import { app, onProjectTreeChanged, onScheduleTask } from "./lib/bridge";
 import { logBridgeError } from "./lib/logBridgeError";
+import { toErrorMessage } from "./lib/errors";
 import { IPC_ONBOARDING_TIMEOUT_MS, withIPCTimeout } from "./lib/ipc";
 import { findDevPreviewTrigger, isCancellableAgentWork } from "./lib/agentActivity";
 import { isComposerSendDisabled } from "./lib/composerSendGate";
 import { useRuntimeReady } from "./lib/runtime";
 import { MessageTimeline } from "./components/MessageTimeline";
 import { FloatingComposer } from "./components/FloatingComposer";
+import { TurnProgressLine } from "./components/TurnProgressLine";
 import { BottomTerminalPanel } from "./components/TerminalPanel";
 import type { CodeReviewState } from "./components/CodeReviewSection";
 import type { ReviewMode, ReviewScope } from "./lib/codeReview";
@@ -61,23 +63,20 @@ import {
   NO_WORKSPACE_VALUE,
   setStoredWriteWorkspaceRoot,
 } from "./lib/writeWorkspace";
+import { applyThemeFromSettings } from "./lib/applyThemeFromSettings";
 import {
-  applyTheme,
   clearLegacyThemePreference,
   normalizeThemePreference,
   normalizeThemeStyleForTheme,
   readLegacyThemePreference,
 } from "./lib/theme";
-import { syncDesktopGitSettings } from "./lib/desktopGitPrefs";
 import {
   markLocalAppearanceMigrated,
   readLocalAppearanceForMigration,
-  syncAppearanceFromSettings,
 } from "./lib/appearancePrefs";
 import {
   markLocalCodeReviewMigrated,
   readLocalCodeReviewForMigration,
-  syncCodeReviewSettings,
 } from "./lib/codeReviewPrefs";
 import { GITHUB_CLI_SETTINGS_EVENT } from "./lib/gitHubCliSettingsNav";
 import { useWindowStatePersistence } from "./lib/windowState";
@@ -382,12 +381,7 @@ export default function App() {
       }
       const settings = await app.Settings();
       if (cancelled) return;
-      const nextTheme = normalizeThemePreference(settings.desktopTheme);
-      const nextStyle = normalizeThemeStyleForTheme(settings.desktopThemeStyle, nextTheme);
-      applyTheme(nextTheme, nextStyle, { syncSurfaces: false, persist: true });
-      syncAppearanceFromSettings(settings.desktopAppearance);
-      syncDesktopGitSettings(settings.desktopGit);
-      syncCodeReviewSettings(settings.desktopCodeReview);
+      applyThemeFromSettings(settings, "boot");
       setLocalePref(normalizeLangPref(settings.desktopLanguage));
     };
     void syncDesktopPreferences().catch((e) => {
@@ -1226,7 +1220,7 @@ export default function App() {
           .filter((message) => message.id !== pendingId)
           .concat({
             id: `side-err-${Date.now()}`,
-            text: t("common.operationFailed", { msg: String((e as Error)?.message ?? e) }),
+            text: t("common.operationFailed", { msg: toErrorMessage(e) }),
             outgoing: false,
             createdAt: Date.now(),
           }),
@@ -1614,6 +1608,13 @@ export default function App() {
                           if (askId) handleAnswerQuestion(askId, []);
                         }}
                       />
+                      {composerAgentRunning ? (
+                        <TurnProgressLine
+                          running={state.running}
+                          turnStartAt={state.turnStartAt}
+                          items={state.items}
+                        />
+                      ) : null}
                       <FloatingComposer
                         key={appMode === "write" ? "write" : "code"}
                         composerSurface={appMode === "write" ? "write" : "code"}

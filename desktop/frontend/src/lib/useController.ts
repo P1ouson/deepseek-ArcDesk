@@ -8,6 +8,7 @@ import { shouldBlockAgentSend } from "./agentActivity";
 import { asArray } from "./array";
 import { app, onEvent, onReady, onTabsShell } from "./bridge";
 import { sameWorkspaceRoot } from "./composerWorkspace";
+import { toErrorMessage } from "./errors";
 import { logBridgeError } from "./logBridgeError";
 import {
   BOOT_READY_MAX_POLLS,
@@ -656,7 +657,7 @@ export function useController() {
           meta: {
             label: "",
             ready: true,
-            startupErr: String((err as Error)?.message ?? err ?? t("boot.hydrateFailed")),
+            startupErr: toErrorMessage(err, t("boot.hydrateFailed")),
             eventChannel: "agent:event",
             cwd: "",
             bypass: false,
@@ -954,7 +955,7 @@ export function useController() {
 
   const reportFailure = useCallback((err: unknown) => {
     if (!activeTabId) return;
-    const msg = String((err as Error)?.message ?? err ?? "");
+    const msg = toErrorMessage(err);
     dispatchTo(activeTabId, {
       type: "local_notice",
       level: "warn",

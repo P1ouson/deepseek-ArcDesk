@@ -6,7 +6,9 @@ import { routeDesktopSend, type DesktopSendRoute } from "./desktopSendRouter";
 import type { AppMode } from "./appMode";
 import type { Translator } from "./i18n";
 import type { Mode } from "./types";
-import { applyTheme, getTheme, getThemeStyle, normalizeThemeStyleForTheme } from "./theme";
+import { applyThemeFromSettings } from "./applyThemeFromSettings";
+import { getTheme, getThemeStyle, normalizeThemeStyleForTheme } from "./theme";
+import { toErrorMessage } from "./errors";
 import { applyWriteModeSkill } from "./writeSkill";
 
 export type DesktopSendRouterDeps = {
@@ -67,7 +69,7 @@ async function executeDesktopSendRoute(route: DesktopSendRoute, deps: DesktopSen
           void deps.runCodeReview("standard", "all", paths);
         })
         .catch((err) => {
-          deps.notice(deps.t("common.operationFailed", { msg: String((err as Error)?.message ?? err) }), "warn");
+          deps.notice(deps.t("common.operationFailed", { msg: toErrorMessage(err) }), "warn");
         });
       return;
     case "openSdd":
@@ -85,7 +87,7 @@ async function executeDesktopSendRoute(route: DesktopSendRoute, deps: DesktopSen
     case "themeSet": {
       const nextStyle = normalizeThemeStyleForTheme(getThemeStyle(), route.theme);
       await app.SetDesktopAppearance(route.theme, nextStyle);
-      applyTheme(route.theme, nextStyle, { syncSurfaces: true });
+      applyThemeFromSettings(await app.Settings(), "slash");
       deps.notice(deps.t("settings.themeChangedSimple", { theme: route.theme }));
       return;
     }

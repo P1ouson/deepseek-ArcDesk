@@ -45,7 +45,7 @@ import { ComposerModeBar } from "./ComposerModeBar";
 import { ModelSwitcherMenu, ModelSwitcherTrigger } from "./ModelSwitcher";
 import { modelLabelFromRef } from "../lib/modelLabel";
 import { Tooltip } from "./Tooltip";
-import { useDismissOnOutsidePointerDown } from "../lib/useDismissOnOutsidePointerDown";
+import { useDismissOverlay } from "../lib/useDismissOverlay";
 import { AnchoredPopover } from "./AnchoredPopover";
 
 export type ComposerSessionTag = { id: string; label: string };
@@ -480,7 +480,7 @@ export function Composer({
           ? atMatches.length
           : 0;
 
-  useDismissOnOutsidePointerDown(Boolean(menuMode), () => setDismissed(true), {
+  useDismissOverlay(Boolean(menuMode), () => setDismissed(true), {
     excludeRefs: [taRef],
     excludeSelector: ".slashmenu",
   });

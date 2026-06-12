@@ -14,6 +14,8 @@ import {
   Shield,
 } from "lucide-react";
 import { app } from "../lib/bridge";
+import { useAsyncMutation } from "../lib/useAsyncMutation";
+import { applyThemeFromSettings } from "../lib/applyThemeFromSettings";
 import { useT } from "../lib/i18n";
 import type { AppMode } from "../lib/appMode";
 import type { RightDockTab } from "./Topbar";
@@ -119,8 +121,7 @@ export function SettingsPage({
 }: SettingsPageProps) {
   const t = useT();
   const [s, setS] = useState<SettingsView | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const { busy, err, run: runMutation } = useAsyncMutation();
   const [tab, setTab] = useState<SettingsTab>("general");
   const [ghCliSetupRequest, setGhCliSetupRequest] = useState<(GitHubCliSettingsNavDetail & { id: number }) | null>(
     null,
@@ -150,17 +151,13 @@ export function SettingsPage({
   }, []);
 
   const apply = async (fn: () => Promise<void>) => {
-    setBusy(true);
-    setErr(null);
-    try {
+    await runMutation(async () => {
       await fn();
-      await reload();
+      const latest = normalizeSettingsView(await app.Settings());
+      setS(latest);
+      if (latest) applyThemeFromSettings(latest, "settings");
       onChanged();
-    } catch (e) {
-      setErr(String((e as Error)?.message ?? e));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   const appearance = useAppearanceSettingsState(s, apply);
