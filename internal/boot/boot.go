@@ -19,27 +19,43 @@ import (
 	"strings"
 
 	"arcdesk/internal/agent"
+	"arcdesk/internal/archrag"
 	"arcdesk/internal/codegraph"
 	"arcdesk/internal/command"
+	"arcdesk/internal/callgraph"
 	"arcdesk/internal/config"
+	"arcdesk/internal/constraint"
 	"arcdesk/internal/control"
+	"arcdesk/internal/costrouter"
+	"arcdesk/internal/ctxcompress"
+	"arcdesk/internal/dependency"
+	"arcdesk/internal/envaware"
 	"arcdesk/internal/event"
+	"arcdesk/internal/failuremem"
+	"arcdesk/internal/gitrag"
+	"arcdesk/internal/guardian"
 	"arcdesk/internal/hook"
-	"arcdesk/internal/instruction"
 	"arcdesk/internal/jobs"
 	"arcdesk/internal/lsp"
 	"arcdesk/internal/memory"
 	"arcdesk/internal/netclient"
 	"arcdesk/internal/outputstyle"
 	"arcdesk/internal/permission"
+	"arcdesk/internal/planner"
 	"arcdesk/internal/plugin"
 	"arcdesk/internal/prompt"
 	"arcdesk/internal/provider"
 	"arcdesk/internal/repomap"
+	"arcdesk/internal/reporag"
+	"arcdesk/internal/runtime"
+	"arcdesk/internal/selfdebug"
 	"arcdesk/internal/sandbox"
 	"arcdesk/internal/skill"
+	"arcdesk/internal/taskdag"
 	"arcdesk/internal/tool"
 	"arcdesk/internal/tool/builtin"
+	"arcdesk/internal/uirag"
+	"arcdesk/internal/verification"
 )
 
 // ErrUnknownModel is returned by Build when the configured model can't be
@@ -78,6 +94,9 @@ type Options struct {
 	// DeferEagerMCP skips blocking MCP handshake during boot (desktop tabs). Eager
 	// plugins are registered as lazy placeholders and start on first use.
 	DeferEagerMCP bool
+	// Kit, when set, reuses workspace-scoped indexes, env probe, and MCP host
+	// prepared by PrepareWorkspaceKit (desktop multi-tab).
+	Kit *WorkspaceKit
 }
 
 // Build loads config, resolves the model(s), and returns a Controller wrapping a
@@ -99,9 +118,15 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// written config + ~/.env are picked up this same boot. CLI Run also calls this
 	// before config-only commands; this call stays as the shared frontend fallback.
 	migrated, migErr := config.MigrateLegacyIfNeeded()
-	cfg, err := config.LoadForRoot(root)
-	if err != nil {
-		return nil, err
+	var cfg *config.Config
+	if opts.Kit != nil && opts.Kit.Cfg != nil {
+		cfg = opts.Kit.Cfg
+	} else {
+		var err error
+		cfg, err = config.LoadForRoot(root)
+		if err != nil {
+			return nil, err
+		}
 	}
 	modelName := opts.Model
 	if modelName == "" {
@@ -128,6 +153,13 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// shares this synchronized sink. The job manager is session-scoped — its jobs
 	// outlive a turn and are cancelled by Controller.Close.
 	sink := event.Sync(opts.Sink)
+
+	var rtHub *runtime.Hub
+	if cfg.Runtime.ShouldEnable() {
+		rtHub = runtime.NewHub(runtime.ResolvedLimits(cfg.Runtime.ResolvedMaxEntries()))
+		sink = runtime.NewCaptureSink(sink, rtHub)
+		stderr = runtime.NewStderrWriter(stderr, rtHub)
+	}
 
 	if migErr != nil {
 		sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: "config migration from ~/.arcdesk failed: " + migErr.Error()})
@@ -185,9 +217,23 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// turn. Mid-session changes never touch this prefix — they ride the
 	// controller's transient turn-injection and fold in on the next session.
 	mem := memory.Load(memory.Options{CWD: root, UserDir: config.MemoryUserDir()})
-	projectChecks := instruction.ExtractHostChecks(mem.Docs)
+	projectChecks, verifyPolicy, verifyOK := verification.Resolve(root, cfg.Verification, mem.Docs)
+	var verifyPlan verification.Plan
+	if verifyOK {
+		verifyPlan = verification.NewPlan(projectChecks, verifyPolicy)
+	}
 	sysPrompt = memory.Compose(sysPrompt, mem)
-	sysPrompt = repomap.Compose(sysPrompt, root)
+	if cfg.Reporag.ShouldEnable() {
+		go func() {
+			if err := repomap.EnsureReady(root); err != nil {
+				slog.Debug("repomap ensure before boot", "root", root, "err", err)
+			}
+			if err := repomap.RefreshIfStale(root); err != nil {
+				slog.Debug("repomap background refresh", "root", root, "err", err)
+			}
+		}()
+		sysPrompt = repomap.Compose(sysPrompt, root)
+	}
 
 	// Skills: discover playbooks (built-in + project/custom/global) and fold their
 	// one-liner index into the same cache-stable prefix — names + descriptions
@@ -201,12 +247,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		Stderr:          opts.Stderr,
 	})
 	skills := skillStore.List()
-	allSkills := skill.New(skill.Options{
-		ProjectRoot:    root,
-		CustomPaths:    cfg.SkillCustomPaths(),
-		ProjectTrusted: hook.IsTrusted(root, ""),
-		Stderr:         io.Discard,
-	}).List()
+	allSkills := skillStore.ListAll()
 	sysPrompt = skill.ApplyIndex(sysPrompt, skills)
 
 	reg := tool.NewRegistry()
@@ -219,185 +260,356 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	}
 	searchSpec := builtin.ResolveSearch(cfg.Tools.Search.Engine, cfg.Tools.Search.RgPath, stderr)
 	addBuiltins(reg, cfg.Tools.Enabled, cfg.WriteRootsForRoot(root), bashSpec, searchSpec, stderr, root)
+
+	var depIdx *dependency.Index
+	var cgIdx *callgraph.Index
+	kitShared := opts.Kit != nil
+	if kitShared {
+		depIdx = opts.Kit.DepIdx
+		cgIdx = opts.Kit.CgIdx
+		if depIdx != nil {
+			dependency.RegisterTools(reg, depIdx)
+		}
+		if cgIdx != nil {
+			callgraph.RegisterTools(reg, cgIdx)
+		}
+	} else if cfg.Dependency.ShouldIndex(dependency.Discoverable(root)) {
+		idx, err := dependency.Open(root)
+		if err != nil {
+			slog.Debug("dependency: open skipped", "err", err)
+		} else {
+			depIdx = idx
+			if err := depIdx.EnsureReady(ctx); err != nil {
+				fmt.Fprintln(stderr, "warning: dependency index not ready:", err)
+			}
+			dependency.RegisterTools(reg, depIdx)
+			go func() {
+				if err := depIdx.RefreshIfStale(context.WithoutCancel(ctx)); err != nil {
+					slog.Debug("dependency: background refresh", "err", err)
+				}
+			}()
+		}
+	}
+
+	if !kitShared && cfg.Callgraph.ShouldIndex(callgraph.Discoverable(root)) {
+		var catalog callgraph.ModuleCatalog
+		if depIdx != nil {
+			catalog = callgraph.NewDependencyCatalog(depIdx)
+		}
+		idx, err := callgraph.Open(root, catalog)
+		if err != nil {
+			slog.Debug("callgraph: open skipped", "err", err)
+		} else {
+			cgIdx = idx
+			if err := cgIdx.EnsureReady(ctx); err != nil {
+				fmt.Fprintln(stderr, "warning: callgraph index not ready:", err)
+			}
+			callgraph.RegisterTools(reg, cgIdx)
+			if depIdx != nil {
+				depIdx.SetBridgeImpactAnalyzer(newBridgeImpactAdapter(cgIdx))
+			}
+			go func() {
+				if err := cgIdx.RefreshIfStale(context.WithoutCancel(ctx)); err != nil {
+					slog.Debug("callgraph: background refresh", "err", err)
+				}
+			}()
+		}
+	}
+
+	if rtHub != nil {
+		runtime.RegisterTools(reg, rtHub)
+	}
+
+	if cfg.GitRag.ShouldEnable(gitrag.Discoverable(root)) {
+		if repo, err := gitrag.Open(root); err == nil {
+			gitrag.RegisterTools(reg, repo)
+		} else {
+			slog.Debug("gitrag: open skipped", "err", err)
+		}
+	}
+
+	var archIdx *archrag.Index
+	if cfg.ArchRag.ShouldEnable() {
+		archIdx = archrag.NewIndex(root, cfg.ArchRag.Paths)
+		archrag.RegisterTools(reg, archIdx)
+	}
+
+	var phaseTracker *planner.Tracker
+	if cfg.PhasePlanner.ShouldEnable() {
+		phaseTracker = planner.NewTracker(cfg.PhasePlanner.GatesEnforced())
+		planner.RegisterTools(reg, phaseTracker)
+	}
+
+	var taskdagTracker *taskdag.Tracker
+	if cfg.TaskDAG.ShouldEnable() {
+		taskdagTracker = taskdag.NewTracker()
+		taskdag.RegisterTools(reg, taskdagTracker)
+	}
+
+	var failureStore *failuremem.Store
+	if cfg.FailureMemory.ShouldEnable() && strings.TrimSpace(root) != "" {
+		if store, err := failuremem.Open(root, cfg.FailureMemory.ResolvedMaxEntries()); err == nil {
+			failureStore = store
+			failuremem.RegisterTools(reg, store)
+		} else {
+			slog.Debug("failuremem: open skipped", "err", err)
+		}
+	}
+
+	var envSnap envaware.Snapshot
+	if cfg.EnvAware.ShouldEnable() {
+		if kitShared {
+			envSnap = opts.Kit.EnvSnap
+		} else {
+			envSnap = envaware.Probe(ctx, root)
+		}
+		envaware.RegisterTools(reg, envSnap)
+		envaware.RegisterRefreshTool(reg, root)
+		if cfg.EnvAware.PromptFoldEnabled() {
+			sysPrompt += "\n\n" + envaware.ComposeBlock(envSnap)
+		}
+	}
+
+	if verifyOK {
+		verification.RegisterTools(reg, verifyPlan)
+	}
+
+	var sdTracker *selfdebug.Tracker
+	if verifyOK && cfg.Selfdebug.ShouldEnable() {
+		sdTracker = selfdebug.NewTracker(selfdebug.Plan{Checks: projectChecks, Policy: verifyPolicy})
+		selfdebug.RegisterTools(reg, sdTracker)
+	}
+
 	// Always construct a host, even with no plugins configured, so the controller's
 	// host pointer is stable for the session and `/mcp add` can hot-add into it.
 	pluginHost := plugin.NewHost()
-
-	plugins, blockedMCP := filterTrustedMCPPlugins(root, cfg.Plugins, "")
-	mcpFile := config.MCPJSONPathForRoot(root)
-	for _, e := range blockedMCP {
-		sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: mcpTrustNotice(e, mcpFile)})
-	}
-
-	// Partition configured plugins by tier so eager/lazy/background can each
-	// take the path that fits them. User entries default to lazy — they don't
-	// slow the next launch unless the user explicitly opts in to eager.
-	eagerEntries, lazyEntries, bgEntries := partitionByTier(autoStartPlugins(plugins))
-
-	// Auto-demote: any eager plugin that has been chronically slow (recent
-	// samples repeatedly hit the blocking startup budget) drops to lazy
-	// for this session. The user keeps eager intent, just doesn't pay for it
-	// on a server that's been misbehaving. A notice surfaces the demotion.
 	var demoteMessages []string
-	budget := plugin.DefaultStartupBudget()
-	kept := eagerEntries[:0]
-	for _, e := range eagerEntries {
-		rec := plugin.Recommend(e.Name, budget, 0)
-		if rec.Demote {
-			demoteMessages = append(demoteMessages, rec.Reason)
-			lazyEntries = append(lazyEntries, e)
-			continue
+	if kitShared {
+		pluginHost = opts.Kit.PluginHost
+		opts.Kit.RegisterInto(reg, ctx)
+	} else {
+		plugins, blockedMCP := filterTrustedMCPPlugins(root, cfg.Plugins, "")
+		mcpFile := config.MCPJSONPathForRoot(root)
+		for _, e := range blockedMCP {
+			sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: mcpTrustNotice(e, mcpFile)})
 		}
-		kept = append(kept, e)
-	}
-	eagerEntries = kept
 
-	eagerSpecs := PluginSpecs(eagerEntries)
-	lazySpecs := PluginSpecs(lazyEntries)
-	bgSpecs := PluginSpecs(bgEntries)
+		eagerEntries, lazyEntries, bgEntries := partitionByTier(autoStartPlugins(plugins))
 
-	// CodeGraph is a built-in MCP server fetched on first use. When it resolves,
-	// inject it as one more stdio plugin pinned to the project root (it is
-	// cwd-aware); EnsureInit only creates .codegraph/ (fast, size-independent),
-	// serve's daemon then indexes in the background, so startup never blocks even
-	// on a large repo. When it is not yet installed, fetch it in the background
-	// (one-time, ~45MB) if auto_install is on — startup still never blocks, the
-	// tools come online next session — otherwise point the user at the explicit
-	// install command. A failed init or fetch is a notice, not fatal.
-	//
-	// CodeGraph follows the same user-selectable tier model as ordinary MCP
-	// servers when a tier is set. EnsureInit only creates .codegraph/ (fast,
-	// size-independent). With no explicit tier — an upgraded config that predates
-	// the setting — it keeps the historical startup: warm projects eager so
-	// symbol tools are ready on the first turn, cold projects in the background.
-	if cfg.Codegraph.Enabled {
-		bin, ok := codegraph.Resolve(cfg.Codegraph.Path)
-		switch {
-		case ok:
-			spec := plugin.Spec{
-				Name:              "codegraph",
-				Command:           bin,
-				Args:              []string{"serve", "--mcp"},
-				Dir:               root,
-				ReadOnlyToolNames: codegraph.ReadOnlyToolNames(),
+		budget := plugin.DefaultStartupBudget()
+		kept := eagerEntries[:0]
+		for _, e := range eagerEntries {
+			rec := plugin.Recommend(e.Name, budget, 0)
+			if rec.Demote {
+				demoteMessages = append(demoteMessages, rec.Reason)
+				lazyEntries = append(lazyEntries, e)
+				continue
 			}
-			warm := codegraph.Initialized(root)
-			if err := codegraph.EnsureInit(ctx, bin, root); err != nil {
-				sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn,
-					Text: "codegraph: init failed (" + err.Error() + ") — symbol-graph tools disabled this session"})
-				break
-			}
-			bgNotice := func() {
-				if !warm {
-					sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo,
-						Text: "codegraph: preparing code-intelligence tools in the background — tools will appear when ready"})
+			kept = append(kept, e)
+		}
+		eagerEntries = kept
+
+		eagerSpecs := PluginSpecs(eagerEntries)
+		lazySpecs := PluginSpecs(lazyEntries)
+		bgSpecs := PluginSpecs(bgEntries)
+
+		if cfg.Codegraph.Enabled {
+			bin, ok := codegraph.Resolve(cfg.Codegraph.Path)
+			switch {
+			case ok:
+				spec := plugin.Spec{
+					Name:              "codegraph",
+					Command:           bin,
+					Args:              []string{"serve", "--mcp"},
+					Dir:               root,
+					ReadOnlyToolNames: codegraph.ReadOnlyToolNames(),
 				}
-			}
-			if strings.TrimSpace(cfg.Codegraph.Tier) == "" {
-				if warm {
+				warm := codegraph.Initialized(root)
+				if err := codegraph.EnsureInit(ctx, bin, root); err != nil {
+					sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn,
+						Text: "codegraph: init failed (" + err.Error() + ") — symbol-graph tools disabled this session"})
+					break
+				}
+				bgNotice := func() {
+					if !warm {
+						sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo,
+							Text: "codegraph: preparing code-intelligence tools in the background — tools will appear when ready"})
+					}
+				}
+				if strings.TrimSpace(cfg.Codegraph.Tier) == "" {
+					if warm {
+						eagerSpecs = append(eagerSpecs, spec)
+					} else {
+						bgSpecs = append(bgSpecs, spec)
+						bgNotice()
+					}
+					break
+				}
+				switch cfg.Codegraph.ResolvedTier() {
+				case "eager":
 					eagerSpecs = append(eagerSpecs, spec)
-				} else {
+				case "background":
 					bgSpecs = append(bgSpecs, spec)
 					bgNotice()
+				default:
+					lazySpecs = append(lazySpecs, spec)
 				}
-				break
-			}
-			switch cfg.Codegraph.ResolvedTier() {
-			case "eager":
-				eagerSpecs = append(eagerSpecs, spec)
-			case "background":
-				bgSpecs = append(bgSpecs, spec)
-				bgNotice()
+			case cfg.Codegraph.AutoInstall:
+				notify := func(msg string) { sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: msg}) }
+				notify("codegraph: fetching code-intelligence runtime in the background (one-time) — symbol-graph tools available next session")
+				codegraphClient, err := netclient.NewHTTPClient(proxySpec, netclient.TransportOptions{})
+				if err != nil {
+					notify("codegraph: install skipped (" + err.Error() + ")")
+				} else {
+					go func() {
+						if _, err := codegraph.InstallWithClient(context.WithoutCancel(ctx), codegraphClient, nil); err != nil {
+							notify("codegraph: install failed (" + err.Error() + ") — using grep/glob; retries next session")
+						} else {
+							notify("codegraph: installed — symbol-graph tools available next session")
+						}
+					}()
+				}
 			default:
-				lazySpecs = append(lazySpecs, spec)
+				sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo,
+					Text: "codegraph: not installed — run `ARCDESK codegraph install` to enable symbol-graph tools"})
 			}
-		case cfg.Codegraph.AutoInstall:
-			notify := func(msg string) { sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: msg}) }
-			notify("codegraph: fetching code-intelligence runtime in the background (one-time) — symbol-graph tools available next session")
-			codegraphClient, err := netclient.NewHTTPClient(proxySpec, netclient.TransportOptions{})
-			if err != nil {
-				notify("codegraph: install skipped (" + err.Error() + ")")
-			} else {
-				go func() {
-					if _, err := codegraph.InstallWithClient(context.WithoutCancel(ctx), codegraphClient, nil); err != nil {
-						notify("codegraph: install failed (" + err.Error() + ") — using grep/glob; retries next session")
-					} else {
-						notify("codegraph: installed — symbol-graph tools available next session")
-					}
-				}()
+		}
+
+		if opts.Stderr != nil {
+			for i := range eagerSpecs {
+				eagerSpecs[i].Stderr = opts.Stderr
 			}
-		default:
-			sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo,
-				Text: "codegraph: not installed — run `ARCDESK codegraph install` to enable symbol-graph tools"})
+			for i := range lazySpecs {
+				lazySpecs[i].Stderr = opts.Stderr
+			}
+			for i := range bgSpecs {
+				bgSpecs[i].Stderr = opts.Stderr
+			}
 		}
-	}
 
-	// Apply caller-supplied stderr override to every spec across tiers.
-	if opts.Stderr != nil {
-		for i := range eagerSpecs {
-			eagerSpecs[i].Stderr = opts.Stderr
+		if len(eagerSpecs) > 0 && opts.DeferEagerMCP {
+			lazySpecs = append(lazySpecs, eagerSpecs...)
+			eagerSpecs = nil
 		}
-		for i := range lazySpecs {
-			lazySpecs[i].Stderr = opts.Stderr
-		}
-		for i := range bgSpecs {
-			bgSpecs[i].Stderr = opts.Stderr
-		}
-	}
-
-	// Eager: block until handshake. Failures show up in /mcp.
-	// Desktop defers eager MCP to first use so tab boot stays fast.
-	if len(eagerSpecs) > 0 && opts.DeferEagerMCP {
-		lazySpecs = append(lazySpecs, eagerSpecs...)
-		eagerSpecs = nil
-	}
-	if len(eagerSpecs) > 0 {
-		host, ptools := plugin.StartAvailable(ctx, eagerSpecs)
-		pluginHost = host
-		for _, t := range ptools {
-			reg.Add(t)
-		}
-		// PhaseB (prompts + resources) runs on the boot ctx — which is the
-		// controller's session-scoped PluginCtx — so the auxiliary surfaces
-		// keep streaming in after Start returns without holding up the agent.
-		go host.StartPhaseB(ctx, sink)
-		if text, ok := MCPStartupNotice(host.Failures()); ok {
-			sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: text})
-		}
-	}
-
-	// Lazy / background: register placeholder tools now; the real spawn waits
-	// for either the first model call (lazy) or a goroutine kicked off here
-	// (background). Both share the same pluginHost so /mcp status, hot-add,
-	// and Close see one cohesive set of servers regardless of tier.
-	registerDeferred := func(specs []plugin.Spec, kick bool) {
-		for _, s := range specs {
-			cs, _ := plugin.LoadCachedSchema(s.Name, plugin.SpecFingerprint(s))
-			for _, t := range plugin.LazyToolset(s, cs, pluginHost, reg, ctx, kick) {
+		if len(eagerSpecs) > 0 {
+			host, ptools := plugin.StartAvailable(ctx, eagerSpecs)
+			pluginHost = host
+			for _, t := range ptools {
 				reg.Add(t)
 			}
+			go host.StartPhaseB(ctx, sink)
+			if text, ok := MCPStartupNotice(host.Failures()); ok {
+				sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: text})
+			}
 		}
+
+		registerDeferred := func(specs []plugin.Spec, kick bool) {
+			for _, s := range specs {
+				cs, _ := plugin.LoadCachedSchema(s.Name, plugin.SpecFingerprint(s))
+				for _, t := range plugin.LazyToolset(s, cs, pluginHost, reg, ctx, kick) {
+					reg.Add(t)
+				}
+			}
+		}
+		registerDeferred(lazySpecs, false)
+		registerDeferred(bgSpecs, true)
 	}
-	registerDeferred(lazySpecs, false)
-	registerDeferred(bgSpecs, true)
+
+	if cgIdx != nil {
+		cgIdx.SetSymbolQuery(callgraph.NewSymbolQueryFromRegistry(reg))
+	}
 
 	for _, msg := range demoteMessages {
 		sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: msg})
 	}
 
-	cleanup := pluginHost.Close
+	cleanup := func() {}
+	if !kitShared {
+		cleanup = pluginHost.Close
+	}
 
 	// LSP tools resolve their servers on PATH and spawn lazily on first query, so
 	// registering them is cheap even when no server is installed (a query then
 	// returns an install hint). The manager is session-scoped; chain its shutdown
 	// into the controller's cleanup so servers stop with the session, not the turn.
+	var lspMgr *lsp.Manager
 	if cfg.LSP.Enabled {
-		lspMgr := lsp.NewManager(root, LSPSpecs(cfg.LSP))
+		lspMgr = lsp.NewManager(root, LSPSpecs(cfg.LSP))
 		for _, t := range lsp.Tools(lspMgr) {
 			reg.Add(t)
 		}
 		prev := cleanup
 		cleanup = func() { prev(); lspMgr.Close() }
+	}
+
+	if cfg.Reporag.ShouldEnable() {
+		reporag.RegisterTools(reg, &reporag.Host{
+			Root:             root,
+			Dep:              depIdx,
+			Callgraph:        cgIdx,
+			LSP:              lspMgr,
+			Reg:              reg,
+			CodegraphEnabled: cfg.Codegraph.Enabled,
+		})
+	}
+
+	var constraintEng *constraint.Engine
+	if cfg.Constraint.ShouldEnable() {
+		constraintEng = constraint.NewEngine(&constraint.Host{
+			Root:      root,
+			Dep:       depIdx,
+			Callgraph: cgIdx,
+		}, constraint.DefaultSettings())
+		constraint.RegisterTools(reg, constraintEng)
+	}
+
+	var guardianEng *guardian.Guardian
+	if cfg.ArchitectureGuardian.ShouldEnable() {
+		if archIdx == nil {
+			archIdx = archrag.NewIndex(root, cfg.ArchRag.Paths)
+		}
+		guardianEng = guardian.New(archIdx, constraintEng)
+		guardian.RegisterTools(reg, guardianEng)
+	}
+
+	if cfg.UIRag.ShouldEnable(uirag.Discoverable(root)) {
+		uiIdx := uirag.BuildIndex(root)
+		uirag.RegisterTools(reg, uiIdx)
+	}
+
+	var costRouter *costrouter.Router
+	if cfg.CostRouter.ShouldEnable() {
+		costRouter = costrouter.New(costrouter.Config{
+			Enabled:       true,
+			DefaultModel:  modelName,
+			ClassifyModel: cfg.CostRouter.ClassifyModel,
+			ExecuteModel:  cfg.CostRouter.ExecuteModel,
+			CompactModel:  cfg.CostRouter.CompactModel,
+			ExploreModel:  cfg.CostRouter.ExploreModel,
+		})
+		costrouter.RegisterTools(reg, costRouter)
+	}
+
+	var ctxCompressor *ctxcompress.Compressor
+	var toolOutputMaxBytes int
+	if cfg.ContextCompression.ShouldEnable() {
+		ctxCompressor = ctxcompress.New(ctxcompress.Config{
+			Enabled:            true,
+			ToolOutputMaxBytes: cfg.ContextCompression.ResolvedToolOutputMaxBytes(),
+		})
+		ctxcompress.RegisterTools(reg, ctxCompressor)
+		toolOutputMaxBytes = ctxCompressor.MaxToolOutputBytes()
+	}
+
+	var summarizeProv provider.Provider
+	if costRouter != nil && costRouter.Enabled() {
+		if m := costRouter.ModelForTier(costrouter.TierCompact); m != "" {
+			if me, ok := cfg.ResolveModel(m); ok {
+				if p, err := NewProviderWithProxy(me, proxySpec); err == nil {
+					summarizeProv = p
+				}
+			}
+		}
 	}
 
 	maxSteps := cfg.Agent.MaxSteps
@@ -459,7 +671,13 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// Its tool activity nests under the invoking call, like `task`.
 	skillRunner := func(sctx context.Context, sk skill.Skill, task string) (string, error) {
 		prov, price, ctxWin := execProv, entry.Price, entry.ContextWindow
-		if modelRef := subagentModelRef(cfg, sk); modelRef != "" {
+		modelRef := subagentModelRef(cfg, sk)
+		if modelRef == "" && costRouter != nil && costRouter.Enabled() {
+			if _, routed := costRouter.ResolveModel(task, modelName); routed != "" {
+				modelRef = routed
+			}
+		}
+		if modelRef != "" {
 			if me, ok := cfg.ResolveModel(modelRef); ok {
 				if p, err := NewProviderWithProxy(me, proxySpec); err == nil {
 					prov, price, ctxWin = p, me.Price, me.ContextWindow
@@ -503,6 +721,17 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		Hooks:             hookRunner,
 		Jobs:              jm,
 		ProjectChecks:     projectChecks,
+		VerifyMaxRetries:  verifyPolicy.MaxRetries,
+		DependencyIndex:   depIdx,
+		CallgraphIndex:    cgIdx,
+		RuntimeHub:        rtHub,
+		SelfdebugTracker:  sdTracker,
+		PhaseTracker:      phaseTracker,
+		FailureStore:      failureStore,
+		ConstraintEngine:  constraintEng,
+		GuardianEngine:    guardianEng,
+		ToolOutputMaxBytes: toolOutputMaxBytes,
+		SummarizeProvider: summarizeProv,
 		ContextWindow:     entry.ContextWindow,
 		SoftCompactRatio:  cfg.Agent.SoftCompactRatio,
 		CompactRatio:      cfg.Agent.CompactRatio,
@@ -555,7 +784,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 				return nil, fmt.Errorf("planner %q: %w", pm, err)
 			}
 			plannerSess := agent.NewSession(agent.DefaultPlannerPrompt)
-			runner = agent.NewCoordinator(plannerProv, plannerSess, pe.Price, executor, cfg.Agent.Temperature, sink, control.TaskWarrantsPlanner)
+			runner = agent.NewCoordinator(plannerProv, plannerSess, pe.Price, executor, cfg.Agent.Temperature, sink, control.TaskWarrantsPlanner, phaseTracker)
 			label = entry.Model + " + planner " + pe.Model
 		}
 	}
@@ -596,6 +825,8 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		WorkspaceRoot: root,
 		ReadRoots:     cfg.WriteRootsForRoot(root),
 		AutoPlan:      cfg.Agent.AutoPlan,
+		VerifyOnFailure: verifyPolicy.OnFailure,
+		RuntimeHub:      rtHub,
 		OnRemember: func(rule string) {
 			rememberPermissionRule(opts.WorkspaceRoot, rule)
 		},

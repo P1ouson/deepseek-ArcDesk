@@ -32,9 +32,13 @@ func TestHostAddRemove(t *testing.T) {
 		t.Fatalf("Servers() = %+v, want one server 'h' with 1 tool", got)
 	}
 
-	// A second add under the same name is rejected (no duplicate connection).
-	if _, err := h.Add(ctx, spec); err == nil {
-		t.Error("Add of an already-connected name should error")
+	// A second add under the same name reuses the existing connection (shared host).
+	tools2, err := h.Add(ctx, spec)
+	if err != nil {
+		t.Fatalf("second Add: %v", err)
+	}
+	if len(tools2) != 1 || tools2[0].Name() != "mcp__h__greet" {
+		t.Fatalf("second tools = %v, want [mcp__h__greet]", names(tools2))
 	}
 
 	prefix, found := h.Remove("h")

@@ -22,6 +22,7 @@ import { notifyBackgroundTabDecision } from "./agentNotifications";
 import { notifyTabMetasChanged } from "./events";
 import { t } from "./i18n";
 import { recordCompactionActivity, recordUsageActivity } from "./usageActivity";
+import { installRuntimeObserve } from "./runtimeObserve";
 import type {
   BalanceInfo,
   CheckpointMeta,
@@ -630,8 +631,10 @@ export function useController() {
         });
         if (meta.ready || meta.startupErr) {
           setBootPhase(null);
-        } else {
+        } else if ((statesRef.current.get(tabId)?.items.length ?? 0) > 0) {
           setBootPhase(t("boot.startingAgent"));
+        } else {
+          setBootPhase(null);
         }
         void Promise.all([
           withIPCTimeout(app.ContextUsageForTab(tabId), IPC_META_TIMEOUT_MS, "ContextUsageForTab"),
@@ -873,8 +876,17 @@ export function useController() {
 
   useEffect(() => {
     if (!activeTabId) return;
+    const existing = statesRef.current.get(activeTabId);
+    if (existing?.meta?.ready === true && !existing.meta.startupErr) {
+      return;
+    }
     void loadSessionDataForTab(activeTabId);
   }, [activeTabId, loadSessionDataForTab]);
+
+  useEffect(() => {
+    if (!activeTabId) return;
+    return installRuntimeObserve(activeTabId);
+  }, [activeTabId]);
 
   useEffect(() => {
     if (!activeTabId) return;
@@ -894,6 +906,12 @@ export function useController() {
           await loadSessionDataForTab(activeTabId);
           setBootPhase(null);
           return;
+        }
+
+        const itemCount = statesRef.current.get(activeTabId)?.items.length ?? 0;
+        if (itemCount === 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, BOOT_READY_POLL_MS));
+          continue;
         }
 
         setBootPhase(t("boot.startingAgent"));
@@ -1217,8 +1235,8 @@ export function useController() {
       setIdleReady(false);
       setActiveTabId(meta.id);
       const cached = statesRef.current.get(meta.id);
-      if (reload || !cached?.meta) {
-        await loadSessionDataForTab(meta.id, reload);
+      if (freshSession || reload || !cached?.meta) {
+        await loadSessionDataForTab(meta.id, freshSession || reload);
       }
       notifyTabMetasChanged();
       return meta;
@@ -1238,8 +1256,8 @@ export function useController() {
       setIdleReady(false);
       setActiveTabId(meta.id);
       const cached = statesRef.current.get(meta.id);
-      if (reload || !cached?.meta) {
-        await loadSessionDataForTab(meta.id, reload);
+      if (freshSession || reload || !cached?.meta) {
+        await loadSessionDataForTab(meta.id, freshSession || reload);
       }
       notifyTabMetasChanged();
       return meta;

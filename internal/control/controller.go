@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -41,6 +42,8 @@ import (
 	"arcdesk/internal/permission"
 	"arcdesk/internal/plugin"
 	"arcdesk/internal/provider"
+	"arcdesk/internal/rollback"
+	"arcdesk/internal/runtime"
 	"arcdesk/internal/sandbox"
 	"arcdesk/internal/skill"
 	"arcdesk/internal/tool"
@@ -142,6 +145,10 @@ type Controller struct {
 	// a fresh memory takes effect this session without busting the prompt cache;
 	// it joins the prefix naturally on the next session.
 	pendingMemory []string
+
+	verifyOnFailure string // retry | rollback | ask — from [verification].on_failure
+
+	runtimeHub *runtime.Hub
 }
 
 type approvalReply struct {
@@ -193,6 +200,11 @@ type Options struct {
 	// persist to disk (e.g. "bash(go build*)"). The callback is wired into the
 	// permission Gate on EnableInteractiveApproval.
 	OnRemember func(rule string)
+	// VerifyOnFailure selects rollback after verification exhaustion (see
+	// [verification].on_failure). Empty means retry without host rollback.
+	VerifyOnFailure string
+	// RuntimeHub is the session-scoped runtime observation store (may be nil).
+	RuntimeHub *runtime.Hub
 }
 
 // New builds a Controller. A nil Sink is replaced with event.Discard.
@@ -228,6 +240,8 @@ func New(opts Options) *Controller {
 		autoPlan:      normalizeAutoPlan(opts.AutoPlan),
 		classifier:    classifier,
 		onRemember:    opts.OnRemember,
+		verifyOnFailure: strings.ToLower(strings.TrimSpace(opts.VerifyOnFailure)),
+		runtimeHub:      opts.RuntimeHub,
 		balanceURL:    opts.BalanceURL,
 		balanceKey:    opts.BalanceKey,
 		balanceClient: opts.BalanceClient,
@@ -249,6 +263,27 @@ func New(opts Options) *Controller {
 			}
 		})
 		c.executor.SetMemoryQueue(c)
+		rbHost := rollback.NewHost(
+			func() *checkpoint.Store {
+				c.mu.Lock()
+				defer c.mu.Unlock()
+				return c.cp
+			},
+			c.cpRoot,
+			func() int {
+				c.mu.Lock()
+				defer c.mu.Unlock()
+				if c.cpTurn > 0 {
+					return c.cpTurn - 1
+				}
+				return -1
+			},
+		)
+		c.executor.SetRollbackHost(rbHost)
+		c.executor.SetVerifyOnFailure(c.verifyOnFailure)
+		if opts.Registry != nil {
+			rollback.RegisterTools(opts.Registry, rbHost)
+		}
 	}
 	return c
 }
@@ -280,16 +315,27 @@ func (c *Controller) rebindCheckpoints(sessionPath string) {
 // current message count as the conversation-rewind boundary. Called at the top of
 // runTurn, before the user message is appended.
 func (c *Controller) beginCheckpoint(input string) {
-	if c.cp == nil || c.executor == nil {
-		return
-	}
 	c.mu.Lock()
 	turn := c.cpTurn
 	c.cpTurn++
-	msgIndex := len(c.executor.Session().Messages)
-	c.cpBound[turn] = msgIndex
+	msgIndex := 0
+	if c.executor != nil {
+		msgIndex = len(c.executor.Session().Messages)
+	}
+	hub := c.runtimeHub
+	cp := c.cp
+	exec := c.executor
+	if c.cpBound != nil {
+		c.cpBound[turn] = msgIndex
+	}
 	c.mu.Unlock()
-	c.cp.Begin(turn, input, msgIndex)
+	if hub != nil {
+		hub.SetTurn(turn)
+	}
+	if cp == nil || exec == nil {
+		return
+	}
+	cp.Begin(turn, input, msgIndex)
 }
 
 // --- commands (frontend → controller) ---
@@ -315,8 +361,33 @@ func (c *Controller) runGuarded(body func(ctx context.Context) error) {
 		err := body(ctx)
 		c.mu.Lock()
 		c.running = false
+		onFailure := c.verifyOnFailure
+		turn := c.cpTurn - 1
 		c.cancel = nil
 		c.mu.Unlock()
+		if err != nil && errors.Is(err, agent.ErrVerifyExhausted) && onFailure == "rollback" && turn >= 0 {
+			shouldRollback := c.executor == nil || c.executor.VerifyFailureShouldRollback()
+			if shouldRollback {
+				var report rollback.Report
+				c.mu.Lock()
+				if c.cp != nil {
+					report = rollback.BuildReport(c.cpRoot, c.cp.RestorePlan(turn))
+				}
+				c.mu.Unlock()
+				if rerr := c.Rewind(turn, RewindBoth); rerr != nil {
+					err = fmt.Errorf("%w; rollback failed: %v", err, rerr)
+				} else {
+					text := rollback.FormatAutoNotice(report)
+					c.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: text})
+				}
+			} else {
+				c.sink.Emit(event.Event{
+					Kind:  event.Notice,
+					Level: event.LevelInfo,
+					Text:  "verification readiness exhausted without a failed check; kept workspace edits (re-run the listed checks or rewind manually)",
+				})
+			}
+		}
 		c.sink.Emit(event.Event{Kind: event.TurnDone, Err: explainError(err)})
 	}()
 }
@@ -1479,6 +1550,14 @@ func (c *Controller) SetSkillEnabled(name string, enabled bool) error {
 // so a frontend can list the active hooks via `/hooks`.
 func (c *Controller) HookRunner() *hook.Runner { return c.hooks }
 
+// ToolRegistry returns the live session tool registry (nil when unavailable).
+func (c *Controller) ToolRegistry() *tool.Registry {
+	if c == nil {
+		return nil
+	}
+	return c.reg
+}
+
 // RegisterSessionTool adds a tool for the remainder of this controller session.
 // Desktop uses this for UI affordances (e.g. open_web_preview) after boot.Build.
 func (c *Controller) RegisterSessionTool(t tool.Tool) {
@@ -1486,6 +1565,14 @@ func (c *Controller) RegisterSessionTool(t tool.Tool) {
 		return
 	}
 	c.reg.Add(t)
+}
+
+// RuntimeHub returns the session runtime observation store, if enabled.
+func (c *Controller) RuntimeHub() *runtime.Hub {
+	if c == nil {
+		return nil
+	}
+	return c.runtimeHub
 }
 
 // AddMCPServer connects an MCP server live and persists it to the config file. Its

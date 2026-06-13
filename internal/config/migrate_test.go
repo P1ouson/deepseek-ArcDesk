@@ -86,6 +86,7 @@ func TestMigrateRoundTripsThroughLoad(t *testing.T) {
 	if _, err := MigrateLegacyIfNeeded(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	InvalidateConfigCache(".")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("load: %v", err)

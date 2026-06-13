@@ -12,15 +12,25 @@ import (
 	"unicode/utf8"
 
 	"arcdesk/internal/benchagent"
+	"arcdesk/internal/callgraph"
+	"arcdesk/internal/constraint"
+	"arcdesk/internal/dependency"
 	"arcdesk/internal/diff"
 	"arcdesk/internal/event"
 	"arcdesk/internal/evidence"
+	"arcdesk/internal/failuremem"
+	"arcdesk/internal/guardian"
 	"arcdesk/internal/instruction"
 	"arcdesk/internal/jobs"
 	"arcdesk/internal/memory"
 	"arcdesk/internal/nilutil"
+	"arcdesk/internal/planner"
 	"arcdesk/internal/provider"
+	"arcdesk/internal/rollback"
+	"arcdesk/internal/runtime"
+	"arcdesk/internal/selfdebug"
 	"arcdesk/internal/tool"
+	"arcdesk/internal/verification"
 )
 
 // maxToolOutputBytes caps a single tool result before it goes into the model's
@@ -29,7 +39,12 @@ import (
 // window before the next compaction runs.
 const maxToolOutputBytes = 32 * 1024
 
-const maxFinalReadinessBlocks = 3
+const defaultVerifyMaxRetries = 3
+
+// ErrVerifyExhausted is returned when post-write verification checks still fail
+// after the configured retry budget. The controller may roll back the turn when
+// verification.on_failure = "rollback".
+var ErrVerifyExhausted = errors.New("verification exhausted")
 
 // ErrEmptyModelResponse is returned when the provider completes a stream with
 // no assistant text, reasoning, or tool calls.
@@ -221,6 +236,43 @@ type Agent struct {
 	// verify against same-turn bash receipts after a write-backed completion.
 	projectChecks []instruction.VerifyCheck
 
+	verifyMaxRetries int
+
+	// dependencyIndex supplies module-level impact for verify retry prompts.
+	dependencyIndex *dependency.Index
+
+	// callgraphIndex supplies Wails call chain context for cross-realm verify retries.
+	callgraphIndex *callgraph.Index
+
+	// runtimeHub supplies live console/network/shell observations for verify retries.
+	runtimeHub *runtime.Hub
+
+	// selfdebugTracker drives the unified write→verify→fix loop when set.
+	selfdebugTracker *selfdebug.Tracker
+
+	// phaseTracker enforces phased plan execution when set.
+	phaseTracker *planner.Tracker
+
+	// failureStore persists failure→fix lessons when set.
+	failureStore *failuremem.Store
+
+	// constraintEngine blocks or warns on policy-violating writes before they run.
+	constraintEngine *constraint.Engine
+
+	// guardianEngine adds SPEC-aware architecture checks on top of constraints.
+	guardianEngine *guardian.Guardian
+
+	toolOutputMaxBytes int
+	summarizeProv      provider.Provider
+
+	// rollbackHost supplies structured auto-diff previews for verify rollback.
+	rollbackHost *rollback.Host
+
+	verifyOnFailure string
+
+	verifyFailureMu   sync.Mutex
+	lastVerifyFailure verifyFailureSnapshot
+
 	// memQueue, when non-nil, lets the remember/forget tools fold a turn-tail note
 	// about a just-made memory change into the next turn, so it applies this
 	// session without touching the cache-stable prefix. Set via SetMemoryQueue.
@@ -384,6 +436,46 @@ type Options struct {
 
 	// ProjectChecks are host-observable structured checks extracted during boot.
 	ProjectChecks []instruction.VerifyCheck
+
+	// VerifyMaxRetries bounds final-answer readiness re-prompts when project
+	// checks or todo evidence is missing after a write. Zero uses defaultVerifyMaxRetries.
+	VerifyMaxRetries int
+
+	// DependencyIndex enables module-level impact context on verify retries.
+	DependencyIndex *dependency.Index
+
+	// CallgraphIndex enables Wails cross-realm call chain context on verify retries.
+	CallgraphIndex *callgraph.Index
+
+	// RuntimeHub enables live runtime observation context on verify retries.
+	RuntimeHub *runtime.Hub
+
+	// SelfdebugTracker enables the unified self-debug loop orchestrator.
+	SelfdebugTracker *selfdebug.Tracker
+
+	// PhaseTracker enables phased plan gates and planner_* tools integration.
+	PhaseTracker *planner.Tracker
+
+	// FailureStore enables failuremem_record/search persistence.
+	FailureStore *failuremem.Store
+
+	// ConstraintEngine enforces duplicate/reuse/fake-UI/architecture guardrails.
+	ConstraintEngine *constraint.Engine
+
+	// GuardianEngine adds P2 SPEC-aware architecture guardian checks.
+	GuardianEngine *guardian.Guardian
+
+	// ToolOutputMaxBytes overrides the default 32 KiB tool-result cap when > 0.
+	ToolOutputMaxBytes int
+
+	// SummarizeProvider, when set, is used for session compaction instead of prov.
+	SummarizeProvider provider.Provider
+
+	// VerifyOnFailure selects host behavior when verification exhausts (retry|rollback|ask).
+	VerifyOnFailure string
+
+	// RollbackHost enables structured rollback diff previews (wired by controller).
+	RollbackHost *rollback.Host
 }
 
 // New constructs an Agent. MaxSteps <= 0 means no cap — the run loop continues
@@ -402,6 +494,10 @@ func New(prov provider.Provider, tools *tool.Registry, session *Session, opts Op
 	}
 	if opts.RecentKeep <= 0 {
 		opts.RecentKeep = minRecentKeep
+	}
+	verifyMaxRetries := opts.VerifyMaxRetries
+	if verifyMaxRetries <= 0 {
+		verifyMaxRetries = defaultVerifyMaxRetries
 	}
 	if nilutil.IsNil(sink) {
 		sink = event.Discard
@@ -427,6 +523,19 @@ func New(prov provider.Provider, tools *tool.Registry, session *Session, opts Op
 		jobs:              opts.Jobs,
 		evidence:          evidence.NewLedger(),
 		projectChecks:     append([]instruction.VerifyCheck(nil), opts.ProjectChecks...),
+		verifyMaxRetries:  verifyMaxRetries,
+		dependencyIndex:   opts.DependencyIndex,
+		callgraphIndex:    opts.CallgraphIndex,
+		runtimeHub:        opts.RuntimeHub,
+		selfdebugTracker:  opts.SelfdebugTracker,
+		phaseTracker:      opts.PhaseTracker,
+		failureStore:      opts.FailureStore,
+		constraintEngine:  opts.ConstraintEngine,
+		guardianEngine:    opts.GuardianEngine,
+		toolOutputMaxBytes: opts.ToolOutputMaxBytes,
+		summarizeProv:      opts.SummarizeProvider,
+		rollbackHost:        opts.RollbackHost,
+		verifyOnFailure:     strings.ToLower(strings.TrimSpace(opts.VerifyOnFailure)),
 		contextWindow:     opts.ContextWindow,
 		softCompactRatio:  opts.SoftCompactRatio,
 		compactRatio:      opts.CompactRatio,
@@ -446,6 +555,7 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 	if a.evidence != nil {
 		a.evidence.Reset()
 	}
+	a.clearVerifyFailure()
 	a.repeatSuccessCounts = nil
 	a.sink.Emit(event.Event{Kind: event.TurnStarted})
 	a.session.Add(provider.Message{Role: provider.RoleUser, Content: input})
@@ -493,11 +603,33 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 		if len(calls) == 0 {
 			if reason := a.finalReadinessFailure(); reason != "" {
 				finalReadinessBlocks++
-				if finalReadinessBlocks >= maxFinalReadinessBlocks {
-					return fmt.Errorf("final-answer readiness failed %d times: %s", finalReadinessBlocks, reason)
+				if finalReadinessBlocks >= a.verifyMaxRetries {
+					return fmt.Errorf("%w: %s", ErrVerifyExhausted, reason)
 				}
 				a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: "final-answer readiness blocked: " + reason})
-				a.session.Add(provider.Message{Role: provider.RoleUser, Content: finalReadinessRetryMessage(reason)})
+				msg := finalReadinessRetryMessage(reason)
+				if a.selfdebugTracker != nil {
+					if block := a.selfdebugRetryContext(finalReadinessBlocks); block != "" {
+						msg += "\n\n" + block
+					}
+				} else {
+					if block := a.dependencyRetryContext(); block != "" {
+						msg += "\n\n" + block
+					}
+					if block := a.callgraphRetryContext(); block != "" {
+						msg += "\n\n" + block
+					}
+					if block := a.runtimeRetryContext(); block != "" {
+						msg += "\n\n" + block
+					}
+					if block := a.verificationRetryContext(); block != "" {
+						msg += "\n\n" + block
+					}
+				}
+				if block := a.rollbackRetryContext(finalReadinessBlocks); block != "" {
+					msg += "\n\n" + block
+				}
+				a.session.Add(provider.Message{Role: provider.RoleUser, Content: msg})
 				a.maybeCompact(ctx, usage)
 				continue
 			}
@@ -525,6 +657,11 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 }
 
 func (a *Agent) finalReadinessFailure() string {
+	if a.phaseTracker != nil {
+		if block := a.phaseTracker.BlockFinalAnswer(); block != "" {
+			return block
+		}
+	}
 	if a.evidence == nil {
 		return ""
 	}
@@ -586,7 +723,347 @@ func finalReadinessCheckSource(check instruction.VerifyCheck) string {
 }
 
 func finalReadinessRetryMessage(reason string) string {
-	return "Host final-answer readiness check failed. Before giving a final answer, address the missing host-observable receipts: " + reason + ". Run the required tool calls, then answer when readiness is satisfied."
+	return "Host final-answer readiness check failed. Before giving a final answer, address the missing host-observable receipts: " + reason + ". Run each required check via bash (you may prefix with cd; use the listed command text for each check). Then answer when readiness is satisfied."
+}
+
+// VerifyFailureShouldRollback reports whether an exhausted verify turn should
+// auto-rewind workspace state. Readiness-only exhaustion (checks never recorded
+// as failed) keeps edits — the code may already be correct.
+func (a *Agent) VerifyFailureShouldRollback() bool {
+	if a == nil || a.evidence == nil {
+		return false
+	}
+	writer, hasWriter := a.evidence.LatestSuccessfulWriterIndex()
+	if !hasWriter {
+		return false
+	}
+	last, ok := a.evidence.LatestVerifyBashAfter(writer, selfdebug.IsVerifyCommand)
+	if !ok {
+		return false
+	}
+	return !last.Success
+}
+
+func (a *Agent) rollbackRetryContext(attempt int) string {
+	if a == nil || a.rollbackHost == nil || a.verifyOnFailure != "rollback" {
+		return ""
+	}
+	if attempt < a.verifyMaxRetries-1 {
+		return ""
+	}
+	turn := a.rollbackHost.ActiveTurn()
+	if turn < 0 {
+		return ""
+	}
+	return rollback.BuildRetryContext(a.rollbackHost.Report(turn))
+}
+
+type verifyFailureSnapshot struct {
+	command string
+	output  string
+}
+
+// SetDependencyIndex wires the workspace dependency index for verify retry context.
+func (a *Agent) SetDependencyIndex(idx *dependency.Index) {
+	if a == nil {
+		return
+	}
+	a.dependencyIndex = idx
+}
+
+// SetCallgraphIndex wires the workspace callgraph index for verify retry context.
+func (a *Agent) SetCallgraphIndex(idx *callgraph.Index) {
+	if a == nil {
+		return
+	}
+	a.callgraphIndex = idx
+}
+
+// SetRuntimeHub wires the session runtime observation hub for verify retry context.
+func (a *Agent) SetRuntimeHub(hub *runtime.Hub) {
+	if a == nil {
+		return
+	}
+	a.runtimeHub = hub
+}
+
+// SetRollbackHost wires structured rollback diff previews for verify exhaustion.
+func (a *Agent) SetRollbackHost(host *rollback.Host) {
+	if a == nil {
+		return
+	}
+	a.rollbackHost = host
+}
+
+// SetVerifyOnFailure sets the host policy when verification retries are exhausted.
+func (a *Agent) SetVerifyOnFailure(onFailure string) {
+	if a == nil {
+		return
+	}
+	a.verifyOnFailure = strings.ToLower(strings.TrimSpace(onFailure))
+}
+
+func (a *Agent) clearVerifyFailure() {
+	if a == nil {
+		return
+	}
+	a.verifyFailureMu.Lock()
+	a.lastVerifyFailure = verifyFailureSnapshot{}
+	a.verifyFailureMu.Unlock()
+}
+
+func (a *Agent) noteVerifyFailure(call provider.ToolCall, execErr error, result string) {
+	var args struct {
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
+		return
+	}
+	cmd := strings.TrimSpace(args.Command)
+	if !selfdebug.IsVerifyCommand(cmd) {
+		return
+	}
+	a.verifyFailureMu.Lock()
+	defer a.verifyFailureMu.Unlock()
+	if execErr == nil {
+		a.lastVerifyFailure = verifyFailureSnapshot{}
+		return
+	}
+	out := strings.TrimSpace(result)
+	if len(out) > 2000 {
+		out = out[:2000]
+	}
+	a.lastVerifyFailure = verifyFailureSnapshot{command: cmd, output: out}
+}
+
+func (a *Agent) dependencyRetryContext() string {
+	if a == nil || a.dependencyIndex == nil || a.evidence == nil {
+		return ""
+	}
+	writer, ok := a.evidence.LatestSuccessfulWriterIndex()
+	if !ok {
+		return ""
+	}
+	paths := a.evidence.WrittenPathsAfter(writer)
+	failedCmd, stderr := a.latestVerifyFailureForRetry(writer)
+	if failedCmd == "" {
+		for _, check := range a.projectChecks {
+			cmd := strings.TrimSpace(check.Command)
+			if cmd == "" {
+				continue
+			}
+			if !a.evidence.HasSuccessfulCommandAfter(cmd, writer) && dependency.IsVerifyCommand(cmd) {
+				failedCmd = cmd
+				break
+			}
+		}
+	}
+	if failedCmd == "" {
+		return ""
+	}
+	return dependency.BuildFailureContext(a.dependencyIndex, paths, failedCmd, stderr)
+}
+
+func (a *Agent) callgraphRetryContext() string {
+	if a == nil || a.callgraphIndex == nil || a.evidence == nil {
+		return ""
+	}
+	writer, ok := a.evidence.LatestSuccessfulWriterIndex()
+	if !ok {
+		return ""
+	}
+	paths := a.evidence.WritePathsThrough(writer)
+	if extra := a.evidence.WrittenPathsAfter(writer); len(extra) > 0 {
+		seen := map[string]bool{}
+		for _, p := range paths {
+			seen[p] = true
+		}
+		for _, p := range extra {
+			if p == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			paths = append(paths, p)
+		}
+	}
+	failedCmd, _ := a.latestVerifyFailureForRetry(writer)
+	if failedCmd == "" {
+		for _, check := range a.projectChecks {
+			cmd := strings.TrimSpace(check.Command)
+			if cmd == "" {
+				continue
+			}
+			if !a.evidence.HasSuccessfulCommandAfter(cmd, writer) && callgraph.IsVerifyCommand(cmd) {
+				failedCmd = cmd
+				break
+			}
+		}
+	}
+	if failedCmd == "" {
+		return ""
+	}
+	return callgraph.BuildCrossRealmContext(a.callgraphIndex, paths, failedCmd)
+}
+
+func (a *Agent) runtimeRetryContext() string {
+	if a == nil || a.runtimeHub == nil || a.evidence == nil {
+		return ""
+	}
+	writer, ok := a.evidence.LatestSuccessfulWriterIndex()
+	if !ok {
+		writer = 0
+	}
+	failedCmd, stderr := a.latestVerifyFailureForRetry(writer)
+	if failedCmd == "" {
+		for _, check := range a.projectChecks {
+			cmd := strings.TrimSpace(check.Command)
+			if cmd == "" {
+				continue
+			}
+			if !a.evidence.HasSuccessfulCommandAfter(cmd, writer) && runtime.IsVerifyCommand(cmd) {
+				failedCmd = cmd
+				break
+			}
+		}
+	}
+	if failedCmd == "" {
+		return ""
+	}
+	return runtime.BuildVerifyContext(a.runtimeHub, failedCmd, stderr)
+}
+
+func (a *Agent) verificationRetryContext() string {
+	if a == nil || a.evidence == nil || len(a.projectChecks) == 0 {
+		return ""
+	}
+	writer, ok := a.evidence.LatestSuccessfulWriterIndex()
+	if !ok {
+		writer = 0
+	}
+	failedCmd, stderr := a.latestVerifyFailureForRetry(writer)
+	if failedCmd == "" {
+		for _, check := range a.projectChecks {
+			cmd := strings.TrimSpace(check.Command)
+			if cmd == "" {
+				continue
+			}
+			if !a.evidence.HasSuccessfulCommandAfter(cmd, writer) && verification.IsVerifyCommand(cmd) {
+				failedCmd = cmd
+				break
+			}
+		}
+	}
+	if failedCmd == "" {
+		return ""
+	}
+	return verification.BuildRetryContext(a.projectChecks, failedCmd, stderr)
+}
+
+func (a *Agent) selfdebugInput(attempt int) selfdebug.Input {
+	in := selfdebug.Input{
+		Checks:       a.projectChecks,
+		Attempt:      attempt,
+		MaxRetries:   a.verifyMaxRetries,
+		DepIndex:     a.dependencyIndex,
+		CGIndex:      a.callgraphIndex,
+		RuntimeHub:   a.runtimeHub,
+	}
+	if a.evidence == nil {
+		return in
+	}
+	writer, ok := a.evidence.LatestSuccessfulWriterIndex()
+	if !ok {
+		return in
+	}
+	in.HasWriter = true
+	in.WriterIndex = writer
+	in.WrittenPaths = a.evidence.WrittenPathsAfter(writer)
+	in.CallgraphPaths = a.evidence.WritePathsThrough(writer)
+	if extra := a.evidence.WrittenPathsAfter(writer); len(extra) > 0 {
+		seen := map[string]bool{}
+		for _, p := range in.CallgraphPaths {
+			seen[p] = true
+		}
+		for _, p := range extra {
+			if p == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			in.CallgraphPaths = append(in.CallgraphPaths, p)
+		}
+	}
+	failedCmd, stderr := a.latestVerifyFailureForRetry(writer)
+	in.FailedCmd = failedCmd
+	in.Stderr = stderr
+	in.HasSuccessfulCommandAfter = a.evidence.HasSuccessfulCommandAfter
+	return in
+}
+
+func (a *Agent) selfdebugRetryContext(attempt int) string {
+	if a == nil || a.selfdebugTracker == nil || a.evidence == nil {
+		return ""
+	}
+	in := a.selfdebugInput(attempt)
+	block := selfdebug.BuildRetryContext(in)
+	if a.guardianEngine != nil {
+		paths := in.WrittenPaths
+		if extra := guardian.BuildRetryContext(a.guardianEngine, paths); extra != "" {
+			if block != "" {
+				block += "\n\n" + extra
+			} else {
+				block = extra
+			}
+		}
+	} else if a.constraintEngine != nil {
+		paths := in.CallgraphPaths
+		if len(paths) == 0 {
+			paths = in.WrittenPaths
+		}
+		if extra := constraint.BuildRetryContext(a.constraintEngine, paths); extra != "" {
+			if block != "" {
+				block += "\n\n" + extra
+			} else {
+				block = extra
+			}
+		}
+	}
+	a.selfdebugTracker.Update(selfdebug.AnalyzeSnapshot(in))
+	if block != "" && a.failureStore != nil {
+		block += "\n\nTip: search failuremem_search for similar past fixes before guessing."
+	}
+	return block
+}
+
+func (a *Agent) selfdebugImmediateHint(cmd, stderr string) string {
+	if a == nil || a.selfdebugTracker == nil || a.evidence == nil {
+		return ""
+	}
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" || !selfdebug.IsVerifyCommand(cmd) {
+		return ""
+	}
+	if _, ok := a.evidence.LatestSuccessfulWriterIndex(); !ok {
+		return ""
+	}
+	in := a.selfdebugInput(0)
+	in.FailedCmd = cmd
+	in.Stderr = stderr
+	hint := selfdebug.BuildImmediateHint(in)
+	a.selfdebugTracker.Update(selfdebug.AnalyzeSnapshot(in))
+	return hint
+}
+
+func (a *Agent) latestVerifyFailureForRetry(writer int) (command, stderr string) {
+	a.verifyFailureMu.Lock()
+	snap := a.lastVerifyFailure
+	a.verifyFailureMu.Unlock()
+	if snap.command != "" {
+		return snap.command, snap.output
+	}
+	if cmd, ok := a.evidence.LatestFailedVerifyCommandAfter(writer, dependency.IsVerifyCommand); ok {
+		return cmd, ""
+	}
+	return "", ""
 }
 
 // stream runs one completion, emitting reasoning and text deltas as typed
@@ -974,6 +1451,32 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 			}
 		}
 	}
+	var constraintResult constraint.Result
+	if !t.ReadOnly() {
+		if a.guardianEngine != nil {
+			if ch, ok := tool.PreviewChange(t, json.RawMessage(call.Arguments)); ok {
+				constraintResult = a.guardianEngine.CheckEdit(call.Name, ch)
+				if constraintResult.Blocked {
+					return toolOutcome{
+						output:  "blocked: [architecture_guardian] " + constraintResult.FormatBlockMessage(),
+						blocked: true,
+						errMsg:  "blocked by architecture guardian",
+					}
+				}
+			}
+		} else if a.constraintEngine != nil {
+			if ch, ok := tool.PreviewChange(t, json.RawMessage(call.Arguments)); ok {
+				constraintResult = a.constraintEngine.CheckEdit(call.Name, ch)
+				if constraintResult.Blocked {
+					return toolOutcome{
+						output:  "blocked: [constraint] " + constraintResult.FormatBlockMessage(),
+						blocked: true,
+						errMsg:  "blocked by constraint system",
+					}
+				}
+			}
+		}
+	}
 	// Checkpoint the file this writer is about to change, so the turn can be
 	// rewound. Fires after all gating (the edit is cleared to run) and only for
 	// tools that can describe their change; a Preview error means the edit will
@@ -1003,6 +1506,9 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 		a.sink.Emit(event.Event{Kind: event.ToolProgress, Tool: event.Tool{ID: callID, Output: chunk}})
 	})
 	result, err := t.Execute(cctx, json.RawMessage(call.Arguments))
+	if call.Name == "bash" {
+		a.noteVerifyFailure(call, err, result)
+	}
 	if a.evidence != nil {
 		if call.Name == "complete_step" {
 			if err == nil {
@@ -1026,7 +1532,17 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 		if !json.Valid([]byte(call.Arguments)) {
 			detail = strings.TrimRight(detail, "\n") + "\nThe arguments were not valid JSON. Re-emit them exactly per this schema:\n" + string(t.Schema())
 		}
-		body, truncMsg := truncateToolOutput(fmt.Sprintf("error: %v\n%s", err, detail))
+		body, truncMsg := a.truncateToolOutput(fmt.Sprintf("error: %v\n%s", err, detail))
+		if call.Name == "bash" {
+			var args struct {
+				Command string `json:"command"`
+			}
+			if json.Unmarshal([]byte(call.Arguments), &args) == nil {
+				if hint := a.selfdebugImmediateHint(args.Command, body); hint != "" {
+					body += "\n\n" + hint
+				}
+			}
+		}
 		return toolOutcome{output: body, errMsg: firstLine(err.Error()), truncated: truncMsg != "", truncMsg: truncMsg}
 	}
 	a.recordRepeatSuccess(call, t)
@@ -1036,7 +1552,12 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 	if a.hooks != nil && call.Name == "task" && !isBackgroundTaskCall(call.Arguments) {
 		a.hooks.SubagentStop(ctx, result)
 	}
-	body, truncMsg := truncateToolOutput(result)
+	body, truncMsg := a.truncateToolOutput(result)
+	if !constraintResult.Blocked {
+		if hint := constraintResult.FormatWarnHint(); hint != "" {
+			body = strings.TrimRight(body, "\n") + "\n\n" + hint
+		}
+	}
 	return toolOutcome{output: body, truncated: truncMsg != "", truncMsg: truncMsg}
 }
 
@@ -1199,10 +1720,25 @@ func firstLine(s string) string {
 // trimmed body plus a one-line user-facing notice when truncation happened
 // (empty when it didn't, without the "· " display prefix).
 func truncateToolOutput(s string) (string, string) {
-	if len(s) <= maxToolOutputBytes {
+	return truncateToolOutputWithMax(s, maxToolOutputBytes)
+}
+
+func (a *Agent) truncateToolOutput(s string) (string, string) {
+	max := maxToolOutputBytes
+	if a != nil && a.toolOutputMaxBytes > 0 {
+		max = a.toolOutputMaxBytes
+	}
+	return truncateToolOutputWithMax(s, max)
+}
+
+func truncateToolOutputWithMax(s string, maxBytes int) (string, string) {
+	if maxBytes <= 0 {
+		maxBytes = maxToolOutputBytes
+	}
+	if len(s) <= maxBytes {
 		return s, ""
 	}
-	keep := maxToolOutputBytes / 2
+	keep := maxBytes / 2
 	head := snapToRuneBoundary(s, 0, keep)
 	tail := snapToRuneBoundary(s, len(s)-keep, len(s))
 	omitted := len(s) - len(head) - len(tail)

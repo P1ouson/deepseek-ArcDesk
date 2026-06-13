@@ -7,6 +7,7 @@ import (
 
 	"arcdesk/internal/event"
 	"arcdesk/internal/nilutil"
+	"arcdesk/internal/planner"
 	"arcdesk/internal/provider"
 )
 
@@ -37,13 +38,15 @@ type Coordinator struct {
 	// trivial, non-work turn (a question, a greeting) skip straight to the
 	// executor instead of paying a planner round on it.
 	shouldPlan func(string) bool
+	// phaseTracker receives the planner output as phased stages when set.
+	phaseTracker *planner.Tracker
 }
 
 // NewCoordinator wires a planner provider (with its own session) to an executor.
 // sink receives the planner's phase/text/usage events; the executor emits its
 // own events to its own sink (the CLI wires the same sink into both). A nil
 // sink is replaced with event.Discard.
-func NewCoordinator(planner provider.Provider, plannerSession *Session, plannerPricing *provider.Pricing, executor *Agent, temperature float64, sink event.Sink, shouldPlan func(string) bool) *Coordinator {
+func NewCoordinator(planner provider.Provider, plannerSession *Session, plannerPricing *provider.Pricing, executor *Agent, temperature float64, sink event.Sink, shouldPlan func(string) bool, phaseTracker *planner.Tracker) *Coordinator {
 	if nilutil.IsNil(sink) {
 		sink = event.Discard
 	}
@@ -55,6 +58,7 @@ func NewCoordinator(planner provider.Provider, plannerSession *Session, plannerP
 		temperature:    temperature,
 		sink:           sink,
 		shouldPlan:     shouldPlan,
+		phaseTracker:   phaseTracker,
 	}
 }
 
@@ -62,6 +66,9 @@ func NewCoordinator(planner provider.Provider, plannerSession *Session, plannerP
 func (c *Coordinator) Run(ctx context.Context, input string) error {
 	c.sink.Emit(event.Event{Kind: event.TurnStarted})
 	if c.shouldPlan != nil && !c.shouldPlan(input) {
+		if c.phaseTracker != nil {
+			c.phaseTracker.Clear()
+		}
 		c.sink.Emit(event.Event{Kind: event.Phase, Text: c.executor.prov.Name() + " · executing"})
 		return c.executor.Run(ctx, input)
 	}
@@ -71,7 +78,14 @@ func (c *Coordinator) Run(ctx context.Context, input string) error {
 		return fmt.Errorf("planner: %w", err)
 	}
 	c.sink.Emit(event.Event{Kind: event.Phase, Text: c.executor.prov.Name() + " · executing"})
-	return c.executor.Run(ctx, formatHandoff(input, plan))
+	handoff := formatHandoff(input, plan)
+	if c.phaseTracker != nil {
+		c.phaseTracker.LoadFromPlan(plan)
+		if focus := c.phaseTracker.CurrentFocusBlock(); focus != "" {
+			handoff += "\n\n" + focus
+		}
+	}
+	return c.executor.Run(ctx, handoff)
 }
 
 // plan streams a plan from the planner (no tools) and appends it to the planner

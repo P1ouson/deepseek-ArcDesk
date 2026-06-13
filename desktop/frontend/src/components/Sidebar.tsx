@@ -27,7 +27,7 @@ export interface SidebarProps {
   appMode: AppMode;
   activeTab?: TabMeta;
   projectRevision: number;
-  onOpenTopic: (scope: string, workspaceRoot: string, topicId: string) => void;
+  onOpenTopic: (scope: string, workspaceRoot: string, topicId: string, freshSession?: boolean) => void;
   onOpenWorkspace: () => void;
   onNewChat: () => void;
   onNewFreshChat?: () => void;

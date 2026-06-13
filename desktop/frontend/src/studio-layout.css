@@ -999,6 +999,8 @@
 
 .workbench--studio:not(.workbench--write-mode) .welcome--code {
   width: min(100%, 680px);
+  position: relative;
+  z-index: 1;
 }
 
 .workbench--studio:not(.workbench--write-mode) .welcome--code .welcome__headline {

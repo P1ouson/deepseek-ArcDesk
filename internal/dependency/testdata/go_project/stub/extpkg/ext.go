@@ -1,0 +1,3 @@
+package extpkg
+
+func X() {}

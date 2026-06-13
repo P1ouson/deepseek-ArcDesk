@@ -149,6 +149,26 @@ func TestSaveAttachmentFileSanitizesExtension(t *testing.T) {
 	}
 }
 
+func TestSaveAttachmentDataURL(t *testing.T) {
+	t.Chdir(t.TempDir())
+	got, err := SaveAttachmentDataURL("notes.pdf", "data:application/pdf;base64,JVBERi0=")
+	if err != nil {
+		t.Fatalf("SaveAttachmentDataURL: %v", err)
+	}
+	if !strings.HasPrefix(got, ".arcdesk/attachments/") || !strings.HasSuffix(got, ".pdf") {
+		t.Fatalf("path = %q", got)
+	}
+}
+
+func TestImageExtBranches(t *testing.T) {
+	if ext := imageExt("image/png"); ext != ".png" {
+		t.Fatalf("png = %q", ext)
+	}
+	if ext := imageExt("image/webp"); ext != ".webp" {
+		t.Fatalf("webp = %q", ext)
+	}
+}
+
 func TestSaveAttachmentFileRejectsSymlink(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := os.WriteFile("source.bin", []byte("payload"), 0o644); err != nil {

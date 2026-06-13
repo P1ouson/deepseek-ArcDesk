@@ -46,6 +46,7 @@ import { parseTodos } from "./lib/tools";
 import { shouldShowTodoPanel } from "./lib/todoVisibility";
 import type { ComposerInsertRequest, ComposerWriteContext, MemoryView, Mode, QuestionAnswer, SessionMeta, TabMeta } from "./lib/types";
 import { recordRecentWorkspace } from "./lib/workspaceRecents";
+import { basename } from "./lib/workspaceFilePreview";
 import {
   clearStoredCodeWorkspaceRoot,
   getStoredCodeWorkspaceRoot,
@@ -639,6 +640,11 @@ export default function App() {
   // and the transcript re-render is deferred to idle time.
   const deferredItems = useDeferredValue(state.items);
   const deferredLive = useDeferredValue(state.live);
+  const [timelinePinnedToBottom, setTimelinePinnedToBottom] = useState(true);
+  // Keep transcript immediate while the user reads history; defer only when pinned
+  // to the bottom during an active turn (composer stays responsive).
+  const timelineItems = state.running && timelinePinnedToBottom ? deferredItems : state.items;
+  const timelineLive = state.running && timelinePinnedToBottom ? deferredLive : state.live;
   const showBootLoading =
     !activeTabId &&
     state.meta?.ready === false &&
@@ -899,8 +905,8 @@ export default function App() {
     }
     const meta =
       scope === "global"
-        ? await openGlobalTab(trimmedTopicId, false, freshSession)
-        : await openProjectTab(workspaceRoot, trimmedTopicId, false, freshSession);
+        ? await openGlobalTab(trimmedTopicId, freshSession, freshSession)
+        : await openProjectTab(workspaceRoot, trimmedTopicId, freshSession, freshSession);
     if (!meta?.id) return;
     await refreshTabMetas();
   }, [openGlobalTab, openProjectTab, refreshTabMetas]);
@@ -1007,9 +1013,24 @@ export default function App() {
     [purgeTrashedSession, listTrashedSessions],
   );
 
-  // Workspace: open the folder chooser and switch projects. The hook resets the
-  // transcript and refreshes meta on a pick. A cancel is a no-op.
+  const removeWorkspace = useCallback(async (path: string) => {
+    await app.RemoveWorkspace(path);
+    setProjectRevision((value) => value + 1);
+    await refreshTabMetas();
+  }, [refreshTabMetas]);
+
+  const refreshProjectsAndTabs = useCallback(async () => {
+    setProjectRevision((value) => value + 1);
+    const tabs = await refreshTabMetas();
+    if (activeTabId && !tabs.some((tab) => tab.id === activeTabId)) {
+      await syncActiveTab(true);
+    }
+  }, [activeTabId, refreshTabMetas, syncActiveTab]);
+
+  // Workspace: open the folder chooser, create a session tab, and sync sidebar.
   const switchFolder = useCallback(async (path?: string) => {
+    setAppMode("code");
+    setHistView(null);
     const picked = path === undefined ? await pickWorkspace() : await switchWorkspace(path);
     if (picked) {
       setStoredCodeWorkspaceRoot(picked);
@@ -1017,10 +1038,11 @@ export default function App() {
       setStoredComposerNoWorkspace(false);
       recordRecentWorkspace(picked);
       setProjectRevision((value) => value + 1);
-      await refreshTabMetas();
+      setProjectDrawerOpen(true);
+      await refreshProjectsAndTabs();
     }
     return picked;
-  }, [pickWorkspace, switchWorkspace, refreshTabMetas]);
+  }, [pickWorkspace, switchWorkspace, refreshProjectsAndTabs, setProjectDrawerOpen]);
 
   const openCodeWorkspace = useCallback(async () => {
     setAppMode("code");
@@ -1099,20 +1121,6 @@ export default function App() {
     [appMode, handleWriteWorkspaceChange, pickWriteWorkspace, switchFolder],
   );
 
-  const removeWorkspace = useCallback(async (path: string) => {
-    await app.RemoveWorkspace(path);
-    setProjectRevision((value) => value + 1);
-    await refreshTabMetas();
-  }, [refreshTabMetas]);
-
-  const refreshProjectsAndTabs = useCallback(async () => {
-    setProjectRevision((value) => value + 1);
-    const tabs = await refreshTabMetas();
-    if (activeTabId && !tabs.some((tab) => tab.id === activeTabId)) {
-      await syncActiveTab(true);
-    }
-  }, [activeTabId, refreshTabMetas, syncActiveTab]);
-
   const startNewTopic = useCallback(async (freshSession = false) => {
     setAppMode("code");
     let scope: "global" | "project" = activeTab?.scope === "global" ? "global" : "project";
@@ -1130,7 +1138,8 @@ export default function App() {
     }
     const continuity = freshSession ? "fresh" : "continue";
     try {
-      await app.CreateTopic(scope, workspaceRoot, "", continuity);
+      const topic = await app.CreateTopic(scope, workspaceRoot, "", continuity);
+      await handleOpenTopic(scope, workspaceRoot, topic.id, true);
       setProjectDrawerOpen(true);
       await refreshProjectsAndTabs();
     } catch {
@@ -1194,6 +1203,11 @@ export default function App() {
       ? activeTab?.workspaceRoot || getStoredCodeWorkspaceRoot() || undefined
       : undefined;
   const showTopbarWorkspace = isUsableCodeWorkspaceRoot(topbarWorkspacePath);
+  const workspaceDisplayName =
+    activeTab?.workspaceName?.trim() ||
+    (topbarWorkspacePath ? basename(topbarWorkspacePath) : "");
+  const showWorkspaceBackdrop =
+    chatMode && showTopbarWorkspace && timelineItems.length === 0 && !state.pendingUser;
 
   const handleSideSend = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -1392,8 +1406,8 @@ export default function App() {
           appMode={appMode}
           activeTab={activeTab}
           projectRevision={projectRevision}
-          onOpenTopic={(scope, workspaceRoot, topicId) => {
-            void handleOpenTopic(scope, workspaceRoot, topicId);
+          onOpenTopic={(scope, workspaceRoot, topicId, freshSession) => {
+            void handleOpenTopic(scope, workspaceRoot, topicId, freshSession);
           }}
           onOpenWorkspace={() => {
             void openCodeWorkspace();
@@ -1482,7 +1496,7 @@ export default function App() {
                   </div>
                 ) : chatMode ? (
                   <>
-                    {state.meta?.ready === false && !state.meta?.startupErr ? (
+                    {state.meta?.ready === false && !state.meta?.startupErr && !showWorkspaceBackdrop ? (
                       <div className="loading-screen loading-screen--inline" role="status">
                         <div className="loading-screen__spinner loading-screen__spinner--sm" />
                         <span className="loading-screen__text">{bootLoadingText}</span>
@@ -1490,9 +1504,9 @@ export default function App() {
                     ) : null}
                     <MessageTimeline
                     tabId={activeTabId}
-                    items={deferredItems}
+                    items={timelineItems}
                     pendingUser={state.pendingUser}
-                    live={deferredLive}
+                    live={timelineLive}
                     usage={state.usage}
                     sessionCost={state.sessionCost}
                     sessionCurrency={state.sessionCurrency}
@@ -1505,8 +1519,12 @@ export default function App() {
                     onOpenActionFile={openActionFilePreview}
                     onPrompt={handleSend}
                     onRewind={(turn, scope) => void rewind(turn, scope)}
+                    onPinnedToBottomChange={setTimelinePinnedToBottom}
                     showConnectionRecovery={showConnectionRecovery}
                     onOpenConnectionSetup={openOnboardingManual}
+                    workspaceName={showTopbarWorkspace ? workspaceDisplayName : undefined}
+                    workspacePath={showTopbarWorkspace ? topbarWorkspacePath : undefined}
+                    showWorkspaceMesh={showWorkspaceBackdrop}
                   />
                   </>
                 ) : (

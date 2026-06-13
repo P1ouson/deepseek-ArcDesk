@@ -11,7 +11,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"arcdesk/internal/agent"
-	"arcdesk/internal/boot"
 	"arcdesk/internal/config"
 	"arcdesk/internal/outputstyle"
 	"arcdesk/internal/provider"
@@ -395,6 +394,10 @@ func (a *App) applyConfigChange(mutate func(*config.Config) error) error {
 	if err := cfg.SaveTo(path); err != nil {
 		return err
 	}
+	config.InvalidateConfigCache("")
+	if tab := a.activeTab(); tab != nil {
+		a.invalidateWorkspaceKitForRoot(tab.Scope, tab.WorkspaceRoot)
+	}
 	return a.rebuild()
 }
 
@@ -471,7 +474,7 @@ func (a *App) rebuild() error {
 		prevPath = tab.Ctrl.SessionPath()
 		_ = tab.Ctrl.Snapshot()
 		carried = tab.Ctrl.History()
-		tab.Ctrl.Close()
+		a.closeTabController(tab)
 	}
 	model := tab.model
 	if cfg, err := config.LoadForRoot(tab.WorkspaceRoot); err == nil {
@@ -484,13 +487,7 @@ func (a *App) rebuild() error {
 	}
 	buildCtx, cancel := context.WithTimeout(a.bootContext(), 90*time.Second)
 	defer cancel()
-	ctrl, err := boot.Build(buildCtx, boot.Options{
-		Model: model, RequireKey: false,
-		Sink:           tab.sink,
-		WorkspaceRoot:  tab.WorkspaceRoot,
-		EffortOverride: cloneStringPtr(tab.effort),
-		DeferEagerMCP:  true,
-	})
+	ctrl, _, err := a.buildControllerForTab(tab, buildCtx, model, cloneStringPtr(tab.effort))
 	if err != nil {
 		a.mu.Lock()
 		tab.StartupErr = err.Error()

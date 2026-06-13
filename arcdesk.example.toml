@@ -29,6 +29,73 @@ compact_force_ratio = 0.9   # force compacting at this high-water mark
 # output_style = "explanatory"   # persona/tone folded into the prompt: explanatory | learning | concise,
 #                                  or a custom .ARCDESK/output-styles/<name>.md ; empty = default
 
+# Post-write verification (P0). After file edits the agent must run these checks
+# (via bash) before giving a final answer. Also merges AGENTS.md host checks and
+# auto-discovery (go.mod → go build; package.json → pnpm/npm build).
+# [verification]
+# enabled       = true
+# after_write   = ["go build ./...", "go test ./internal/..."]
+# auto_discover = true    # go.mod / package.json scripts
+# include_unit  = true
+# include_e2e   = false   # playwright/cypress — opt-in (needs browsers installed)
+# max_retries   = 3
+# on_failure    = "retry"   # retry | rollback | ask
+
+# Module/package dependency graph (native; complements codegraph symbol tools).
+# [dependency]
+# enabled       = true
+# auto_discover = true   # index when go.mod or package.json exists under the workspace
+
+# Git-aware retrieval (P1): blame, file history, optional gh PR/issue context.
+# [git_rag]
+# enabled       = true
+# auto_discover = true   # wire tools when the workspace is a git checkout
+
+# Architecture/policy document indexing (P1): SPEC, SECURITY, README sections.
+# [architecture_rag]
+# enabled = true
+# paths   = ["docs/ARCHITECTURE.md"]   # optional extra docs beyond defaults
+
+# Architecture Guardian (P2): SPEC-aware checks layered on constraint + arch RAG.
+# [architecture_guardian]
+# enabled = true   # default on when architecture_rag is enabled
+
+# UI-aware RAG (P2): discover React/TSX components under frontend trees.
+# [ui_rag]
+# enabled       = true
+# auto_discover = true
+
+# Task DAG (P2): dependency-ordered parallel sub-tasks via taskdag_* tools.
+# [task_dag]
+# enabled = true
+
+# Cost router (P2): route classify/execute/compact/explore work to cheaper models.
+# [cost_router]
+# enabled        = true
+# classify_model = "deepseek-flash"
+# compact_model  = "deepseek-flash"
+# explore_model  = "deepseek-flash"
+
+# Context compression (P2): cap tool output before it enters model context.
+# [context_compression]
+# enabled               = true
+# tool_output_max_bytes = 32768
+
+# Phased planner (P1): split plans into stages; gate final answers per phase.
+# [phase_planner]
+# enabled       = true
+# enforce_gates = true   # block final answer until planner_complete_phase
+
+# Failure memory (P1): persist failure→fix lessons under .arcdesk/
+# [failure_memory]
+# enabled     = true
+# max_entries = 500
+
+# Environment awareness (P1): OS + Go/Node/Wails toolchain probing.
+# [env_aware]
+# enabled          = true
+# fold_into_prompt = true
+
 # A provider is a vendor endpoint (one base_url + key) that offers one or more
 # models. Use `models = [...]` to expose several under a single entry — switching
 # models reuses the same connection; no need to re-declare base_url/api_key.

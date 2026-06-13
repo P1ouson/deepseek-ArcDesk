@@ -293,7 +293,8 @@ export const ThinkingBlockView = memo(function ThinkingBlockView({
 }) {
   const t = useT();
   const active = thinkingBlockIsActive(block);
-  const liveAttached = live != null && (live.id === block.id || block.streaming);
+  const liveAttached =
+    live != null && block.streaming && live.reasoning.trim().length > 0;
   const displayReasoning =
     liveAttached && live.reasoning.trim()
       ? block.reasoning.trim() && !block.reasoning.includes(live.reasoning.trim())
@@ -304,13 +305,15 @@ export const ThinkingBlockView = memo(function ThinkingBlockView({
   const hasTools = block.entries.length > 0;
   const [open, setOpen] = useState(active);
 
+  // Auto-expand while the block is active; collapse only when the turn finishes — avoids
+  // fold/unfold flicker between tool rounds when active briefly drops to false.
   useEffect(() => {
-    if (active) {
-      setOpen(true);
-      return;
-    }
-    setOpen(false);
-  }, [active, block.complete, block.streaming]);
+    if (active) setOpen(true);
+  }, [active]);
+
+  useEffect(() => {
+    if (block.complete && !active) setOpen(false);
+  }, [block.complete, active]);
 
   if (!hasReasoning && !hasTools) return null;
 

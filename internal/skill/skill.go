@@ -272,6 +272,46 @@ func (s *Store) List() []Skill {
 	return out
 }
 
+// ListAll returns every discoverable skill including disabled names, for UI
+// toggles. Uses the same scan as List but without the disabled filter.
+func (s *Store) ListAll() []Skill {
+	byName := map[string]Skill{}
+	for _, r := range s.roots() {
+		if r.Status != StatusOK {
+			continue
+		}
+		if !s.skillScopeAllowed(r.Scope) {
+			continue
+		}
+		entries, err := os.ReadDir(r.Dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			sk, ok := s.readEntry(r.Dir, r.Scope, e)
+			if !ok {
+				continue
+			}
+			if _, dup := byName[sk.Name]; !dup {
+				byName[sk.Name] = sk
+			}
+		}
+	}
+	if !s.disableBuiltins {
+		for _, sk := range builtinSkills() {
+			if _, dup := byName[sk.Name]; !dup {
+				byName[sk.Name] = sk
+			}
+		}
+	}
+	out := make([]Skill, 0, len(byName))
+	for _, sk := range byName {
+		out = append(out, sk)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 // Read resolves one skill by name, scanning the roots in priority order then the
 // built-ins. ok is false when no such skill exists or the file is unreadable.
 func (s *Store) Read(name string) (Skill, bool) {

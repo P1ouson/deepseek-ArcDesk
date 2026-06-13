@@ -104,7 +104,7 @@ func InstallWithClient(ctx context.Context, client *http.Client, log func(string
 	asset := assetName()
 	logf(log, "codegraph: downloading %s (%s, one-time)…", asset, Version)
 
-	base := fmt.Sprintf("https://github.com/%s/releases/download/%s", cgRepo, Version)
+	base := releaseDownloadBase()
 	sums, err := httpGet(ctx, client, base+"/SHA256SUMS")
 	if err != nil {
 		return "", fmt.Errorf("codegraph: fetch checksums: %w", err)
@@ -337,4 +337,13 @@ func logf(log func(string), format string, a ...any) {
 	if log != nil {
 		log(fmt.Sprintf(format, a...))
 	}
+}
+
+// releaseDownloadBase is the GitHub release URL for the pinned Version. Tests may
+// override via ARCDESK_CODEGRAPH_RELEASE_BASE to serve fixtures from httptest.
+func releaseDownloadBase() string {
+	if b := strings.TrimSpace(os.Getenv("ARCDESK_CODEGRAPH_RELEASE_BASE")); b != "" {
+		return strings.TrimRight(b, "/")
+	}
+	return fmt.Sprintf("https://github.com/%s/releases/download/%s", cgRepo, Version)
 }

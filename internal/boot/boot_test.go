@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,11 +30,21 @@ import (
 	_ "arcdesk/internal/tool/builtin"
 )
 
+// setupBootTest isolates the user config dir and sets the test provider API key
+// env so [[providers]] entries survive pruneUnconfiguredProviders during Build.
+func setupBootTest(t *testing.T) string {
+	t.Helper()
+	home := isolateConfigHome(t)
+	t.Setenv("arcdesk_TEST_KEY_UNSET", "test-key")
+	return home
+}
+
 // TestBuildFoldsProjectMemoryIntoSystemPrompt is the end-to-end proof of the
 // cache-first wiring: a project ARCDESK.md is discovered at boot and folded
 // into the session's system message (the cached prefix), and the `remember`
 // tool is registered. It builds a real Controller from a throwaway project dir.
 func TestBuildFoldsProjectMemoryIntoSystemPrompt(t *testing.T) {
+	setupBootTest(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -80,6 +91,191 @@ api_key_env = "arcdesk_TEST_KEY_UNSET"
 	}
 }
 
+func TestBuildWiresDependencyIndex(t *testing.T) {
+	isolateConfigHome(t)
+	t.Setenv("arcdesk_TEST_KEY_UNSET", "test-key")
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	writeFile(t, dir, "go.mod", "module boot.test\n\ngo 1.21\n")
+	writeFile(t, dir, "main.go", "package main\n\nfunc main() {}\n")
+	writeFile(t, dir, "arcdesk.toml", `
+default_model = "test-model"
+
+[codegraph]
+enabled = false
+
+[dependency]
+enabled = true
+auto_discover = true
+
+[agent]
+system_prompt = "BASE"
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "arcdesk_TEST_KEY_UNSET"
+`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ctrl, err := Build(ctx, Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer ctrl.Close()
+
+	indexPath := filepath.Join(dir, ".arcdesk", "dependency", "index.json")
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if _, err := os.Stat(indexPath); err == nil {
+			break
+		} else if time.Now().After(deadline) {
+			t.Fatalf("dependency index not created at %s: %v", indexPath, err)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+func TestBuildWiresCallgraphIndex(t *testing.T) {
+	isolateConfigHome(t)
+	t.Setenv("arcdesk_TEST_KEY_UNSET", "test-key")
+	dir := copyBootCallgraphProject(t)
+	t.Chdir(dir)
+
+	writeFile(t, dir, "arcdesk.toml", `
+default_model = "test-model"
+
+[codegraph]
+enabled = false
+
+[callgraph]
+enabled = true
+auto_discover = true
+
+[agent]
+system_prompt = "BASE"
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "arcdesk_TEST_KEY_UNSET"
+`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ctrl, err := Build(ctx, Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer ctrl.Close()
+
+	indexPath := filepath.Join(dir, ".arcdesk", "callgraph", "index.json")
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if _, err := os.Stat(indexPath); err == nil {
+			break
+		} else if time.Now().After(deadline) {
+			t.Fatalf("callgraph index not created at %s: %v", indexPath, err)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+func TestBuildSkipsDependencyWhenAutoDiscoverFalseAndEnabledUnset(t *testing.T) {
+	isolateConfigHome(t)
+	t.Setenv("arcdesk_TEST_KEY_UNSET", "test-key")
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	writeFile(t, dir, "go.mod", "module boot.test\n\ngo 1.21\n")
+	writeFile(t, dir, "main.go", "package main\n\nfunc main() {}\n")
+	writeFile(t, dir, "arcdesk.toml", `
+default_model = "test-model"
+
+[codegraph]
+enabled = false
+
+[dependency]
+auto_discover = false
+
+[agent]
+system_prompt = "BASE"
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "arcdesk_TEST_KEY_UNSET"
+`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	ctrl, err := Build(ctx, Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer ctrl.Close()
+
+	indexPath := filepath.Join(dir, ".arcdesk", "dependency", "index.json")
+	if _, err := os.Stat(indexPath); err == nil {
+		t.Fatal("dependency index should not be created when enabled unset and auto_discover=false")
+	}
+}
+
+func TestBuildWiresEmptyDependencyIndexWhenForcedEnabled(t *testing.T) {
+	isolateConfigHome(t)
+	t.Setenv("arcdesk_TEST_KEY_UNSET", "test-key")
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	writeFile(t, dir, "arcdesk.toml", `
+default_model = "test-model"
+
+[codegraph]
+enabled = false
+
+[dependency]
+enabled = true
+auto_discover = false
+
+[agent]
+system_prompt = "BASE"
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "arcdesk_TEST_KEY_UNSET"
+`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	ctrl, err := Build(ctx, Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer ctrl.Close()
+
+	indexPath := filepath.Join(dir, ".arcdesk", "dependency", "index.json")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(indexPath); err == nil {
+			break
+		} else if time.Now().After(deadline) {
+			t.Fatalf("expected empty dependency index at %s: %v", indexPath, err)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
 func TestNewProviderAppliesConfiguredDefaultEffort(t *testing.T) {
 	var gotReq map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -122,6 +318,7 @@ func TestNewProviderAppliesConfiguredDefaultEffort(t *testing.T) {
 // is discovered at boot, surfaced via Controller.Skills(), and its name folds
 // into the cache-stable system prompt's "# Skills" index alongside a built-in.
 func TestBuildDiscoversSkills(t *testing.T) {
+	setupBootTest(t)
 	dir := t.TempDir()
 	home := isolateHomeEnv(t)
 	t.Chdir(dir)
@@ -130,6 +327,9 @@ func TestBuildDiscoversSkills(t *testing.T) {
 default_model = "test-model"
 
 [codegraph]
+enabled = false
+
+[reporag]
 enabled = false
 
 [agent]
@@ -173,6 +373,7 @@ api_key_env = "arcdesk_TEST_KEY_UNSET"
 }
 
 func TestBuildOmitsDisabledSkillsFromPromptAndRuntimeList(t *testing.T) {
+	setupBootTest(t)
 	dir := t.TempDir()
 	home := isolateHomeEnv(t)
 	t.Chdir(dir)
@@ -181,6 +382,9 @@ func TestBuildOmitsDisabledSkillsFromPromptAndRuntimeList(t *testing.T) {
 default_model = "test-model"
 
 [codegraph]
+enabled = false
+
+[reporag]
 enabled = false
 
 [agent]
@@ -219,18 +423,22 @@ api_key_env = "arcdesk_TEST_KEY_UNSET"
 		t.Fatalf("AllSkills should include disabled skills for management: %v", ctrl.AllSkills())
 	}
 	sys := systemMessage(ctrl.History())
-	if strings.Contains(sys, "projskill") || strings.Contains(sys, "- review ") {
-		t.Fatalf("disabled skill names should be omitted from system prompt:\n%s", sys)
+	if skillIndexListsSkill(sys, "projskill") || skillIndexListsSkill(sys, "review") {
+		t.Fatalf("disabled skill names should be omitted from skills index:\n%s", sys)
 	}
 }
 
 func TestBuildRecordsMCPStartupFailure(t *testing.T) {
+	setupBootTest(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
 	writeFile(t, dir, "arcdesk.toml", `
 default_model = "test-model"
 
 [codegraph]
+enabled = false
+
+[reporag]
 enabled = false
 
 [agent]
@@ -280,12 +488,16 @@ tier = "eager"
 // memory files, the system prompt is exactly the configured base — the cache
 // prefix is untouched by the memory feature.
 func TestBuildWithoutMemoryLeavesPromptUnchanged(t *testing.T) {
+	setupBootTest(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
 	writeFile(t, dir, "arcdesk.toml", `
 default_model = "test-model"
 
 [codegraph]
+enabled = false
+
+[reporag]
 enabled = false
 
 [agent]
@@ -307,29 +519,30 @@ api_key_env = "arcdesk_TEST_KEY_UNSET"
 
 	sys := systemMessage(ctrl.History())
 	// The built-in skills always append a "# Skills" index to the prefix; this
-	// test is about memory, so strip that and assert the remaining base is exactly
-	// the configured prompt — i.e. no *project/ancestor* memory leaked in. (A
-	// user-global ARCDESK.md in the real config dir could append; the test
-	// environment has none, so the base stands alone.)
-	base := sys
+	// test is about memory, so strip boot-injected blocks and assert the remaining
+	// base is exactly the configured prompt — i.e. no *project/ancestor* memory
+	// leaked in. (A user-global ARCDESK.md in the real config dir could append; the
+	// test environment has none, so the base stands alone.)
+	base := stripBootInjectedPrefix(sys)
 	if i := strings.Index(sys, "\n\n# Skills"); i >= 0 {
-		base = sys[:i]
+		base = stripBootInjectedPrefix(sys[:i])
 	}
-	// The language policy is always appended at boot; strip it so this assertion
-	// is purely about whether project/ancestor memory leaked into the base.
-	base = stripLanguagePolicy(base)
 	if base != "JUST THE BASE" {
-		t.Fatalf("expected untouched base prompt, got:\n%s", sys)
+		t.Fatalf("expected untouched base prompt, got base=%q full:\n%s", base, sys)
 	}
 }
 
 func TestBuildLanguagePolicyIsAppended(t *testing.T) {
+	setupBootTest(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
 	writeFile(t, dir, "arcdesk.toml", `
 default_model = "test-model"
 
 [codegraph]
+enabled = false
+
+[reporag]
 enabled = false
 
 [agent]
@@ -374,11 +587,91 @@ func stripLanguagePolicy(s string) string {
 	return s
 }
 
+func stripBootInjectedPrefix(s string) string {
+	s = stripLanguagePolicy(s)
+	for _, marker := range []string{
+		"\n\n# Project repository map",
+		"\n\n# Session tool scope",
+	} {
+		if i := strings.Index(s, marker); i >= 0 {
+			s = s[:i]
+		}
+	}
+	return strings.TrimSpace(s)
+}
+
+func skillIndexListsSkill(sys, name string) bool {
+	i := strings.Index(sys, "# Skills")
+	if i < 0 {
+		return false
+	}
+	block := sys[i:]
+	if j := strings.Index(block, "# Session tool scope"); j >= 0 {
+		block = block[:j]
+	}
+	for _, line := range strings.Split(block, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "- "+name+" ") || line == "- "+name {
+			return true
+		}
+	}
+	return false
+}
+
 func writeFile(t *testing.T, dir, name, body string) {
 	t.Helper()
 	if err := writeFileRaw(dir, name, body); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func copyBootCallgraphProject(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	src := filepath.Join(filepath.Dir(file), "..", "callgraph", "testdata", "wails_project")
+	src, err := filepath.Abs(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := t.TempDir()
+	if err := copyBootTree(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	return dst
+}
+
+func copyBootTree(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		out, err := os.Create(target)
+		if err != nil {
+			return err
+		}
+		defer out.Close()
+		_, err = io.Copy(out, in)
+		return err
+	})
 }
 
 func TestRememberPermissionRuleUsesWorkspaceRoot(t *testing.T) {
@@ -593,7 +886,7 @@ func TestPartitionByTier(t *testing.T) {
 // as a stdio MCP helper (see TestHelperProcess), so the spawn is real but
 // deterministic and hermetic — no external MCP server required on PATH.
 func TestBuildEagerStartsAtBoot(t *testing.T) {
-	isolateConfigHome(t)
+	setupBootTest(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -601,6 +894,9 @@ func TestBuildEagerStartsAtBoot(t *testing.T) {
 default_model = "test-model"
 
 [codegraph]
+enabled = false
+
+[reporag]
 enabled = false
 
 [agent]
@@ -655,7 +951,7 @@ env = { GO_WANT_HELPER_PROCESS = "1" }
 // no public accessor on Controller, so at this layer we pin the load-bearing
 // boot-time invariant — no spawn — rather than re-validating the placeholder.
 func TestBuildLazyDoesNotConnectAtBoot(t *testing.T) {
-	isolateConfigHome(t)
+	setupBootTest(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -663,6 +959,9 @@ func TestBuildLazyDoesNotConnectAtBoot(t *testing.T) {
 default_model = "test-model"
 
 [codegraph]
+enabled = false
+
+[reporag]
 enabled = false
 
 [agent]
@@ -717,7 +1016,7 @@ env = { GO_WANT_HELPER_PROCESS = "1" }
 }
 
 func TestBuildColdCodegraphStartsInBackground(t *testing.T) {
-	isolateConfigHome(t)
+	setupBootTest(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
 	launcher := writeCodegraphHelper(t, dir)
@@ -792,7 +1091,7 @@ api_key_env = "arcdesk_TEST_KEY_UNSET"
 // Host.ServerNames() — and (b) a Notice carrying the demote reason fired so
 // the user understands why their explicit "eager" was ignored this session.
 func TestBuildAutoDemoteFromStats(t *testing.T) {
-	isolateConfigHome(t)
+	setupBootTest(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -809,6 +1108,9 @@ func TestBuildAutoDemoteFromStats(t *testing.T) {
 default_model = "test-model"
 
 [codegraph]
+enabled = false
+
+[reporag]
 enabled = false
 
 [agent]

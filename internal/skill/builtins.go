@@ -15,6 +15,7 @@ const builtinExploreBody = `You are running as an exploration subagent. Investig
 
 How to operate:
 - Use read_file, grep, glob, ls as your primary tools. Stay read-only.
+- For symbol/caller/definition questions, prefer repo_symbol and repo_navigate (or dependency_* / lsp_* when repo tools are unavailable) before blind grep.
 - For "find all places that call / reference / use X" questions, use ` + "`grep`" + ` (content search) — NOT ` + "`glob`" + ` (which only matches file names). Using the wrong one gives empty results and wastes your budget.
 - Cast a wide net first (grep for symbol references, ls/glob for structure) to map the territory; then read the 3-10 most relevant files in full.
 - Don't read every file — be selective. Breadth on the first pass, depth only where the question demands it.
@@ -152,7 +153,13 @@ Rules:
 // can't mutate the shared set.
 func builtinSkills() []Skill {
 	readCodeTools := []string{"read_file", "ls", "glob", "grep"}
-	reviewTools := []string{"read_file", "ls", "glob", "grep", "bash"}
+	repoTools := []string{
+		"repo_status", "repo_symbol", "repo_navigate",
+		"dependency_status", "dependency_affected_by", "dependency_imports",
+		"lsp_definition", "lsp_references",
+	}
+	exploreTools := append(append([]string(nil), readCodeTools...), repoTools...)
+	reviewTools := append(append([]string(nil), readCodeTools...), append(repoTools, "bash")...)
 	return []Skill{
 		{
 			Name:        "init",
@@ -169,7 +176,7 @@ func builtinSkills() []Skill {
 			Scope:        ScopeBuiltin,
 			Path:         "(builtin)",
 			RunAs:        RunSubagent,
-			AllowedTools: append([]string(nil), readCodeTools...),
+			AllowedTools: append([]string(nil), exploreTools...),
 		},
 		{
 			Name:         "research",

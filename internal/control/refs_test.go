@@ -9,6 +9,14 @@ import (
 	"testing"
 )
 
+func TestImageMimeFromExtension(t *testing.T) {
+	if got := imageMime(nil, "photo.png"); got != "image/png" {
+		t.Fatalf("png = %q", got)
+	}
+	if got := imageMime([]byte{0xFF, 0xD8, 0xFF}, "x.dat"); got != "image/jpeg" {
+		t.Fatalf("jpeg detect = %q", got)
+	}
+}
 func TestFileRefLine(t *testing.T) {
 	dir := t.TempDir()
 	pdf := filepath.Join(dir, "report.pdf")

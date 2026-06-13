@@ -28,6 +28,8 @@ export interface ThinkingBlock {
   entries: SegmentEntry[];
   streaming: boolean;
   complete: boolean;
+  /** True while the parent turn still has streaming assistant text or running tools. */
+  turnInProgress: boolean;
 }
 
 export type TimelineRow =
@@ -164,9 +166,19 @@ export function subjectLabel(item: ToolItem): string {
 }
 
 export function thinkingBlockIsActive(block: ThinkingBlock): boolean {
+  if (block.turnInProgress) return true;
   if (block.streaming) return true;
   if (!block.complete) return true;
   return block.entries.some((entry) => entry.kind === "tool" && entry.item.status === "running");
+}
+
+function isTurnInProgress(items: Item[], live?: LiveStream): boolean {
+  if (live) return true;
+  for (const it of items) {
+    if (it.kind === "assistant" && it.streaming) return true;
+    if (it.kind === "tool" && it.status === "running") return true;
+  }
+  return false;
 }
 
 /** Shell/bash runs get their own timeline card instead of living inside 思考过程. */
@@ -246,6 +258,7 @@ export function buildTimelineRows(
   const rows: TimelineRow[] = [];
   let thinking: ThinkingDraft | null = null;
   let turnPreface: string | null = null;
+  let lastInterimText: string | null = null;
   const deferredNotices: Item[] = [];
 
   const resetThinking = () => {
@@ -264,7 +277,6 @@ export function buildTimelineRows(
     if (!trimmed) return;
     const draft = ensureThinking();
     if (!draft.anchorId) draft.anchorId = isLive && live ? live.id : assistant.id;
-    else if (isLive && live) draft.anchorId = live.id;
     if (!draft.absorbedIds.includes(assistant.id)) draft.absorbedIds.push(assistant.id);
     draft.reasoningParts.push(isLive && live ? live.reasoning : assistant.reasoning);
     draft.streaming = draft.streaming || assistant.streaming || isLive;
@@ -289,15 +301,18 @@ export function buildTimelineRows(
       liveReasoning && !draft.reasoningParts.some((part) => part.trim() === liveReasoning)
         ? [reasoning, liveReasoning].filter(Boolean).join("\n\n")
         : reasoning;
+    const turnInProgress = isTurnInProgress(items, live);
 
     rows.push({
       kind: "thinking-block",
       block: {
-        id: liveAttached ? live.id : draft.anchorId || `think-${draft.tools[0]?.id ?? "reasoning"}`,
+        id: draft.anchorId || `think-${draft.tools[0]?.id ?? "reasoning"}`,
         reasoning: mergedReasoning,
         entries,
         streaming: draft.streaming || liveAttached,
-        complete: !draft.streaming && !liveAttached && entriesAreComplete(entries),
+        complete:
+          !turnInProgress && !draft.streaming && !liveAttached && entriesAreComplete(entries),
+        turnInProgress,
       },
     });
     for (const notice of deferredNotices) {
@@ -361,17 +376,21 @@ export function buildTimelineRows(
           appendReasoning({ ...item, reasoning, streaming }, isLive);
         }
         const trimmed = text.trim();
-        if (trimmed && !turnPreface) {
-          turnPreface = trimmed;
-          rows.push({
-            kind: "single",
-            item: {
-              ...item,
-              text,
-              reasoning: "",
-              streaming,
-            },
-          });
+        if (trimmed) {
+          if (!turnPreface) turnPreface = trimmed;
+          // Cursor-style: surface each distinct mid-turn narration, not only the opening line.
+          if (trimmed !== lastInterimText) {
+            lastInterimText = trimmed;
+            rows.push({
+              kind: "single",
+              item: {
+                ...item,
+                text,
+                reasoning: "",
+                streaming,
+              },
+            });
+          }
         }
         continue;
       }

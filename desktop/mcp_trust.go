@@ -120,7 +120,7 @@ func (a *App) rebuildActiveTabController() error {
 	if tab == nil {
 		return fmt.Errorf("no active tab")
 	}
-	go a.buildTabController(tab)
+	go a.startTabControllerBuild(tab)
 	return nil
 }
 

@@ -305,6 +305,12 @@ func RenderTOMLForScope(c *Config, scope RenderScope) string {
 	}
 	b.WriteString("\n")
 
+	b.WriteString("[dependency]\n")
+	enabled := !c.Dependency.Disabled()
+	fmt.Fprintf(&b, "enabled       = %v   # module/package import graph + dependency_* tools\n", enabled)
+	fmt.Fprintf(&b, "auto_discover = %v   # index when go.mod or package.json is found under the workspace\n", c.Dependency.AutoDiscoverEnabled())
+	b.WriteString("\n")
+
 	b.WriteString("[skills]\n")
 	if len(c.Skills.Paths) > 0 {
 		fmt.Fprintf(&b, "paths = %s   # extra custom skill roots\n", renderStringArray(c.Skills.Paths))

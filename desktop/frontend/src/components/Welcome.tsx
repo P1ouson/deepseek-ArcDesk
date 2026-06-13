@@ -19,12 +19,19 @@ export function Welcome({
   disabled = false,
   showConnectionRecovery = false,
   onOpenConnectionSetup,
+  workspaceName,
+  workspacePath,
+  showWorkspaceMesh = false,
 }: {
   onPrompt: (text: string) => void | Promise<void>;
   variant?: WelcomeVariant;
   disabled?: boolean;
   showConnectionRecovery?: boolean;
   onOpenConnectionSetup?: () => void;
+  workspaceName?: string;
+  workspacePath?: string;
+  /** Decorative gradient behind the empty workspace home (no duplicate headline). */
+  showWorkspaceMesh?: boolean;
 }) {
   const t = useT();
 
@@ -55,15 +62,25 @@ export function Welcome({
       },
     ];
 
+    const boundWorkspace = workspaceName?.trim() ?? "";
+
     return (
-      <div className="welcome welcome--code">
+      <div className={`welcome welcome--code${showWorkspaceMesh && boundWorkspace ? " welcome--code-bound" : ""}`}>
+        {showWorkspaceMesh && boundWorkspace ? <div className="welcome__workspace-mesh" aria-hidden="true" /> : null}
         {showConnectionRecovery && onOpenConnectionSetup ? (
           <ConnectionRecoveryBanner onOpenSetup={onOpenConnectionSetup} />
         ) : null}
         <div className="welcome__hero">
           <img src={logoMark} className="welcome__mark" alt="" aria-hidden="true" />
           <p className="welcome__eyebrow">{t("welcome.code.eyebrow")}</p>
-          <h2 className="welcome__headline">{t("welcome.code.headline")}</h2>
+          {boundWorkspace && workspacePath && workspacePath !== boundWorkspace ? (
+            <p className="welcome__workspace-path">{workspacePath}</p>
+          ) : null}
+          <h2 className="welcome__headline">
+            {boundWorkspace
+              ? t("welcome.code.headlineWorkspace", { name: boundWorkspace })
+              : t("welcome.code.headline")}
+          </h2>
         </div>
 
         <div className="welcome__cards-wrap">

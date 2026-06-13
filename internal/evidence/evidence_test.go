@@ -3,6 +3,7 @@ package evidence
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -77,6 +78,42 @@ func TestLedgerReportsFinalReadinessReceiptsAfterWriter(t *testing.T) {
 	}
 	if !ledger.HasSuccessfulCompleteStepAfter(writer) {
 		t.Fatal("complete_step after latest writer should satisfy final readiness")
+	}
+}
+
+func TestWrittenPathsAfterWriter(t *testing.T) {
+	ledger := NewLedger()
+	ledger.Record(Receipt{ToolName: "write_file", Success: true, Write: true, Paths: []string{"old.go"}})
+	ledger.Record(Receipt{ToolName: "write_file", Success: true, Write: true, Paths: []string{"a.go", "b.go"}})
+	writer := 1
+	ledger.Record(Receipt{ToolName: "write_file", Success: false, Write: true, Paths: []string{"skip.go"}})
+	ledger.Record(Receipt{ToolName: "write_file", Success: true, Write: true, Paths: []string{"b.go", "c.go"}})
+
+	got := ledger.WrittenPathsAfter(writer)
+	want := []string{"b.go", "c.go"}
+	if len(got) != len(want) {
+		t.Fatalf("WrittenPathsAfter() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("WrittenPathsAfter() = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestLatestFailedVerifyCommandAfter(t *testing.T) {
+	isVerify := func(cmd string) bool {
+		return strings.Contains(strings.ToLower(cmd), "test")
+	}
+	ledger := NewLedger()
+	ledger.Record(Receipt{ToolName: "write_file", Success: true, Write: true, Paths: []string{"x.go"}})
+	writer, _ := ledger.LatestSuccessfulWriterIndex()
+	ledger.Record(Receipt{ToolName: "bash", Success: false, Command: "go test ./..."})
+	ledger.Record(Receipt{ToolName: "bash", Success: false, Command: "git status"})
+
+	cmd, ok := ledger.LatestFailedVerifyCommandAfter(writer, isVerify)
+	if !ok || cmd != "go test ./..." {
+		t.Fatalf("LatestFailedVerifyCommandAfter() = (%q, %v), want (go test ./..., true)", cmd, ok)
 	}
 }
 

@@ -228,3 +228,36 @@ func TestHTTPGetPlainCtxAbortsOnParentCancel(t *testing.T) {
 		t.Fatalf("plain ctx should abort on parent cancel, got %v", gotErr)
 	}
 }
+
+// httptestReleaseServer serves SHA256SUMS and a release asset for Install tests.
+func httptestReleaseServer(t *testing.T, asset, sumsBody string, archive []byte) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/SHA256SUMS":
+			w.Write([]byte(sumsBody))
+		case "/" + asset:
+			w.Write(archive)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestReleaseDownloadBaseDefault(t *testing.T) {
+	t.Setenv("ARCDESK_CODEGRAPH_RELEASE_BASE", "")
+	got := releaseDownloadBase()
+	if !strings.Contains(got, cgRepo) || !strings.Contains(got, Version) {
+		t.Fatalf("releaseDownloadBase = %q", got)
+	}
+}
+
+func TestReleaseDownloadBaseOverride(t *testing.T) {
+	t.Setenv("ARCDESK_CODEGRAPH_RELEASE_BASE", "http://fixture.test/release/")
+	got := releaseDownloadBase()
+	if got != "http://fixture.test/release" {
+		t.Fatalf("releaseDownloadBase = %q", got)
+	}
+}

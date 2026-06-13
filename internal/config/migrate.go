@@ -125,6 +125,7 @@ func MigrateLegacyIfNeeded() (*MigrationResult, error) {
 	if err := cfg.WriteFile(dest); err != nil {
 		return nil, fmt.Errorf("write %s: %w", dest, err)
 	}
+	InvalidateConfigCache("")
 	if len(envLines) > 0 {
 		if err := writeCredentialsEnv(home, envLines); err != nil {
 			return res, fmt.Errorf("write credentials: %w", err)

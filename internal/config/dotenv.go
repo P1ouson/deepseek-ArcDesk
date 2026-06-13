@@ -5,6 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+)
+
+var (
+	dotenvLoadedMu sync.Mutex
+	dotenvLoaded   = map[string]int64{} // path → last loaded mod time (unix nano)
 )
 
 // loadDotEnv loads KEY=value files into the process environment without
@@ -36,8 +42,22 @@ func loadDotEnvForRoot(root string) {
 }
 
 // loadDotEnvFile reads one .env file (if present) and sets any keys not already
-// present in the environment. Lenient, zero-dependency parsing.
+// present in the environment. Lenient, zero-dependency parsing. Skips re-read when
+// the file's mod time is unchanged since the last load in this process.
 func loadDotEnvFile(path string) {
+	path = filepath.Clean(path)
+	fi, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	mod := fi.ModTime().UnixNano()
+	dotenvLoadedMu.Lock()
+	if dotenvLoaded[path] == mod {
+		dotenvLoadedMu.Unlock()
+		return
+	}
+	dotenvLoadedMu.Unlock()
+
 	f, err := os.Open(path)
 	if err != nil {
 		return
@@ -64,4 +84,7 @@ func loadDotEnvFile(path string) {
 			os.Setenv(key, val)
 		}
 	}
+	dotenvLoadedMu.Lock()
+	dotenvLoaded[path] = mod
+	dotenvLoadedMu.Unlock()
 }

@@ -131,6 +131,7 @@ func TestCapabilitiesIncludesDisabledSkills(t *testing.T) {
 	if err := os.WriteFile(cfgPath, []byte("[skills]\ndisabled_skills = [\"review\"]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	config.InvalidateConfigCache("")
 
 	view := a.Capabilities()
 	states := map[string]bool{}

@@ -111,10 +111,11 @@ describe("buildTimelineRows thinking blocks", () => {
     const block = rows.find((r) => r.kind === "thinking-block");
     expect(block?.kind).toBe("thinking-block");
     if (block?.kind !== "thinking-block") throw new Error("expected thinking block");
-    expect(block.block.id).toBe("a2");
+    expect(block.block.id).toBe("a1");
     expect(block.block.reasoning).toBe("part one\n\npart two live");
     expect(block.block.streaming).toBe(true);
     expect(block.block.complete).toBe(false);
+    expect(block.block.turnInProgress).toBe(true);
   });
 
   it("marks thinking block incomplete while tools are still running", () => {
@@ -132,7 +133,7 @@ describe("buildTimelineRows thinking blocks", () => {
     expect(block.block.entries[0]?.kind).toBe("tool");
   });
 
-  it("shows opening narration before thinking and folds later rounds", () => {
+  it("shows each distinct mid-turn narration like Cursor, not only the opening line", () => {
     const items: Item[] = [
       { kind: "user", id: "u1", text: "find training logs" },
       assistant("a1", "帮你找一下文件里的训练数据。", "round 1 thought"),
@@ -145,21 +146,31 @@ describe("buildTimelineRows thinking blocks", () => {
     ];
 
     const rows = buildTimelineRows(items, new Map());
-    expect(rowKinds(rows)).toEqual(["user", "assistant", "thinking", "assistant"]);
+    expect(rowKinds(rows)).toEqual(["user", "assistant", "assistant", "assistant", "thinking", "assistant"]);
 
     const preface = rows[1];
     expect(preface?.kind).toBe("single");
     if (preface?.kind !== "single" || preface.item.kind !== "assistant") throw new Error("expected preface");
     expect(preface.item.text).toBe("帮你找一下文件里的训练数据。");
 
-    const block = rows[2];
+    const mid1 = rows[2];
+    expect(mid1?.kind).toBe("single");
+    if (mid1?.kind !== "single" || mid1.item.kind !== "assistant") throw new Error("expected mid narration");
+    expect(mid1.item.text).toBe("探索结果出来了，我去看关键文件。");
+
+    const mid2 = rows[3];
+    expect(mid2?.kind).toBe("single");
+    if (mid2?.kind !== "single" || mid2.item.kind !== "assistant") throw new Error("expected mid narration");
+    expect(mid2.item.text).toBe("找到了，我来读取。");
+
+    const block = rows[4];
     expect(block?.kind).toBe("thinking-block");
     if (block?.kind !== "thinking-block") throw new Error("expected thinking block");
     expect(block.block.entries).toHaveLength(3);
     expect(block.block.reasoning).toContain("round 1 thought");
     expect(block.block.reasoning).not.toContain("帮你找一下文件里的训练数据。");
 
-    const answer = rows[3];
+    const answer = rows[5];
     expect(answer?.kind).toBe("single");
     if (answer?.kind !== "single" || answer.item.kind !== "assistant") throw new Error("expected assistant");
     expect(answer.item.text).toBe("训练用了 3 小时，样本 12000 条。");

@@ -106,3 +106,17 @@ func TestPruneUnconfiguredProvidersKeepsMimoWithKey(t *testing.T) {
 		t.Fatal("mimo-pro should remain when MIMO_API_KEY is set")
 	}
 }
+
+func TestPruneUnconfiguredProvidersKeepsDefaultModelWithoutKey(t *testing.T) {
+	c := &Config{
+		DefaultModel: "x",
+		Providers: []ProviderEntry{{
+			Name: "x", Kind: "openai", BaseURL: "https://example.invalid",
+			Model: "m", APIKeyEnv: "UNSET_TEST_KEY",
+		}},
+	}
+	pruneUnconfiguredProviders(c)
+	if len(c.Providers) != 1 || c.Providers[0].Name != "x" {
+		t.Fatalf("providers = %+v, want default_model kept", c.Providers)
+	}
+}

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"arcdesk/internal/event"
+	"arcdesk/internal/planner"
 	"strings"
 	"testing"
 
@@ -52,7 +53,7 @@ func TestCoordinatorHandsPlanToExecutor(t *testing.T) {
 
 	executor := New(exec, tool.NewRegistry(), NewSession("exec-sys"), Options{}, event.Discard)
 	plannerSess := NewSession("planner-sys")
-	coord := NewCoordinator(planner, plannerSess, nil, executor, 0, event.Discard, nil)
+	coord := NewCoordinator(planner, plannerSess, nil, executor, 0, event.Discard, nil, nil)
 
 	if err := coord.Run(context.Background(), "fix the bug"); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -83,7 +84,7 @@ func TestCoordinatorSkipsPlannerForTrivialTurn(t *testing.T) {
 
 	executor := New(exec, tool.NewRegistry(), NewSession("exec-sys"), Options{}, event.Discard)
 	plannerSess := NewSession("planner-sys")
-	coord := NewCoordinator(planner, plannerSess, nil, executor, 0, event.Discard, func(string) bool { return false })
+	coord := NewCoordinator(planner, plannerSess, nil, executor, 0, event.Discard, func(string) bool { return false }, nil)
 
 	if err := coord.Run(context.Background(), "what does this function do?"); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -97,5 +98,23 @@ func TestCoordinatorSkipsPlannerForTrivialTurn(t *testing.T) {
 	}
 	if n := len(plannerSess.Messages); n != 1 { // just the system message
 		t.Errorf("planner session has %d messages, want 1 (untouched)", n)
+	}
+}
+
+func TestCoordinatorClearsPhaseTrackerWhenSkippingPlanner(t *testing.T) {
+	plannerProv := &mockProvider{name: "planner"}
+	exec := &mockProvider{name: "executor", chunks: []provider.Chunk{
+		{Type: provider.ChunkText, Text: "ok"},
+		{Type: provider.ChunkDone},
+	}}
+	phaseTracker := planner.NewTracker(true)
+	phaseTracker.LoadFromPlan("1. stale phase")
+	executor := New(exec, tool.NewRegistry(), NewSession("exec-sys"), Options{PhaseTracker: phaseTracker}, event.Discard)
+	coord := NewCoordinator(plannerProv, NewSession("planner-sys"), nil, executor, 0, event.Discard, func(string) bool { return false }, phaseTracker)
+	if err := coord.Run(context.Background(), "what does this do?"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := phaseTracker.BlockFinalAnswer(); got != "" {
+		t.Fatalf("expected phase gate cleared on skipped planner turn, got %q", got)
 	}
 }

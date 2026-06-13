@@ -13,6 +13,8 @@ type VerifyCheck struct {
 	Command    string
 	SourcePath string
 	Line       int
+	// Category classifies auto-discovered checks: build, unit, e2e, or custom.
+	Category string
 }
 
 type contextKey struct{}

@@ -149,11 +149,16 @@ func TestBuiltinInitIsInlineSkill(t *testing.T) {
 
 func TestBuiltinSubagentSkillsDeclareAllowedTools(t *testing.T) {
 	st := New(Options{HomeDir: t.TempDir()})
+	repoTools := []string{
+		"repo_status", "repo_symbol", "repo_navigate",
+		"dependency_status", "dependency_affected_by", "dependency_imports",
+		"lsp_definition", "lsp_references",
+	}
 	cases := map[string][]string{
-		"explore":         {"read_file", "ls", "glob", "grep"},
+		"explore": append(append([]string{"read_file", "ls", "glob", "grep"}, repoTools...),),
 		"research":        {"read_file", "ls", "glob", "grep", "web_fetch"},
-		"review":          {"read_file", "ls", "glob", "grep", "bash"},
-		"security-review": {"read_file", "ls", "glob", "grep", "bash"},
+		"review":          append(append([]string{"read_file", "ls", "glob", "grep"}, repoTools...), "bash"),
+		"security-review": append(append([]string{"read_file", "ls", "glob", "grep"}, repoTools...), "bash"),
 	}
 	for name, want := range cases {
 		sk, ok := st.Read(name)

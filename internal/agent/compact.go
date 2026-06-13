@@ -409,11 +409,15 @@ func charsOfMessages(msgs []provider.Message) int {
 // is appended to the system prompt as extra focus guidance (from /compact <focus>
 // and/or a PreCompact hook).
 func (a *Agent) summarize(ctx context.Context, region []provider.Message, instructions string) (string, error) {
+	prov := a.prov
+	if a.summarizeProv != nil {
+		prov = a.summarizeProv
+	}
 	sys := summarySystemPrompt
 	if strings.TrimSpace(instructions) != "" {
 		sys += "\n\nAdditional focus for this compaction (prioritize keeping this):\n" + strings.TrimSpace(instructions)
 	}
-	ch, err := a.prov.Stream(ctx, provider.Request{
+	ch, err := prov.Stream(ctx, provider.Request{
 		Messages: []provider.Message{
 			{Role: provider.RoleSystem, Content: sys},
 			{Role: provider.RoleUser, Content: renderTranscript(region)},

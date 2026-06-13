@@ -71,6 +71,25 @@ func TestRestoreToStartOfTurn(t *testing.T) {
 	}
 }
 
+func TestRestorePlanMatchesRestoreCode(t *testing.T) {
+	root := t.TempDir()
+	a := filepath.Join(root, "a.txt")
+	write(t, a, "v0")
+	s := New("", root)
+
+	s.Begin(0, "first", 0)
+	s.Snapshot(diff.Change{Path: a, Kind: diff.Modify, OldText: "v0"})
+	write(t, a, "v1")
+
+	plan := s.RestorePlan(0)
+	if len(plan.Targets) != 1 || plan.Prompt != "first" {
+		t.Fatalf("plan=%+v", plan)
+	}
+	if plan.Targets[0].Content == nil || *plan.Targets[0].Content != "v0" {
+		t.Fatalf("target=%+v", plan.Targets[0])
+	}
+}
+
 func TestRestoreToTurnZero(t *testing.T) {
 	root := t.TempDir()
 	a := filepath.Join(root, "a.txt")

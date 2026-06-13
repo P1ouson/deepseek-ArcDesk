@@ -560,6 +560,8 @@ export const en = {
   // workspace panel
   "workspace.title": "Workspace",
   "workspace.open": "Open workspace panel",
+  "workspace.backdrop.prompt": "What do you want to do in {name}?",
+  "workspace.backdrop.hint": "Describe a task below, or pick a quick-start card.",
   "workspace.close": "Close workspace panel",
   "workspace.maximize": "Maximize workspace panel",
   "workspace.restore": "Restore workspace panel",
@@ -792,6 +794,7 @@ export const en = {
   "welcome.ex3": "Find the entry point for the core business flow",
   "welcome.code.eyebrow": "Code workspace",
   "welcome.code.headline": "Start here",
+  "welcome.code.headlineWorkspace": "What do you want to do in {name}?",
   "welcome.code.tagline": "Describe what you need; use @ to pull in files or folders for context.",
   "welcome.code.ex1.title": "Project tour",
   "welcome.code.ex1.desc": "Layout, modules, responsibilities",

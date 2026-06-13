@@ -54,6 +54,23 @@ type Config struct {
 	Plugins       []PluginEntry     `toml:"plugins"`
 	Skills        SkillsConfig      `toml:"skills"`
 	Codegraph     CodegraphConfig   `toml:"codegraph"`
+	Verification  VerificationConfig `toml:"verification"`
+	Dependency    DependencyConfig  `toml:"dependency"`
+	Callgraph     CallgraphConfig   `toml:"callgraph"`
+	Runtime       RuntimeConfig     `toml:"runtime"`
+	Selfdebug     SelfdebugConfig   `toml:"selfdebug"`
+	Reporag       ReporagConfig     `toml:"reporag"`
+	Constraint    ConstraintConfig  `toml:"constraint"`
+	GitRag        GitRagConfig      `toml:"git_rag"`
+	ArchRag       ArchRagConfig     `toml:"architecture_rag"`
+	ArchitectureGuardian ArchitectureGuardianConfig `toml:"architecture_guardian"`
+	PhasePlanner  PhasePlannerConfig `toml:"phase_planner"`
+	FailureMemory FailureMemoryConfig `toml:"failure_memory"`
+	UIRag         UIRagConfig         `toml:"ui_rag"`
+	TaskDAG       TaskDAGConfig       `toml:"task_dag"`
+	CostRouter    CostRouterConfig    `toml:"cost_router"`
+	ContextCompression ContextCompressionConfig `toml:"context_compression"`
+	EnvAware      EnvAwareConfig    `toml:"env_aware"`
 	Statusline    StatuslineConfig  `toml:"statusline"`
 	LSP           LSPConfig         `toml:"lsp"`
 }
@@ -342,6 +359,373 @@ func (c CodegraphConfig) ShouldAutoStart() bool {
 
 func (c CodegraphConfig) ResolvedTier() string {
 	return resolvedMCPTier(c.Tier)
+}
+
+// VerificationConfig governs post-write project checks (P0 verification loop).
+// AfterWrite lists shell commands the agent must run successfully after the
+// latest file write before giving a final answer. When empty, checks may still
+// come from AGENTS.md host checks or auto-discovery (go.mod / package.json).
+// MaxRetries bounds how many times the harness re-prompts before verification
+// is exhausted; OnFailure selects retry (default), rollback, or ask.
+type VerificationConfig struct {
+	Enabled      *bool    `toml:"enabled"`
+	AfterWrite   []string `toml:"after_write"`
+	AutoDiscover *bool    `toml:"auto_discover"`
+	IncludeUnit  *bool    `toml:"include_unit"`
+	IncludeE2E   *bool    `toml:"include_e2e"`
+	MaxRetries   int      `toml:"max_retries"`
+	OnFailure    string   `toml:"on_failure"`
+}
+
+func (c VerificationConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c VerificationConfig) AutoDiscoverEnabled() bool {
+	if c.AutoDiscover != nil {
+		return *c.AutoDiscover
+	}
+	return true
+}
+
+func (c VerificationConfig) ResolvedPolicy() (maxRetries int, onFailure string) {
+	maxRetries = c.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+	switch strings.ToLower(strings.TrimSpace(c.OnFailure)) {
+	case "rollback":
+		return maxRetries, "rollback"
+	case "ask":
+		return maxRetries, "ask"
+	default:
+		return maxRetries, "retry"
+	}
+}
+
+// DependencyConfig governs the native module/package dependency index and
+// dependency_* agent tools (complements codegraph MCP symbol tools).
+type DependencyConfig struct {
+	Enabled      *bool `toml:"enabled"`
+	AutoDiscover *bool `toml:"auto_discover"`
+}
+
+func (c DependencyConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c DependencyConfig) AutoDiscoverEnabled() bool {
+	if c.AutoDiscover != nil {
+		return *c.AutoDiscover
+	}
+	return true
+}
+
+// ShouldIndex reports whether the dependency index should be wired for a workspace.
+// When Enabled is explicitly true, indexing runs even without go.mod/package.json.
+// When Enabled is unset, AutoDiscover controls whether project type is probed.
+func (c DependencyConfig) ShouldIndex(discoverable bool) bool {
+	if c.Enabled != nil {
+		return *c.Enabled
+	}
+	if !c.AutoDiscoverEnabled() {
+		return false
+	}
+	return discoverable
+}
+
+// CallgraphConfig governs the Wails cross-realm call graph index and callgraph_* tools.
+type CallgraphConfig struct {
+	Enabled      *bool `toml:"enabled"`
+	AutoDiscover *bool `toml:"auto_discover"`
+}
+
+func (c CallgraphConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c CallgraphConfig) AutoDiscoverEnabled() bool {
+	if c.AutoDiscover != nil {
+		return *c.AutoDiscover
+	}
+	return true
+}
+
+// ShouldIndex reports whether the callgraph index should be wired for a workspace.
+func (c CallgraphConfig) ShouldIndex(discoverable bool) bool {
+	if c.Enabled != nil {
+		return *c.Enabled
+	}
+	if !c.AutoDiscoverEnabled() {
+		return false
+	}
+	return discoverable
+}
+
+// RuntimeConfig governs live session runtime observation (console, shell output,
+// network, state) exposed through runtime_* agent tools.
+type RuntimeConfig struct {
+	Enabled    *bool `toml:"enabled"`
+	MaxEntries int   `toml:"max_entries"`
+}
+
+func (c RuntimeConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c RuntimeConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+func (c RuntimeConfig) ResolvedMaxEntries() int {
+	if c.MaxEntries <= 0 {
+		return 4096
+	}
+	return c.MaxEntries
+}
+
+// SelfdebugConfig governs the P0 write→verify→analyze→fix orchestrator.
+// When enabled (default), failed verify commands get immediate hints and final-
+// answer readiness retries receive a unified self-debug block.
+type SelfdebugConfig struct {
+	Enabled *bool `toml:"enabled"`
+}
+
+func (c SelfdebugConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c SelfdebugConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+// ReporagConfig governs the unified repo-aware RAG orchestrator (P0-#1).
+type ReporagConfig struct {
+	Enabled *bool `toml:"enabled"`
+}
+
+func (c ReporagConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c ReporagConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+// ConstraintConfig governs the P0 constraint system (duplicate/reuse/fake-UI/arch checks).
+type ConstraintConfig struct {
+	Enabled *bool `toml:"enabled"`
+}
+
+func (c ConstraintConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c ConstraintConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+// GitRagConfig governs git-aware retrieval tools (P1-#8): blame, log, gh context.
+type GitRagConfig struct {
+	Enabled      *bool `toml:"enabled"`
+	AutoDiscover *bool `toml:"auto_discover"`
+}
+
+func (c GitRagConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c GitRagConfig) AutoDiscoverEnabled() bool {
+	if c.AutoDiscover != nil {
+		return *c.AutoDiscover
+	}
+	return true
+}
+
+func (c GitRagConfig) ShouldEnable(discoverable bool) bool {
+	if c.Disabled() {
+		return false
+	}
+	if c.Enabled != nil {
+		return *c.Enabled
+	}
+	if !c.AutoDiscoverEnabled() {
+		return false
+	}
+	return discoverable
+}
+
+// ArchRagConfig governs architecture document indexing (P1-#9).
+type ArchRagConfig struct {
+	Enabled *bool    `toml:"enabled"`
+	Paths   []string `toml:"paths"`
+}
+
+func (c ArchRagConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c ArchRagConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+// ArchitectureGuardianConfig governs P2-#15 SPEC-aware architecture enforcement.
+type ArchitectureGuardianConfig struct {
+	Enabled *bool `toml:"enabled"`
+}
+
+func (c ArchitectureGuardianConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c ArchitectureGuardianConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+// PhasePlannerConfig governs phased execution (P1-#10): split plans into stages
+// and gate final answers until each phase is explicitly completed.
+type PhasePlannerConfig struct {
+	Enabled      *bool `toml:"enabled"`
+	EnforceGates *bool `toml:"enforce_gates"`
+}
+
+func (c PhasePlannerConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c PhasePlannerConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+func (c PhasePlannerConfig) GatesEnforced() bool {
+	if c.EnforceGates != nil {
+		return *c.EnforceGates
+	}
+	return true
+}
+
+// UIRagConfig governs React/TSX component discovery tools (P2-#14).
+type UIRagConfig struct {
+	Enabled      *bool `toml:"enabled"`
+	AutoDiscover *bool `toml:"auto_discover"`
+}
+
+func (c UIRagConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c UIRagConfig) AutoDiscoverEnabled() bool {
+	if c.AutoDiscover != nil {
+		return *c.AutoDiscover
+	}
+	return true
+}
+
+func (c UIRagConfig) ShouldEnable(discoverable bool) bool {
+	if c.Disabled() {
+		return false
+	}
+	if c.Enabled != nil {
+		return *c.Enabled
+	}
+	if !c.AutoDiscoverEnabled() {
+		return false
+	}
+	return discoverable
+}
+
+// TaskDAGConfig governs dependency-ordered sub-task orchestration (P2-#16).
+type TaskDAGConfig struct {
+	Enabled *bool `toml:"enabled"`
+}
+
+func (c TaskDAGConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c TaskDAGConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+// CostRouterConfig governs tier-based model routing (P2-#17).
+type CostRouterConfig struct {
+	Enabled       *bool  `toml:"enabled"`
+	ClassifyModel string `toml:"classify_model"`
+	ExecuteModel  string `toml:"execute_model"`
+	CompactModel  string `toml:"compact_model"`
+	ExploreModel  string `toml:"explore_model"`
+}
+
+func (c CostRouterConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c CostRouterConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+// ContextCompressionConfig governs tool-output compression (P2-#18).
+type ContextCompressionConfig struct {
+	Enabled            *bool `toml:"enabled"`
+	ToolOutputMaxBytes int   `toml:"tool_output_max_bytes"`
+}
+
+func (c ContextCompressionConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c ContextCompressionConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+func (c ContextCompressionConfig) ResolvedToolOutputMaxBytes() int {
+	if c.ToolOutputMaxBytes > 0 {
+		return c.ToolOutputMaxBytes
+	}
+	// Enabled with no explicit cap: tighter than the agent's built-in 32 KiB default.
+	return 16 * 1024
+}
+
+// FailureMemoryConfig governs persistent failure→fix lessons (P1-#11).
+type FailureMemoryConfig struct {
+	Enabled    *bool `toml:"enabled"`
+	MaxEntries int   `toml:"max_entries"`
+}
+
+func (c FailureMemoryConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c FailureMemoryConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+func (c FailureMemoryConfig) ResolvedMaxEntries() int {
+	if c.MaxEntries <= 0 {
+		return 500
+	}
+	return c.MaxEntries
+}
+
+// EnvAwareConfig governs host OS/toolchain probing (P1-#12).
+type EnvAwareConfig struct {
+	Enabled       *bool `toml:"enabled"`
+	FoldIntoPrompt *bool `toml:"fold_into_prompt"`
+}
+
+func (c EnvAwareConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c EnvAwareConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+func (c EnvAwareConfig) PromptFoldEnabled() bool {
+	if c.FoldIntoPrompt != nil {
+		return *c.FoldIntoPrompt
+	}
+	return true
 }
 
 // NetworkConfig controls ordinary outbound HTTP traffic such as model providers,
@@ -782,6 +1166,11 @@ func Default() *Config {
 		// write enabled = false instead, so only brand-new users start without it.
 		// AutoInstall fetches the runtime into the cache when enabled and missing.
 		Codegraph: CodegraphConfig{Enabled: true, AutoInstall: true},
+		// Dependency index defaults on for upgrades (nil enabled = true). First-run
+		// scaffolds write enabled = false instead.
+		Dependency: DependencyConfig{},
+		Callgraph:  CallgraphConfig{},
+		Runtime:    RuntimeConfig{},
 		// LSP tools on by default, but dormant until a language server is on PATH;
 		// a missing server yields an install hint rather than an error.
 		LSP:     LSPConfig{Enabled: true},
@@ -809,63 +1198,25 @@ func Load() (*Config, error) {
 // each project's ARCDESK.toml + .env + .mcp.json are resolved independently
 // without changing the process cwd.
 func LoadForRoot(root string) (*Config, error) {
-	root = resolveRoot(root)
-	loadDotEnvForRoot(root)
-	cfg := Default()
+	key := configCacheKey(root)
+	fps := sourceFingerprints(configSourcePaths(root))
 
-	projectTOML := projectConfigPathForRoot(root)
+	configCacheMu.Lock()
+	if ent, ok := configCache[key]; ok && fingerprintsMatch(ent.sources, fps) {
+		cfg := ent.cfg
+		configCacheMu.Unlock()
+		return cfg, nil
+	}
+	configCacheMu.Unlock()
 
-	var tomlSources []string
-	if uc := userConfigPath(); uc != "" {
-		tomlSources = append(tomlSources, uc)
-	}
-	tomlSources = append(tomlSources, projectTOML)
-	sawConfigFile := false
-	for _, path := range tomlSources {
-		if _, err := os.Stat(path); err == nil {
-			sawConfigFile = true
-		}
-		if err := mergeFile(cfg, path); err != nil {
-			return nil, err
-		}
-	}
-	// toml.DecodeFile replaces [[plugins]] wholesale, so cfg.Plugins now holds
-	// only the last file's. Re-merge by name across all sources (later wins) so a
-	// project ARCDESK.toml doesn't drop the global config's MCP servers.
-	plugins, err := mergeTOMLPlugins(tomlSources)
+	cfg, err := loadForRootUncached(root)
 	if err != nil {
 		return nil, err
 	}
-	cfg.Plugins = plugins
 
-	// Claude Code's .mcp.json (project root) is read last and merged into
-	// [[plugins]], so a server configured for Claude works here unchanged.
-	// ARCDESK.toml wins on a name collision (see mergeMCPJSON).
-	mcpFile := mcpJSONFile
-	if root != "." {
-		mcpFile = filepath.Join(root, mcpJSONFile)
-	}
-	entries, err := loadMCPJSON(mcpFile)
-	if err != nil {
-		return nil, err
-	}
-	cfg.mergeMCPJSON(entries)
-
-	// Lowest priority: the v0.x ~/.arcdesk/config.json's mcpServers, so upgrading
-	// from the TypeScript line keeps MCP servers without rewriting them. Anything
-	// the v2 config or .mcp.json already declared wins on a name collision.
-	cfg.mergeMCPJSON(loadLegacyMCP(legacyConfigPath()))
-	normalizeLegacyEffort(cfg)
-	normalizeEffortConfig(cfg)
-	backfillDeepSeekPro(cfg)
-	dedupeRedundantProviders(cfg)
-	pruneUnconfiguredProviders(cfg)
-	// First run (no config file anywhere): keep CodeGraph off until the user opts
-	// in. An existing config 鈥?even one without a [codegraph] section 鈥?keeps the
-	// built-in default (on), so an upgrade never silently drops code intelligence.
-	if !sawConfigFile {
-		cfg.Codegraph.Enabled = false
-	}
+	configCacheMu.Lock()
+	configCache[key] = &configCacheEntry{cfg: cfg, sources: fps}
+	configCacheMu.Unlock()
 	return cfg, nil
 }
 
@@ -944,11 +1295,18 @@ func dedupeRedundantProviders(c *Config) {
 }
 
 // pruneUnconfiguredProviders removes preset providers whose api_key_env is not
-// set, so model pickers only reflect APIs the user actually configured.
+// set, so model pickers only reflect APIs the user actually configured. The
+// default_model provider is always kept so RequireKey=false boot paths can
+// resolve the model and surface a missing-key notice instead of failing early.
 func pruneUnconfiguredProviders(c *Config) {
+	defaultModel := strings.TrimSpace(c.DefaultModel)
 	kept := make([]ProviderEntry, 0, len(c.Providers))
 	for _, p := range c.Providers {
 		if p.Configured() {
+			kept = append(kept, p)
+			continue
+		}
+		if defaultModel != "" && strings.EqualFold(strings.TrimSpace(p.Name), defaultModel) {
 			kept = append(kept, p)
 		}
 	}

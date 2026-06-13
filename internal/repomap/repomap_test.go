@@ -46,7 +46,7 @@ func TestRecordRead(t *testing.T) {
 	if len(rows) != 1 || rows[0].Path != "src/main.go" {
 		t.Fatalf("rows = %v", rows)
 	}
-	// read-index is persisted but not folded into the cache-stable prefix block.
+	// read-index is persisted; folded into the prefix once a repo-map exists.
 	if block := LoadBlock(root); block != "" {
 		t.Fatalf("LoadBlock without repo-map should stay empty, got %q", block)
 	}
@@ -57,8 +57,8 @@ func TestRecordRead(t *testing.T) {
 	if !strings.Contains(block, "Top-level layout") {
 		t.Fatalf("expected repo-map in block")
 	}
-	if strings.Contains(block, "src/main.go") {
-		t.Fatalf("read-index must not appear in prefix block")
+	if !strings.Contains(block, "Recently read files") || !strings.Contains(block, "src/main.go") {
+		t.Fatalf("read-index should appear in prefix block: %q", block)
 	}
 }
 
@@ -95,11 +95,28 @@ func TestEnsureReadyCreatesMap(t *testing.T) {
 
 func TestRefreshIfStaleCoalesce(t *testing.T) {
 	root := t.TempDir()
+	// Own git toplevel so repoRevision does not inherit a parent worktree HEAD
+	// (TMPDIR inside a checkout would otherwise make isStale flaky under load).
+	runGit(t, root, "init")
 	if err := RefreshIfStale(root); err != nil {
 		t.Fatal(err)
 	}
 	stale, err := isStale(root)
 	if err != nil || stale {
 		t.Fatalf("stale=%v err=%v", stale, err)
+	}
+}
+
+func TestIsStaleStableAfterMetaWrite(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := refresh(root); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := isStale(root)
+	if err != nil || stale {
+		t.Fatalf("after refresh stale=%v err=%v", stale, err)
 	}
 }

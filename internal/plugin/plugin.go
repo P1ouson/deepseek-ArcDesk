@@ -70,11 +70,12 @@ type Host struct {
 	// mu guards the slices below: StartAll builds the Host single-threaded, but
 	// after that a /mcp hot-add or -remove (one goroutine) can run concurrently
 	// with reads from a running turn's @ref resolution or the status UI.
-	mu        sync.RWMutex
-	clients   []*Client
-	prompts   []Prompt
-	resources []Resource
-	failures  []Failure
+	mu             sync.RWMutex
+	clients        []*Client
+	prompts        []Prompt
+	resources      []Resource
+	failures       []Failure
+	connectedTools []tool.Tool // eager/connected MCP tools for reuse across sessions
 
 	// Detached stats/schema-cache writers from Start; off the boot path but
 	// drained by Close so cleanup can't race a still-open cache file.
@@ -309,6 +310,7 @@ func Start(ctx context.Context, specs []Spec, p StartPolicy) (*Host, []tool.Tool
 		}
 		h.clients = append(h.clients, r.client)
 		tools = append(tools, r.tools...)
+		h.connectedTools = append(h.connectedTools, r.tools...)
 		// prompts/resources are filled in later by StartPhaseB.
 	}
 	if firstErr != nil {
@@ -316,6 +318,35 @@ func Start(ctx context.Context, specs []Spec, p StartPolicy) (*Host, []tool.Tool
 		return nil, nil, firstErr
 	}
 	return h, tools, nil
+}
+
+// ConnectedTools returns MCP tools from every server that finished handshake on
+// this host. Safe for concurrent read; callers register into a per-session registry.
+func (h *Host) ConnectedTools() []tool.Tool {
+	if h == nil {
+		return nil
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	out := make([]tool.Tool, len(h.connectedTools))
+	copy(out, h.connectedTools)
+	return out
+}
+
+func (h *Host) toolsForServer(name string) []tool.Tool {
+	if h == nil {
+		return nil
+	}
+	prefix := ToolPrefix(name)
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var out []tool.Tool
+	for _, t := range h.connectedTools {
+		if strings.HasPrefix(t.Name(), prefix) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // Close terminates all plugin connections.
@@ -326,6 +357,9 @@ func (h *Host) Close() {
 	for _, c := range clients {
 		c.close()
 	}
+	h.mu.Lock()
+	h.connectedTools = nil
+	h.mu.Unlock()
 	h.bgWrites.Wait() // drain detached stats/schema writers before returning
 }
 
@@ -560,6 +594,9 @@ func (h *Host) has(name string) bool {
 // — or the subprocess dies when that turn ends. Errors if the name is taken.
 func (h *Host) Add(ctx context.Context, s Spec) ([]tool.Tool, error) {
 	if h.has(s.Name) {
+		if ts := h.toolsForServer(s.Name); len(ts) > 0 {
+			return ts, nil
+		}
 		return nil, fmt.Errorf("server %q is already connected", s.Name)
 	}
 	return h.addConnected(ctx, s)
@@ -578,6 +615,7 @@ func (h *Host) addConnected(ctx context.Context, s Spec) ([]tool.Tool, error) {
 	c.toolCount = len(ts)
 	h.mu.Lock()
 	h.clients = append(h.clients, c)
+	h.connectedTools = append(h.connectedTools, ts...)
 	h.clearFailure(s.Name)
 	h.mu.Unlock()
 	// Prompts and resources stream in on the long ctx the caller passed (Host.Add

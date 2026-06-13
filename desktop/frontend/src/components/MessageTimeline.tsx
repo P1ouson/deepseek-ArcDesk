@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import { ChevronDown, Info } from "lucide-react";
 import { MotionUnfold } from "./MotionUnfold";
-import { VList, type VListHandle } from "virtua";
 import { buildTimelineRows, isShellTimelineTool } from "../lib/actionStream";
 import type { TimelineRow as BuiltTimelineRow } from "../lib/actionStream";
 import type { Item, LiveStream } from "../lib/useController";
@@ -48,6 +47,12 @@ export interface MessageTimelineProps {
   onOpenActionFile?: (req: ActionFileOpenRequest) => void;
   showConnectionRecovery?: boolean;
   onOpenConnectionSetup?: () => void;
+  /** Folder display name for empty-state headline. */
+  workspaceName?: string;
+  workspacePath?: string;
+  showWorkspaceMesh?: boolean;
+  /** Fired when the user scrolls away from / back to the bottom (for transcript priority). */
+  onPinnedToBottomChange?: (pinned: boolean) => void;
 }
 
 function CompactionBlock({ item }: { item: Extract<Item, { kind: "compaction" }> }) {
@@ -159,8 +164,6 @@ const TimelineRow = memo(function TimelineRow({
   }
 });
 
-const VIRTUAL_ROW_THRESHOLD = 40;
-
 export function MessageTimeline({
   tabId,
   items,
@@ -180,11 +183,14 @@ export function MessageTimeline({
   onOpenActionFile,
   showConnectionRecovery = false,
   onOpenConnectionSetup,
+  workspaceName,
+  workspacePath,
+  showWorkspaceMesh = false,
+  onPinnedToBottomChange,
 }: MessageTimelineProps) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<VListHandle>(null);
-  const staticScrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const prevItemCountRef = useRef(0);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
@@ -275,33 +281,25 @@ export function MessageTimeline({
   };
   const pendingRowCount = pendingUser ? 1 : 0;
   const totalRows = rows.length + pendingRowCount;
-  const useVirtualList = totalRows > VIRTUAL_ROW_THRESHOLD;
 
   const pinToBottom = useCallback(() => {
     stick.current = true;
-    setPinnedToBottom(true);
+    setPinnedToBottom((prev) => {
+      if (!prev) onPinnedToBottomChange?.(true);
+      return true;
+    });
     setShowFab(false);
-  }, []);
+  }, [onPinnedToBottomChange]);
 
-  const scrollTimelineToBottom = useCallback(
-    (behavior: ScrollBehavior = "auto") => {
-      if (useVirtualList) {
-        listRef.current?.scrollToIndex(Math.max(0, totalRows - 1), {
-          align: "end",
-          smooth: behavior === "smooth",
-        });
-        return;
-      }
-      const el = staticScrollRef.current;
-      if (!el) return;
-      if (behavior === "smooth") {
-        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-      } else {
-        el.scrollTop = el.scrollHeight;
-      }
-    },
-    [totalRows, useVirtualList],
-  );
+  const scrollTimelineToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (behavior === "smooth") {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    } else {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, []);
 
   useEffect(() => {
     pinToBottom();
@@ -360,7 +358,6 @@ export function MessageTimeline({
     empty,
     pendingUser,
     pinnedToBottom,
-    useVirtualList,
     tabId,
     scrollTimelineToBottom,
   ]);
@@ -399,13 +396,16 @@ export function MessageTimeline({
     </div>
   );
 
-  const onScroll = (offset: number) => {
-    const el = containerRef.current;
+  const onScroll = () => {
+    const el = scrollRef.current;
     if (!el) return;
-    const max = Math.max(0, el.scrollHeight - listHeight);
-    const atBottom = max - offset < 80;
+    const max = Math.max(0, el.scrollHeight - el.clientHeight);
+    const atBottom = max - el.scrollTop < 80;
     stick.current = atBottom;
-    setPinnedToBottom((prev) => (prev === atBottom ? prev : atBottom));
+    setPinnedToBottom((prev) => {
+      if (prev !== atBottom) onPinnedToBottomChange?.(atBottom);
+      return prev === atBottom ? prev : atBottom;
+    });
     setShowFab(!atBottom);
   };
 
@@ -423,6 +423,9 @@ export function MessageTimeline({
           disabled={actionPending || rewindDisabled}
           showConnectionRecovery={showConnectionRecovery}
           onOpenConnectionSetup={onOpenConnectionSetup}
+          workspaceName={workspaceName}
+          workspacePath={workspacePath}
+          showWorkspaceMesh={showWorkspaceMesh}
         />
       </div>
     );
@@ -438,34 +441,19 @@ export function MessageTimeline({
 
   return (
     <div className="timeline" ref={containerRef} style={{ flex: 1, minHeight: 0 }}>
-      {useVirtualList ? (
-        <VList
-          ref={listRef}
-          style={{ height: listHeight, padding: "16px 20px", paddingBottom: footerHeight + 8 }}
-          onScroll={onScroll}
-        >
-          {rows.map((row) => renderRow(row))}
-          {pendingUser ? (
-            <div key="pending-user" className="timeline__turn">
-              <PendingUserMessage text={pendingUser} />
-            </div>
-          ) : null}
-        </VList>
-      ) : (
-        <div
-          ref={staticScrollRef}
-          className="timeline__static"
-          style={{ height: listHeight, overflow: "auto", padding: "16px 20px", paddingBottom: footerHeight + 8 }}
-          onScroll={(e) => onScroll((e.currentTarget as HTMLDivElement).scrollTop)}
-        >
-          {rows.map((row) => renderRow(row))}
-          {pendingUser ? (
-            <div key="pending-user" className="timeline__turn">
-              <PendingUserMessage text={pendingUser} />
-            </div>
-          ) : null}
-        </div>
-      )}
+      <div
+        ref={scrollRef}
+        className="timeline__static"
+        style={{ height: listHeight, overflow: "auto", padding: "16px 20px", paddingBottom: footerHeight + 8 }}
+        onScroll={onScroll}
+      >
+        {rows.map((row) => renderRow(row))}
+        {pendingUser ? (
+          <div key="pending-user" className="timeline__turn">
+            <PendingUserMessage text={pendingUser} />
+          </div>
+        ) : null}
+      </div>
       {showFab && (
         <button type="button" className="timeline__fab" onClick={scrollToBottom} aria-label={t("timeline.scrollToBottom")}>
           <ChevronDown size={18} />

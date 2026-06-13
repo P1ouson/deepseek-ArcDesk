@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"arcdesk/internal/config"
 	"arcdesk/internal/control"
 )
 
@@ -80,13 +81,14 @@ effort = "max"
 	if err := os.WriteFile(filepath.Join(projectRoot, "arcdesk.toml"), []byte(configBody), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	config.InvalidateConfigCache(projectRoot)
+	t.Setenv("PROJECT_API_KEY", "test-key")
 
 	app := NewApp()
 	tab := testTab("project", projectRoot)
 	tab.model = "project-provider/deepseek-v4-flash"
 	app.tabs = map[string]*WorkspaceTab{tab.ID: tab}
 	app.activeTabID = tab.ID
-	defer tab.Ctrl.Close()
 
 	got := app.EffortForTab(tab.ID)
 	if !got.Supported || got.Current != "max" {

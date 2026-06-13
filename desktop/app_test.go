@@ -50,6 +50,7 @@ func isolateDesktopUserDirs(t *testing.T) string {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	t.Setenv("AppData", appData)
+	config.InvalidateConfigCache("")
 	return home
 }
 

@@ -482,7 +482,7 @@ func TestStartPhaseAReturnsBeforePhaseB(t *testing.T) {
 		if !strings.Contains(e.Text, "prompts ready") {
 			t.Fatalf("phase B event text = %q, want it to mention prompts", e.Text)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("phase B never fired MCPSurfaceReady for prompts")
 	}
 

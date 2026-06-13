@@ -2190,6 +2190,36 @@ button:disabled:active,
   color: var(--fg-faint);
 }
 
+.welcome--code.welcome--code-bound {
+  position: relative;
+  isolation: isolate;
+}
+
+.welcome--code .welcome__workspace-mesh {
+  position: absolute;
+  inset: -40% -20%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 55% 45% at 18% 22%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 82% 68%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 72%);
+  opacity: 0.85;
+}
+
+.welcome--code.welcome--code-bound .welcome__hero,
+.welcome--code.welcome--code-bound .welcome__cards-wrap {
+  position: relative;
+  z-index: 1;
+}
+
+.welcome--code .welcome__workspace-path {
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--fg-faint);
+  word-break: break-all;
+}
+
 .welcome--code .welcome__headline {
   margin: 0;
   font-family: var(--display);

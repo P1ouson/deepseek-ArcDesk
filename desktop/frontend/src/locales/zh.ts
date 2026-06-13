@@ -561,6 +561,8 @@ export const zh: Record<DictKey, string> = {
   // 工作区面板
   "workspace.title": "工作区",
   "workspace.open": "打开工作区面板",
+  "workspace.backdrop.prompt": "想在 {name} 中做什么？",
+  "workspace.backdrop.hint": "在下方输入任务，或点击快速开始卡片。",
   "workspace.close": "关闭工作区面板",
   "workspace.maximize": "最大化工作区面板",
   "workspace.restore": "还原工作区面板",
@@ -793,6 +795,7 @@ export const zh: Record<DictKey, string> = {
   "welcome.ex3": "找到处理核心业务流程的入口代码",
   "welcome.code.eyebrow": "代码工作区",
   "welcome.code.headline": "从这里开始",
+  "welcome.code.headlineWorkspace": "想在 {name} 中做什么？",
   "welcome.code.tagline": "直接描述你要做的事；需要上下文时用 @ 引用文件或文件夹。",
   "welcome.code.ex1.title": "项目导览",
   "welcome.code.ex1.desc": "目录、模块与职责",

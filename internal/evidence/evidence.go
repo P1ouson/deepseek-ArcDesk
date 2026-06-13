@@ -95,7 +95,7 @@ func (l *Ledger) HasSuccessfulCommand(command string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, r := range l.receipts {
-		if r.Success && r.ToolName == "bash" && r.Command == command {
+		if r.Success && r.ToolName == "bash" && CommandSatisfiesCheck(r.Command, command) {
 			return true
 		}
 	}
@@ -116,7 +116,7 @@ func (l *Ledger) HasSuccessfulCommandAfter(command string, after int) bool {
 	defer l.mu.Unlock()
 	for i := start; i < len(l.receipts); i++ {
 		r := l.receipts[i]
-		if r.Success && r.ToolName == "bash" && r.Command == command {
+		if r.Success && r.ToolName == "bash" && CommandSatisfiesCheck(r.Command, command) {
 			return true
 		}
 	}
@@ -232,6 +232,146 @@ func (l *Ledger) LatestSuccessfulWriterIndex() (int, bool) {
 		}
 	}
 	return latest, latest >= 0
+}
+
+// WrittenPathsAfter returns repo-relative paths written by successful write
+// receipts strictly after the receipt at after (same semantics as
+// HasSuccessfulCommandAfter).
+func (l *Ledger) WrittenPathsAfter(after int) []string {
+	if l == nil {
+		return nil
+	}
+	start := after + 1
+	if start < 0 {
+		start = 0
+	}
+	seen := map[string]bool{}
+	var paths []string
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i := start; i < len(l.receipts); i++ {
+		r := l.receipts[i]
+		if !r.Success || !r.Write {
+			continue
+		}
+		for _, p := range r.Paths {
+			if p == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			paths = append(paths, p)
+		}
+	}
+	return paths
+}
+
+// WritePathsThrough returns repo-relative paths from successful write receipts
+// from the start of the ledger through end (inclusive).
+func (l *Ledger) WritePathsThrough(end int) []string {
+	if l == nil || end < 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var paths []string
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if end >= len(l.receipts) {
+		end = len(l.receipts) - 1
+	}
+	for i := 0; i <= end; i++ {
+		r := l.receipts[i]
+		if !r.Success || !r.Write {
+			continue
+		}
+		for _, p := range r.Paths {
+			if p == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			paths = append(paths, p)
+		}
+	}
+	return paths
+}
+
+// LatestFailedVerifyCommandAfter scans receipts after writer for the most recent
+// failed bash command whose command string matches verify keywords (build/test/
+// vet/lint/compile). Returns the command only — stderr is not stored on receipts.
+func (l *Ledger) LatestFailedVerifyCommandAfter(after int, isVerify func(string) bool) (string, bool) {
+	if l == nil || isVerify == nil {
+		return "", false
+	}
+	start := after + 1
+	if start < 0 {
+		start = 0
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var latest string
+	found := false
+	for i := start; i < len(l.receipts); i++ {
+		r := l.receipts[i]
+		if r.Success || r.ToolName != "bash" {
+			continue
+		}
+		cmd := strings.TrimSpace(r.Command)
+		if cmd == "" || !isVerify(cmd) {
+			continue
+		}
+		latest = cmd
+		found = true
+	}
+	return latest, found
+}
+
+// bashIsVerifyRelated reports whether a bash receipt looks like build/test/vet work.
+func bashIsVerifyRelated(cmd string, isVerify func(string) bool) bool {
+	if isVerify == nil {
+		return false
+	}
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return false
+	}
+	if isVerify(cmd) {
+		return true
+	}
+	for _, seg := range commandSegments(cmd) {
+		if isVerify(seg) {
+			return true
+		}
+	}
+	return false
+}
+
+// LatestVerifyBashAfter returns the last verify-like bash receipt strictly after
+// the writer index. Callers use Success to decide whether the final verify state
+// passed, ignoring earlier intentional failures in the same turn.
+func (l *Ledger) LatestVerifyBashAfter(after int, isVerify func(string) bool) (Receipt, bool) {
+	if l == nil || isVerify == nil {
+		return Receipt{}, false
+	}
+	start := after + 1
+	if start < 0 {
+		start = 0
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var last Receipt
+	found := false
+	for i := start; i < len(l.receipts); i++ {
+		r := l.receipts[i]
+		if r.ToolName != "bash" || !bashIsVerifyRelated(r.Command, isVerify) {
+			continue
+		}
+		last = r
+		found = true
+	}
+	return last, found
 }
 
 func (l *Ledger) MatchLatestTodoStep(step string) (TodoStepMatch, bool) {

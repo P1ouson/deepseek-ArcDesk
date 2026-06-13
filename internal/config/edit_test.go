@@ -499,6 +499,16 @@ func TestCodegraphDefaultEnabledForUpgrades(t *testing.T) {
 	}
 }
 
+func TestDependencyDefaultEnabledForUpgrades(t *testing.T) {
+	c := Default()
+	if c.Dependency.Disabled() {
+		t.Fatal("default dependency enabled = false; existing configs without [dependency] would lose indexing on upgrade")
+	}
+	if !c.Dependency.AutoDiscoverEnabled() {
+		t.Fatal("default dependency auto_discover = false, want true")
+	}
+}
+
 func TestLoadForEditPreservesCodegraphWithoutSection(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "arcdesk.toml")
@@ -523,6 +533,9 @@ func TestLoadFirstRunDisablesCodegraph(t *testing.T) {
 	}
 	if cfg.Codegraph.Enabled {
 		t.Fatal("first run (no config file anywhere) left codegraph enabled; new users should start without it")
+	}
+	if !cfg.Dependency.Disabled() {
+		t.Fatal("first run (no config file anywhere) left dependency enabled; new users should start without it")
 	}
 }
 

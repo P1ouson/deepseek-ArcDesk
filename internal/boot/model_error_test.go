@@ -16,6 +16,7 @@ import (
 // fail with a message that names the model, lists what IS configured, and hints
 // at the [[providers]] trap — not a silent empty model.
 func TestBuildUnknownModelErrorIsActionable(t *testing.T) {
+	setupBootTest(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
 	writeFile(t, dir, "arcdesk.toml", `
@@ -48,6 +49,7 @@ api_key_env = "arcdesk_TEST_KEY_UNSET"
 // builds fine (RequireKey is false so the UI stays reachable) but must emit a
 // notice naming the env var, instead of silently showing a dead/empty model.
 func TestBuildNoticesMissingAPIKey(t *testing.T) {
+	setupBootTest(t)
 	const keyEnv = "arcdesk_MISSING_KEY_FOR_TEST"
 	dir := t.TempDir()
 	t.Chdir(dir)

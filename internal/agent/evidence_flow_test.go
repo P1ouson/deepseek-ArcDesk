@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -316,8 +317,8 @@ func TestFinalReadinessStopsAfterRepeatedBlocks(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected repeated readiness blocks to stop the run")
 	}
-	if !strings.Contains(err.Error(), "final-answer readiness") {
-		t.Fatalf("error = %v, want final-answer readiness", err)
+	if !errors.Is(err, ErrVerifyExhausted) {
+		t.Fatalf("error = %v, want ErrVerifyExhausted", err)
 	}
 	if prov.call != 4 {
 		t.Fatalf("provider calls = %d, want three blocked final answers after writer turn", prov.call)

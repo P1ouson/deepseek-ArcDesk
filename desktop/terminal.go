@@ -167,6 +167,7 @@ func emitTerminalOutput(app *App, sessionID string, data []byte) {
 	if app == nil || app.ctx == nil || len(data) == 0 || sessionID == "" {
 		return
 	}
+	app.ingestTerminalOutput(sessionID, data)
 	runtime.EventsEmit(app.ctx, terminalOutputEvent, map[string]string{
 		"id":   sessionID,
 		"data": base64.StdEncoding.EncodeToString(data),

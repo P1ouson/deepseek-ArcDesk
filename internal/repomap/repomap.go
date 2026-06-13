@@ -128,6 +128,16 @@ func LoadBlock(workspace string) string {
 		out.WriteString(body)
 		out.WriteString("\n")
 	}
+	if rows := loadReadIndex(workspace); len(rows) > 0 {
+		out.WriteString("\n## Recently read files (shared)\n\n")
+		for _, row := range rows {
+			if row.Summary != "" {
+				out.WriteString(fmt.Sprintf("- `%s` — %s\n", row.Path, row.Summary))
+			} else {
+				out.WriteString(fmt.Sprintf("- `%s`\n", row.Path))
+			}
+		}
+	}
 	out.WriteString("\n## Exploration policy\n\n")
 	out.WriteString("- Do NOT re-scan the full repository when this map or AGENTS.md / ARCDESK.md already answers structure questions.\n")
 	out.WriteString("- Prefer read_file on specific paths listed here; use grep/glob only for unknowns.\n")
@@ -273,16 +283,15 @@ func EnsureReady(workspace string) error {
 }
 
 // RefreshIfStale rebuilds the repo map when missing or the repo revision changed.
-// Safe to call from background goroutines; concurrent calls for one workspace coalesce.
+// Safe to call from background goroutines; concurrent calls for one workspace
+// serialize on a per-workspace lock so only one refresh runs at a time.
 func RefreshIfStale(workspace string) error {
 	workspace = strings.TrimSpace(workspace)
 	if workspace == "" {
 		return nil
 	}
 	mu := lockFor(workspace)
-	if !mu.TryLock() {
-		return nil // another refresh in progress
-	}
+	mu.Lock()
 	defer mu.Unlock()
 
 	stale, err := isStale(workspace)
@@ -308,10 +317,10 @@ func isStale(workspace string) (bool, error) {
 		return true, err
 	}
 	head, fp := repoRevision(workspace)
-	if head != "" && meta.GitHead != "" && head == meta.GitHead {
-		return false, nil
+	if head != "" {
+		return meta.GitHead != head, nil
 	}
-	if fp != "" && meta.Fingerprint != "" && fp == meta.Fingerprint {
+	if fp == meta.Fingerprint {
 		return false, nil
 	}
 	return true, nil
@@ -391,9 +400,14 @@ func repoRevision(workspace string) (gitHead, fingerprint string) {
 	if err != nil {
 		return "", ""
 	}
+	sortEntries(ents)
 	var parts []string
 	for _, e := range ents {
-		if e.IsDir() && skipDir(e.Name()) {
+		name := e.Name()
+		if name == subdir {
+			continue // our own cache; writing map/meta must not invalidate the fingerprint
+		}
+		if e.IsDir() && skipDir(name) {
 			continue
 		}
 		info, err := e.Info()
@@ -402,6 +416,7 @@ func repoRevision(workspace string) (gitHead, fingerprint string) {
 		}
 		parts = append(parts, fmt.Sprintf("%s:%d", e.Name(), info.ModTime().Unix()))
 	}
+	sort.Strings(parts)
 	if len(parts) == 0 {
 		return "", ""
 	}

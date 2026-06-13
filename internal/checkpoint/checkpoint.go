@@ -53,6 +53,20 @@ type Meta struct {
 	Paths  []string
 }
 
+// RestoreTarget is one file's pre-turn content that a rewind would apply.
+type RestoreTarget struct {
+	Path    string
+	Content *string // nil → restore deletes the file
+	Turn    int     // earliest checkpoint turn that recorded this path
+}
+
+// RestorePlan describes what RestoreCode(fromTurn) would do without writing disk.
+type RestorePlan struct {
+	FromTurn int
+	Prompt   string
+	Targets  []RestoreTarget
+}
+
 // Store holds a session's checkpoints in memory and, when dir is set, persists one
 // JSON file per turn under it (cheap delete, corruption-isolated). All methods are
 // safe for concurrent use — the agent snapshots from tool goroutines.
@@ -225,6 +239,39 @@ func (s *Store) all() []*Checkpoint {
 	}
 	sort.Slice(cps, func(i, j int) bool { return cps[i].Turn < cps[j].Turn })
 	return cps
+}
+
+// RestorePlan returns the files RestoreCode(fromTurn) would revert, plus the
+// turn prompt label. Targets are ordered by first touch within the rewind span.
+func (s *Store) RestorePlan(fromTurn int) RestorePlan {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	plan := RestorePlan{FromTurn: fromTurn}
+	earliest := map[string]RestoreTarget{}
+	order := []string{}
+	for _, c := range s.all() {
+		if c.Turn < fromTurn {
+			continue
+		}
+		if c.Turn == fromTurn {
+			plan.Prompt = c.Prompt
+		}
+		for _, f := range c.Files {
+			if _, ok := earliest[f.Path]; ok {
+				continue
+			}
+			earliest[f.Path] = RestoreTarget{
+				Path:    f.Path,
+				Content: f.Content,
+				Turn:    c.Turn,
+			}
+			order = append(order, f.Path)
+		}
+	}
+	for _, p := range order {
+		plan.Targets = append(plan.Targets, earliest[p])
+	}
+	return plan
 }
 
 // RestoreCode reverts the workspace to its state at the start of turn `fromTurn`:

@@ -24,7 +24,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"arcdesk/internal/agent"
-	"arcdesk/internal/boot"
 	"arcdesk/internal/config"
 	"arcdesk/internal/control"
 	"arcdesk/internal/event"
@@ -84,6 +83,8 @@ type App struct {
 	// writes to it, preventing two open tabs from corrupting the same .jsonl.
 	sessionLeaseMu sync.Mutex
 	sessionLeases  map[string]string
+
+	wsRuntimes *workspaceRuntimePool
 }
 
 // NewApp constructs the bound object. Tabs are restored in startup from the
@@ -96,6 +97,7 @@ func NewApp() *App {
 		mobileDecision: newMobileDecisionStore(),
 		decisionRoutes: newDecisionRouteStore(),
 		sessionLeases:  map[string]string{},
+		wsRuntimes:     newWorkspaceRuntimePool(),
 	}
 }
 
@@ -248,7 +250,7 @@ func (a *App) restoreOrBuildTabs() {
 			a.emitReady(a.ctx)
 		}
 		for _, tab := range pending {
-			go a.buildTabController(tab)
+			_ = tab // tabs restore shell only; agent boots on first Submit
 		}
 		return
 	}
@@ -311,7 +313,7 @@ func (a *App) shutdown(context.Context) {
 		if t.Ctrl != nil {
 			_ = t.Ctrl.Snapshot()
 			a.syncTabSessionPathLocked(t)
-			t.Ctrl.Close()
+			a.closeTabController(t)
 		}
 	}
 	a.mu.Lock()
@@ -383,7 +385,18 @@ func (a *App) SubmitToTab(tabID, input string) error {
 	}
 	ctrl := a.ctrlByTabID(tabID)
 	if ctrl == nil {
-		return errControllerNotReady
+		tab := a.tabByID(tabID)
+		if tab == nil {
+			return errControllerNotReady
+		}
+		a.startTabControllerBuild(tab)
+		if err := a.waitTabControllerReady(tab, 90*time.Second); err != nil {
+			return err
+		}
+		ctrl = a.ctrlByTabID(tabID)
+		if ctrl == nil {
+			return errControllerNotReady
+		}
 	}
 	ctrl.Submit(input)
 	return nil
@@ -456,7 +469,18 @@ func (a *App) SubmitDisplay(display, input string) {
 func (a *App) SubmitDisplayToTab(tabID, display, input string) error {
 	ctrl := a.ctrlByTabID(tabID)
 	if ctrl == nil {
-		return errControllerNotReady
+		tab := a.tabByID(tabID)
+		if tab == nil {
+			return errControllerNotReady
+		}
+		a.startTabControllerBuild(tab)
+		if err := a.waitTabControllerReady(tab, 90*time.Second); err != nil {
+			return err
+		}
+		ctrl = a.ctrlByTabID(tabID)
+		if ctrl == nil {
+			return errControllerNotReady
+		}
 	}
 	_ = recordSessionDisplay(config.SessionDir(), ctrl.SessionPath(), input, display)
 	ctrl.Submit(input)
@@ -781,7 +805,7 @@ func (a *App) Fork(turn int) (TabMeta, error) {
 	a.mu.Unlock()
 
 	a.emitProjectTreeChanged()
-	go a.buildTabController(tab)
+	a.startTabControllerBuild(tab)
 	return meta, nil
 }
 
@@ -1166,6 +1190,13 @@ func (a *App) SwitchWorkspace(dir string) (string, error) {
 	}
 	saveWorkspace(dir)
 	if err := addProject(dir, ""); err != nil {
+		return "", err
+	}
+	topic, err := a.CreateTopic("project", dir, "", "continue")
+	if err != nil {
+		return "", err
+	}
+	if _, err := a.OpenProjectTabFresh(dir, topic.ID); err != nil {
 		return "", err
 	}
 	a.emitProjectTreeChanged()
@@ -2665,12 +2696,11 @@ func (a *App) SetModelForTab(tabID, name string) error {
 
 	var carried []provider.Message
 	prevPath := ""
-	var prevCtrl *control.Controller
 	if tab.Ctrl != nil {
 		prevPath = tab.Ctrl.SessionPath()
 		_ = tab.Ctrl.Snapshot()
 		carried = tab.Ctrl.History()
-		prevCtrl = tab.Ctrl
+		a.closeTabController(tab)
 	}
 
 	a.mu.Lock()
@@ -2678,20 +2708,12 @@ func (a *App) SetModelForTab(tabID, name string) error {
 	tab.StartupErr = ""
 	a.mu.Unlock()
 
-	newCtrl, err := boot.Build(a.bootContext(), boot.Options{
-		Model:          name,
-		RequireKey:     false,
-		Sink:           tab.sink,
-		WorkspaceRoot:  tab.WorkspaceRoot,
-		EffortOverride: cloneStringPtr(effortOverride),
-		DeferEagerMCP:  true,
-	})
+	buildCtx, cancel := context.WithTimeout(a.bootContext(), 90*time.Second)
+	defer cancel()
+	newCtrl, _, err := a.buildControllerForTab(tab, buildCtx, name, effortOverride)
 	if err != nil {
 		a.markTabAgentReady(tab, err.Error())
 		return err
-	}
-	if prevCtrl != nil {
-		prevCtrl.Close()
 	}
 
 	a.mu.Lock()
@@ -2792,16 +2814,11 @@ func (a *App) SetEffortForTab(tabID, level string) error {
 		prevPath = tab.Ctrl.SessionPath()
 		_ = tab.Ctrl.Snapshot()
 		carried = tab.Ctrl.History()
-		tab.Ctrl.Close()
+		a.closeTabController(tab)
 	}
-	newCtrl, err := boot.Build(a.bootContext(), boot.Options{
-		Model:          tab.model,
-		RequireKey:     false,
-		Sink:           tab.sink,
-		WorkspaceRoot:  tab.WorkspaceRoot,
-		EffortOverride: &effort,
-		DeferEagerMCP:  true,
-	})
+	buildCtx, cancel := context.WithTimeout(a.bootContext(), 90*time.Second)
+	defer cancel()
+	newCtrl, _, err := a.buildControllerForTab(tab, buildCtx, tab.model, &effort)
 	if err != nil {
 		return err
 	}
