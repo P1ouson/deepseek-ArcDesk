@@ -45,6 +45,14 @@ func TestVerificationConfigHelpers(t *testing.T) {
 	if p != "ask" {
 		t.Fatalf("policy = %q", p)
 	}
+	if v.EnforcesFinalAnswer() {
+		t.Fatal("enforce_final_answer should default to false")
+	}
+	enforce := true
+	enforced := VerificationConfig{EnforceFinalAnswer: &enforce}
+	if !enforced.EnforcesFinalAnswer() {
+		t.Fatal("explicit enforce_final_answer should be true")
+	}
 }
 
 func TestDependencyCallgraphShouldIndex(t *testing.T) {

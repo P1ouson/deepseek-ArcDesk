@@ -5,7 +5,9 @@ import (
 	"strings"
 
 	"arcdesk/internal/config"
+	"arcdesk/internal/hook"
 	"arcdesk/internal/i18n"
+	"arcdesk/internal/mcpcmd"
 	"arcdesk/internal/skill"
 )
 
@@ -151,14 +153,15 @@ func effortArgItems(prior []string, d ArgData) []SlashItem {
 }
 
 func currentEffortEntry(d ArgData) *config.ProviderEntry {
-	if strings.TrimSpace(d.CurrentModel) == "" {
-		return nil
-	}
 	cfg, err := config.Load()
 	if err != nil {
 		return nil
 	}
-	entry, _ := cfg.ResolveModel(d.CurrentModel)
+	ref := strings.TrimSpace(d.CurrentModel)
+	if ref == "" {
+		ref = cfg.DefaultModel
+	}
+	entry, _ := cfg.ResolveModel(ref)
 	return entry
 }
 
@@ -324,35 +327,15 @@ func (c *Controller) managementNotice(trimmed string) bool {
 	case "/memory":
 		c.notice(c.memoryListText())
 	case "/skill", "/skills":
-		sub := ""
-		if len(fields) >= 2 {
-			sub = strings.ToLower(fields[1])
-		}
-		if len(fields) >= 3 && (sub == "enable" || sub == "disable") {
-			enabled := sub == "enable"
-			if err := c.SetSkillEnabled(fields[2], enabled); err != nil {
-				c.notice("skill " + sub + ": " + err.Error())
-			} else if enabled {
-				c.notice("enabled skill " + fields[2] + " — restart or refresh the session for the prompt and tools to update")
-			} else {
-				c.notice("disabled skill " + fields[2] + " — restart or refresh the session for the prompt and tools to update")
-			}
-			return true
-		}
-		c.notice(c.skillListText())
+		c.handleSkillsSlash(trimmed)
 	case "/hooks":
-		c.notice(c.hookListText())
+		c.handleHooksSlash(trimmed)
 	case "/mcp":
-		if len(fields) >= 3 && fields[1] == "connect" {
-			n, err := c.ConnectConfiguredMCPServer(fields[2])
-			if err != nil {
-				c.notice("mcp connect: " + err.Error())
-			} else {
-				c.notice(fmt.Sprintf("connected %s — %d tools", fields[2], n))
-			}
-			return true
-		}
-		c.notice(c.mcpListText())
+		c.handleMCPSlash(trimmed)
+	case "/auto-plan":
+		c.handleAutoPlanSlash(trimmed)
+	case "/language":
+		c.handleLanguageSlash(trimmed)
 	default:
 		return false
 	}
@@ -391,6 +374,51 @@ func (c *Controller) memoryListText() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+func (c *Controller) skillShowText(name string) string {
+	for _, s := range c.AllSkills() {
+		if s.Name != name {
+			continue
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "skill: %s\n", s.Name)
+		fmt.Fprintf(&b, "scope: %s\n", s.Scope)
+		if s.Description != "" {
+			fmt.Fprintf(&b, "description: %s\n", s.Description)
+		}
+		if s.Path != "" {
+			fmt.Fprintf(&b, "path: %s\n", s.Path)
+		}
+		if c.SkillEnabled(s.Name) {
+			b.WriteString("status: enabled\n")
+		} else {
+			b.WriteString("status: disabled\n")
+		}
+		if s.RunAs != "" {
+			fmt.Fprintf(&b, "run as: %s\n", s.RunAs)
+		}
+		return strings.TrimRight(b.String(), "\n")
+	}
+	return "unknown skill: " + name
+}
+
+func (c *Controller) skillPathsText() string {
+	skills := c.AllSkills()
+	if len(skills) == 0 {
+		return i18n.M.ListSkillsNone
+	}
+	seen := map[string]bool{}
+	var b strings.Builder
+	b.WriteString("skill paths:\n")
+	for _, s := range skills {
+		if s.Path == "" || seen[s.Path] {
+			continue
+		}
+		seen[s.Path] = true
+		fmt.Fprintf(&b, "  %s\n", s.Path)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 func (c *Controller) skillListText() string {
 	if len(c.skills) == 0 {
 		return i18n.M.ListSkillsNone
@@ -410,6 +438,9 @@ func (c *Controller) skillListText() string {
 func (c *Controller) hookListText() string {
 	hooks := c.hooks.Hooks()
 	if len(hooks) == 0 {
+		if hook.ProjectDefinesHooks(c.cpRoot) && !hook.IsTrusted(c.cpRoot, "") {
+			return i18n.M.ListHooksNone + "\n\nProject hooks are defined but not trusted. Run /hooks trust to enable."
+		}
 		return i18n.M.ListHooksNone
 	}
 	var b strings.Builder
@@ -421,7 +452,75 @@ func (c *Controller) hookListText() string {
 		}
 		fmt.Fprintf(&b, "  %s [%s] %s — %s\n", h.Event, h.Scope, match, h.Command)
 	}
+	if hook.ProjectDefinesHooks(c.cpRoot) && !hook.IsTrusted(c.cpRoot, "") {
+		b.WriteString("\nProject hooks are defined but not trusted. Run /hooks trust to enable.")
+	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func (c *Controller) handleSkillsSlash(trimmed string) {
+	args := mcpcmd.TokenizeArgs(trimmed)
+	sub := ""
+	if len(args) > 1 {
+		sub = strings.ToLower(args[1])
+	}
+	switch sub {
+	case "enable", "disable":
+		if len(args) < 3 {
+			c.notice("usage: /skills " + sub + " <name>")
+			return
+		}
+		enabled := sub == "enable"
+		if err := c.SetSkillEnabled(args[2], enabled); err != nil {
+			c.notice("skill " + sub + ": " + err.Error())
+		} else if enabled {
+			c.notice("enabled skill " + args[2] + " — restart or refresh the session for the prompt and tools to update")
+		} else {
+			c.notice("disabled skill " + args[2] + " — restart or refresh the session for the prompt and tools to update")
+		}
+	case "show", "cat":
+		if len(args) < 3 {
+			c.notice("usage: /skills show <name>")
+			return
+		}
+		c.notice(c.skillShowText(args[2]))
+	case "paths":
+		c.notice(c.skillPathsText())
+	case "new", "init":
+		if len(args) < 3 {
+			c.notice("usage: /skills new <name> [--global]")
+			return
+		}
+		global := false
+		for _, a := range args[3:] {
+			if a == "--global" {
+				global = true
+			}
+		}
+		var custom []string
+		if cfg, err := config.Load(); err == nil {
+			custom = cfg.SkillCustomPaths()
+		}
+		st := skill.New(skill.Options{ProjectRoot: c.cpRoot, CustomPaths: custom})
+		scope := skill.ScopeProject
+		if global || !st.HasProjectScope() {
+			scope = skill.ScopeGlobal
+		}
+		path, err := st.Create(args[2], scope)
+		if err != nil {
+			c.notice("skill new: " + err.Error())
+			return
+		}
+		c.notice(fmt.Sprintf("created skill %q at %s — edit it, then /new (or restart) to pick it up", args[2], path))
+	case "list", "ls", "manage", "picker", "":
+		c.notice(c.skillListText())
+	default:
+		hint := ""
+		if _, ok := c.RunSkill("/" + args[1]); ok {
+			hint = " (to run it, type /" + args[1] + ")"
+		}
+		c.notice("unknown /skills subcommand " + args[1] + hint + " — try: /skills, /skills show <name>, /skills enable <name>, /skills disable <name>, /skills new <name>, /skills paths")
+	}
 }
 
 func (c *Controller) mcpListText() string {

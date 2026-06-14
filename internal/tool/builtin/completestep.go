@@ -174,6 +174,9 @@ func verifyStepEvidence(ctx context.Context, items []stepEvidence) (hostVerified
 }
 
 func verifyProjectChecks(ctx context.Context, items []stepEvidence) (int, error) {
+	if !instruction.EnforceVerificationFromContext(ctx) {
+		return 0, nil
+	}
 	checks := instruction.FromContext(ctx)
 	if len(checks) == 0 {
 		return 0, nil

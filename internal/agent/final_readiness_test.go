@@ -44,7 +44,7 @@ func TestFinalReadinessFailureBranches(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			a := &Agent{evidence: tc.evidence, projectChecks: tc.checks}
+			a := &Agent{evidence: tc.evidence, projectChecks: tc.checks, verifyEnforceFinalAnswer: true}
 			got := a.finalReadinessFailure()
 			if tc.wantEmpty {
 				if got != "" {
@@ -69,5 +69,17 @@ func TestFinalReadinessAllowsIncompleteTodosInPlanMode(t *testing.T) {
 
 	if got := a.finalReadinessFailure(); got != "" {
 		t.Fatalf("finalReadinessFailure() = %q, want empty in plan mode", got)
+	}
+}
+
+func TestFinalReadinessProjectChecksAdvisoryByDefault(t *testing.T) {
+	check := instruction.VerifyCheck{Command: "go test ./...", SourcePath: "arcdesk.toml"}
+	writer := evidence.Receipt{ToolName: "write_file", Success: true, Write: true, Paths: []string{"a.go"}}
+	a := &Agent{
+		evidence:      readinessLedger(writer),
+		projectChecks: []instruction.VerifyCheck{check},
+	}
+	if got := a.finalReadinessFailure(); got != "" {
+		t.Fatalf("finalReadinessFailure() = %q, want empty when enforcement is off", got)
 	}
 }

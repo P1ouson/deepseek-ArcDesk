@@ -36,6 +36,7 @@ import (
 	"arcdesk/internal/guardian"
 	"arcdesk/internal/hook"
 	"arcdesk/internal/jobs"
+	"arcdesk/internal/knowledge"
 	"arcdesk/internal/lsp"
 	"arcdesk/internal/memory"
 	"arcdesk/internal/netclient"
@@ -94,6 +95,10 @@ type Options struct {
 	// DeferEagerMCP skips blocking MCP handshake during boot (desktop tabs). Eager
 	// plugins are registered as lazy placeholders and start on first use.
 	DeferEagerMCP bool
+	// PluginCtx bounds MCP subprocess lifetime for the session. When nil, Build uses
+	// ctx. Desktop passes a long-lived app context because its boot ctx is canceled
+	// after assembly completes.
+	PluginCtx context.Context
 	// Kit, when set, reuses workspace-scoped indexes, env probe, and MCP host
 	// prepared by PrepareWorkspaceKit (desktop multi-tab).
 	Kit *WorkspaceKit
@@ -353,6 +358,12 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 			failuremem.RegisterTools(reg, store)
 		} else {
 			slog.Debug("failuremem: open skipped", "err", err)
+		}
+	}
+
+	if failureStore != nil && cfg.Knowledge.ShouldEnable() && cfg.Knowledge.SystemPromptIndexEnabled() {
+		if block := knowledge.IndexBlock(failureStore, cfg.Knowledge); block != "" {
+			sysPrompt += "\n\n" + block
 		}
 	}
 
@@ -720,14 +731,16 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		Gate:              headlessGate,
 		Hooks:             hookRunner,
 		Jobs:              jm,
-		ProjectChecks:     projectChecks,
-		VerifyMaxRetries:  verifyPolicy.MaxRetries,
+		ProjectChecks:            projectChecks,
+		VerifyMaxRetries:         verifyPolicy.MaxRetries,
+		VerifyEnforceFinalAnswer: cfg.Verification.EnforcesFinalAnswer(),
 		DependencyIndex:   depIdx,
 		CallgraphIndex:    cgIdx,
 		RuntimeHub:        rtHub,
 		SelfdebugTracker:  sdTracker,
 		PhaseTracker:      phaseTracker,
 		FailureStore:      failureStore,
+		Knowledge:         cfg.Knowledge,
 		ConstraintEngine:  constraintEng,
 		GuardianEngine:    guardianEng,
 		ToolOutputMaxBytes: toolOutputMaxBytes,
@@ -821,7 +834,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		BalanceClient: balanceClient,
 		Jobs:          jm,
 		Registry:      reg,
-		PluginCtx:     ctx,
+		PluginCtx:     pluginSessionCtx(ctx, opts.PluginCtx),
 		WorkspaceRoot: root,
 		ReadRoots:     cfg.WriteRootsForRoot(root),
 		AutoPlan:      cfg.Agent.AutoPlan,
@@ -835,6 +848,13 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		ctrlOpts.Classifier = classifier
 	}
 	return control.New(ctrlOpts), nil
+}
+
+func pluginSessionCtx(buildCtx, override context.Context) context.Context {
+	if override != nil {
+		return override
+	}
+	return buildCtx
 }
 
 func rememberPermissionRule(workspaceRoot, rule string) {

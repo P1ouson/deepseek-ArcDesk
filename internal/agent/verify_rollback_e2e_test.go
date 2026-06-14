@@ -85,8 +85,9 @@ func TestVerifyRollbackEndToEndWithDiff(t *testing.T) {
 
 	a := New(prov, reg, NewSession(""), Options{
 		ProjectChecks:    []instruction.VerifyCheck{{Command: "go test ./...", SourcePath: "arcdesk.toml"}},
-		VerifyMaxRetries: 2,
-		VerifyOnFailure:  "rollback",
+		VerifyMaxRetries:         2,
+		VerifyEnforceFinalAnswer: true,
+		VerifyOnFailure:          "rollback",
 		RollbackHost: rollback.NewHost(
 			func() *checkpoint.Store { return cp },
 			root,
@@ -99,11 +100,8 @@ func TestVerifyRollbackEndToEndWithDiff(t *testing.T) {
 	if !errors.Is(err, ErrVerifyExhausted) {
 		t.Fatalf("Run err = %v, want ErrVerifyExhausted", err)
 	}
-	if !sessionHasUserMessageContaining(a.session, "## Rollback Preview") {
-		t.Fatal("missing rollback preview in readiness retry")
-	}
-	if !sessionHasUserMessageContaining(a.session, "alpha.go") {
-		t.Fatal("missing reverted path in rollback preview")
+	if sessionHasUserMessageContaining(a.session, "## Rollback Preview") {
+		t.Fatal("readiness-only exhaustion should not inject rollback preview")
 	}
 
 	report := rollback.BuildReport(root, cp.RestorePlan(0))

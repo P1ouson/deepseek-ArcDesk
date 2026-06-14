@@ -24,8 +24,16 @@ func IsVerifyCommand(cmd string) bool {
 
 // BuildVerifyContext formats recent runtime observations for verify retries.
 func BuildVerifyContext(hub *Hub, failedCmd, stderr string) string {
+	return BuildVerifyContextSlim(hub, failedCmd, stderr, false, 0)
+}
+
+// BuildVerifyContextSlim omits console/Wails noise when slim is true (compile/test failures).
+func BuildVerifyContextSlim(hub *Hub, failedCmd, stderr string, slim bool, stderrMax int) string {
 	if hub == nil || !IsVerifyCommand(failedCmd) {
 		return ""
+	}
+	if slim {
+		return buildStderrOnlyContext(stderr, stderrMax)
 	}
 	since := time.Now().UTC().Add(-15 * time.Minute)
 	var b strings.Builder
@@ -75,6 +83,21 @@ func BuildVerifyContext(hub *Hub, failedCmd, stderr string) string {
 	if !wrote {
 		return ""
 	}
+	return strings.TrimSpace(b.String())
+}
+
+func buildStderrOnlyContext(stderr string, max int) string {
+	s := strings.TrimSpace(stderr)
+	if s == "" {
+		return ""
+	}
+	if max <= 0 {
+		max = 2048
+	}
+	var b strings.Builder
+	b.WriteString("## Verification output\n")
+	b.WriteString(truncate(s, max))
+	b.WriteByte('\n')
 	return strings.TrimSpace(b.String())
 }
 

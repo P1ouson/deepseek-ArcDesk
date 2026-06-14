@@ -212,7 +212,7 @@ func TestSelfdebugRetryContextIncludesConstraint(t *testing.T) {
 		selfdebugTracker: tracker,
 		constraintEngine: eng,
 	}
-	a.noteVerifyFailure(provider.ToolCall{Arguments: `{"command":"go test ./..."}`}, errTest, "FAIL")
+	a.noteVerifyFailure(context.Background(),provider.ToolCall{Arguments: `{"command":"go test ./..."}`}, errTest, "FAIL")
 	got := a.selfdebugRetryContext(1)
 	if !strings.Contains(got, "## Constraint System") {
 		t.Fatalf("got %q", got)

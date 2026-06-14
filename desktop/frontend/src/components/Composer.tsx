@@ -186,6 +186,7 @@ export function Composer({
   tabId,
   effort,
   onSend,
+  onLocalSlash,
   onCancel,
   onCycleMode,
   onSetMode,
@@ -224,6 +225,8 @@ export function Composer({
   tabId?: string;
   effort?: EffortInfo;
   onSend: (displayText: string, submitText?: string) => void;
+  /** Desktop-only slash verb that opens the memory drawer instead of submitting. */
+  onLocalSlash?: (name: "memory") => void;
   // Returns the un-sent text when cancelling before the server replied (so it can
   // be restored to the input); undefined for a normal cancel.
   onCancel: () => string | undefined;
@@ -589,6 +592,17 @@ export function Composer({
   const submit = useCallback(() => {
     if (disabled) return;
     const t = text.trim();
+    const localSlash = t === "/memory" ? "memory" : null;
+    if (localSlash) {
+      if (onLocalSlash) {
+        onLocalSlash(localSlash);
+      } else {
+        onSend(t);
+      }
+      setText("");
+      setDismissed(true);
+      return;
+    }
     const pendingWriteContext = writeSurface ? writeContext : null;
     if (
       (!t && attachments.length === 0 && workspaceRefs.length === 0 && !pendingWriteContext) ||
@@ -627,7 +641,7 @@ export function Composer({
     setText("");
     setAttachments([]);
     setWorkspaceRefs([]);
-  }, [attachments, codeSurface, disabled, onSend, pendingPaste, text, workspaceRefs, writeContext, writeSurface]);
+  }, [attachments, codeSurface, disabled, onLocalSlash, onSend, pendingPaste, text, workspaceRefs, writeContext, writeSurface]);
 
   const sendDisabled =
     pendingPaste > 0 ||
@@ -823,7 +837,19 @@ export function Composer({
     if (typeof restored === "string") setTextCaretEnd(restored);
   };
 
-  const pickCommand = (c: CommandInfo) => setTextCaretEnd("/" + c.name + " ");
+  const pickCommand = (c: CommandInfo) => {
+    if (c.name === "memory") {
+      if (onLocalSlash) {
+        onLocalSlash("memory");
+      } else {
+        onSend("/" + c.name);
+      }
+      setText("");
+      setDismissed(true);
+      return;
+    }
+    setTextCaretEnd("/" + c.name + " ");
+  };
 
   const activePastedBlocks = pastedBlocks.filter((block) => text.includes(block.label));
 
@@ -1217,23 +1243,38 @@ export function Composer({
             return (
               <div className="composer__pasted-block" key={block.label}>
                 <div className="composer__pasted-head">
-                  <FileText size={15} />
-                  <span>{block.label}</span>
-                  <Tooltip label={t(open ? "composer.pastedHidePreview" : "composer.pastedShowPreview")}>
-                    <button type="button" onClick={() => togglePastedPreview(block.label)}>
-                      <Eye size={14} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip label={t("composer.pastedExpand")}>
-                    <button type="button" onClick={() => expandPastedBlock(block)}>
-                      {t("composer.pastedExpand")}
-                    </button>
-                  </Tooltip>
-                  <Tooltip label={t("composer.pastedRemove")}>
-                    <button type="button" onClick={() => removePastedBlock(block)}>
-                      <Trash2 size={14} />
-                    </button>
-                  </Tooltip>
+                  <FileText size={15} aria-hidden="true" />
+                  <span className="composer__pasted-label">{block.label}</span>
+                  <div className="composer__pasted-actions">
+                    <Tooltip label={t(open ? "composer.pastedHidePreview" : "composer.pastedShowPreview")}>
+                      <button
+                        type="button"
+                        className="composer__pasted-btn composer__pasted-btn--icon"
+                        aria-pressed={open}
+                        onClick={() => togglePastedPreview(block.label)}
+                      >
+                        <Eye size={14} aria-hidden="true" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip label={t("composer.pastedExpand")}>
+                      <button
+                        type="button"
+                        className="composer__pasted-btn"
+                        onClick={() => expandPastedBlock(block)}
+                      >
+                        {t("composer.pastedExpand")}
+                      </button>
+                    </Tooltip>
+                    <Tooltip label={t("composer.pastedRemove")}>
+                      <button
+                        type="button"
+                        className="composer__pasted-btn composer__pasted-btn--icon composer__pasted-btn--danger"
+                        onClick={() => removePastedBlock(block)}
+                      >
+                        <Trash2 size={14} aria-hidden="true" />
+                      </button>
+                    </Tooltip>
+                  </div>
                 </div>
                 {open && <pre className="composer__pasted-preview">{block.text}</pre>}
               </div>

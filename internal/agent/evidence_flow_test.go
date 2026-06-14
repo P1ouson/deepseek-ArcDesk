@@ -138,7 +138,8 @@ func TestEvidenceFlowEnforcesProjectChecksAfterWrite(t *testing.T) {
 	}}
 
 	a := New(prov, reg, NewSession(""), Options{
-		ProjectChecks: []instruction.VerifyCheck{{Command: "go test ./...", SourcePath: "AGENTS.md", Line: 3}},
+		ProjectChecks:            []instruction.VerifyCheck{{Command: "go test ./...", SourcePath: "AGENTS.md", Line: 3}},
+		VerifyEnforceFinalAnswer: true,
 	}, event.Discard)
 	if err := a.Run(context.Background(), "edit and verify"); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -176,13 +177,15 @@ func TestFinalReadinessAllowsWriterWithoutChecksOrTodos(t *testing.T) {
 		},
 		{{Type: provider.ChunkText, Text: "done"}, {Type: provider.ChunkDone}},
 	}}
-	a := New(prov, reg, NewSession(""), Options{}, event.Discard)
+	a := New(prov, reg, NewSession(""), Options{
+		ProjectChecks: []instruction.VerifyCheck{{Command: "go test ./...", SourcePath: "arcdesk.toml"}},
+	}, event.Discard)
 
 	if err := a.Run(context.Background(), "simple edit"); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if prov.call != 2 {
-		t.Fatalf("provider calls = %d, want 2", prov.call)
+		t.Fatalf("provider calls = %d, want 2 without enforcement", prov.call)
 	}
 }
 
@@ -203,7 +206,8 @@ func TestFinalReadinessBlocksUntilProjectCheckRunsAfterWriter(t *testing.T) {
 		{{Type: provider.ChunkText, Text: "verified done"}, {Type: provider.ChunkDone}},
 	}}
 	a := New(prov, reg, NewSession(""), Options{
-		ProjectChecks: []instruction.VerifyCheck{{Command: "go test ./...", SourcePath: "AGENTS.md", Line: 3}},
+		ProjectChecks:            []instruction.VerifyCheck{{Command: "go test ./...", SourcePath: "AGENTS.md", Line: 3}},
+		VerifyEnforceFinalAnswer: true,
 	}, event.Discard)
 
 	if err := a.Run(context.Background(), "edit and finish"); err != nil {
@@ -238,7 +242,8 @@ func TestFinalReadinessRejectsProjectCheckBeforeWriter(t *testing.T) {
 		{{Type: provider.ChunkText, Text: "verified done"}, {Type: provider.ChunkDone}},
 	}}
 	a := New(prov, reg, NewSession(""), Options{
-		ProjectChecks: []instruction.VerifyCheck{{Command: "go test ./...", SourcePath: "AGENTS.md", Line: 3}},
+		ProjectChecks:            []instruction.VerifyCheck{{Command: "go test ./...", SourcePath: "AGENTS.md", Line: 3}},
+		VerifyEnforceFinalAnswer: true,
 	}, event.Discard)
 
 	if err := a.Run(context.Background(), "verify before edit, then finish"); err != nil {

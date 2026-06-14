@@ -16,6 +16,10 @@ describe("routeDesktopSend", () => {
     expect(routeDesktopSend("/memory")).toEqual({ action: "openMemory" });
   });
 
+  it("routes /knowledge", () => {
+    expect(routeDesktopSend("/knowledge")).toEqual({ action: "openKnowledge" });
+  });
+
   it("routes /goal", () => {
     expect(routeDesktopSend("/goal ship v1.3")).toEqual({ action: "setGoal", label: "ship v1.3" });
   });
@@ -38,6 +42,7 @@ describe("routeDesktopSend", () => {
     expect(routeDesktopSend("/theme")).toEqual({ action: "themeShowCurrent" });
     expect(routeDesktopSend("/theme dark")).toEqual({ action: "themeSet", theme: "dark" });
     expect(routeDesktopSend("/theme DARK")).toEqual({ action: "themeSet", theme: "dark" });
+    expect(routeDesktopSend("/theme graphite")).toEqual({ action: "themeStyleSet", style: "graphite" });
     expect(routeDesktopSend("/theme neon")).toEqual({ action: "themeUnknown", name: "neon" });
   });
 
@@ -50,5 +55,13 @@ describe("routeDesktopSend", () => {
     });
     expect(routeDesktopSend("/plan")).toEqual({ action: "send", displayText: "/plan", submitText: "/plan" });
     expect(routeDesktopSend("/skill")).toEqual({ action: "send", displayText: "/skill", submitText: "/skill" });
+    expect(routeDesktopSend("/mcp show github")).toEqual({
+      action: "send",
+      displayText: "/mcp show github",
+      submitText: "/mcp show github",
+    });
+    expect(routeDesktopSend("/auto-plan on")).toEqual({ action: "send", displayText: "/auto-plan on", submitText: "/auto-plan on" });
+    expect(routeDesktopSend("/language zh")).toEqual({ action: "send", displayText: "/language zh", submitText: "/language zh" });
+    expect(routeDesktopSend("/hooks trust")).toEqual({ action: "send", displayText: "/hooks trust", submitText: "/hooks trust" });
   });
 });

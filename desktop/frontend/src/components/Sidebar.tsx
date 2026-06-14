@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import {
+  BookOpen,
   CalendarClock,
   ChevronLeft,
   Code2,
@@ -29,8 +30,7 @@ export interface SidebarProps {
   projectRevision: number;
   onOpenTopic: (scope: string, workspaceRoot: string, topicId: string, freshSession?: boolean) => void;
   onOpenWorkspace: () => void;
-  onNewChat: () => void;
-  onNewFreshChat?: () => void;
+  onNewSession: () => void;
   onModeChange: (mode: AppMode) => void;
   onOpenSdd: () => void;
   onAddProject: () => Promise<void>;
@@ -93,8 +93,7 @@ export function Sidebar({
   projectRevision,
   onOpenTopic,
   onOpenWorkspace,
-  onNewChat,
-  onNewFreshChat,
+  onNewSession,
   onModeChange,
   onOpenSdd,
   onAddProject,
@@ -137,6 +136,12 @@ export function Sidebar({
           label={t("sidebar.importWorkspace")}
           onClick={onOpenWorkspace}
         />
+        <LabeledRailButton
+          icon={<BookOpen size={17} />}
+          label={t("sidebar.rail.knowledge")}
+          active={appMode === "knowledge"}
+          onClick={() => onModeChange("knowledge")}
+        />
 
         <span className="studio-rail__spacer" />
 
@@ -178,10 +183,7 @@ export function Sidebar({
 
           <div className="studio-drawer__actions">
             <DrawerAction icon={<FolderOpen size={15} />} label={t("sidebar.importWorkspace")} onClick={onOpenWorkspace} />
-            <DrawerAction icon={<Plus size={15} />} label={t("sidebar.newSession")} onClick={onNewChat} />
-            {onNewFreshChat ? (
-              <DrawerAction icon={<Plus size={15} />} label={t("sidebar.newFreshSession")} onClick={onNewFreshChat} />
-            ) : null}
+            <DrawerAction icon={<Plus size={15} />} label={t("sidebar.newFreshSession")} onClick={onNewSession} />
             {!writeMode ? (
               <DrawerAction icon={<Sparkles size={15} />} label={t("sidebar.newRequirement")} onClick={onOpenSdd} />
             ) : null}

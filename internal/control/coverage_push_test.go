@@ -301,9 +301,10 @@ func TestRunGuardedVerifyRollbackOnSend(t *testing.T) {
 	reg := tool.NewRegistry()
 	reg.Add(e2eWriteTool{root: root})
 	exec := agent.New(prov, reg, agent.NewSession(""), agent.Options{
-		ProjectChecks:    []instruction.VerifyCheck{{Command: "go test ./..."}},
-		VerifyMaxRetries: 2,
-		VerifyOnFailure:  "rollback",
+		ProjectChecks:            []instruction.VerifyCheck{{Command: "go test ./..."}},
+		VerifyMaxRetries:         2,
+		VerifyEnforceFinalAnswer: true,
+		VerifyOnFailure:          "rollback",
 	}, event.Discard)
 
 	sink, done, _ := collectSink()
@@ -326,8 +327,9 @@ func TestRunGuardedVerifyRollbackOnSend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(got), "func main() {}") {
-		t.Fatalf("file not rolled back: %q", got)
+	// Readiness-only exhaustion (checks never run) keeps workspace edits per policy.
+	if !strings.Contains(string(got), `panic("broken")`) {
+		t.Fatalf("readiness-only exhaustion should keep edits, got %q", got)
 	}
 }
 

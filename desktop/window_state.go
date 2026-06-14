@@ -15,7 +15,7 @@ import (
 // sizes below MinWindowWidth leave the drawer feeling cramped or collapsed.
 const (
 	DefaultWindowWidth  = 1020
-	DefaultWindowHeight = 760
+	DefaultWindowHeight = 850
 	MinWindowWidth      = 920
 	MinWindowHeight     = 580
 	maxWindowScreenRatio = 0.76

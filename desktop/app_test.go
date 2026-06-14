@@ -1279,3 +1279,111 @@ func TestSubmitToTabWithCtrlSucceeds(t *testing.T) {
 	}
 	waitNotRunning(t, ctrl)
 }
+
+func TestAddMCPServerWithoutActiveSessionPersistsConfig(t *testing.T) {
+	isolateDesktopUserDirs(t)
+	prevHook := nativeConfirmHook
+	nativeConfirmHook = func(NativeConfirmRequest) (bool, error) { return true, nil }
+	t.Cleanup(func() { nativeConfirmHook = prevHook })
+
+	app := NewApp()
+	tab := &WorkspaceTab{
+		ID:            "test",
+		Scope:         "global",
+		WorkspaceRoot: ".",
+		Ready:         true,
+		disabledMCP:   map[string]ServerView{},
+	}
+	app.tabs = map[string]*WorkspaceTab{"test": tab}
+	app.activeTabID = "test"
+
+	tools, err := app.AddMCPServer(MCPServerInput{
+		Name:      "github",
+		Transport: "stdio",
+		Command:   "npx",
+		Args:      []string{"-y", "@modelcontextprotocol/server-github"},
+		Tier:      "lazy",
+	})
+	if err != nil {
+		t.Fatalf("AddMCPServer: %v", err)
+	}
+	if tools != 0 {
+		t.Fatalf("tools = %d, want 0 without active controller", tools)
+	}
+
+	cfg, err := config.LoadForRoot(".")
+	if err != nil {
+		t.Fatalf("LoadForRoot: %v", err)
+	}
+	found := false
+	for _, p := range cfg.Plugins {
+		if p.Name == "github" {
+			found = true
+			if p.Command != "npx" {
+				t.Fatalf("command = %q, want npx", p.Command)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("github MCP not persisted to config")
+	}
+
+	caps := app.Capabilities()
+	if len(caps.Servers) == 0 {
+		t.Fatal("Capabilities should list configured MCP servers without controller")
+	}
+	var listed bool
+	for _, s := range caps.Servers {
+		if s.Name == "github" {
+			listed = true
+			break
+		}
+	}
+	if !listed {
+		t.Fatal("github MCP missing from Capabilities()")
+	}
+}
+
+func TestSetMCPServerEnabledDisableWithoutController(t *testing.T) {
+	isolateDesktopUserDirs(t)
+	prevHook := nativeConfirmHook
+	nativeConfirmHook = func(NativeConfirmRequest) (bool, error) { return true, nil }
+	t.Cleanup(func() { nativeConfirmHook = prevHook })
+
+	app := NewApp()
+	tab := &WorkspaceTab{
+		ID:            "test",
+		Scope:         "global",
+		WorkspaceRoot: ".",
+		Ready:         true,
+		disabledMCP:   map[string]ServerView{},
+	}
+	app.tabs = map[string]*WorkspaceTab{"test": tab}
+	app.activeTabID = "test"
+
+	if _, err := app.AddMCPServer(MCPServerInput{
+		Name: "github", Transport: "stdio", Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-github"}, Tier: "lazy",
+	}); err != nil {
+		t.Fatalf("AddMCPServer: %v", err)
+	}
+
+	if err := app.SetMCPServerEnabled("github", false); err != nil {
+		t.Fatalf("SetMCPServerEnabled disable: %v", err)
+	}
+
+	caps := app.Capabilities()
+	var github *ServerView
+	for i := range caps.Servers {
+		if caps.Servers[i].Name == "github" {
+			github = &caps.Servers[i]
+			break
+		}
+	}
+	if github == nil {
+		t.Fatal("github missing after disable")
+	}
+	if github.Status != "disabled" {
+		t.Fatalf("status = %q, want disabled", github.Status)
+	}
+}

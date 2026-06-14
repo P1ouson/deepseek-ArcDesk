@@ -4,7 +4,6 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
-  ExternalLink,
   FolderPlus,
   Loader2,
   Plug,
@@ -16,15 +15,15 @@ import {
   Trash2,
   Wrench,
 } from "lucide-react";
-import { app, openExternal } from "../lib/bridge";
+import { app, onReady } from "../lib/bridge";
 import { toErrorMessage } from "../lib/errors";
 import { MotionUnfold } from "./MotionUnfold";
+import { SkillsMarketModal } from "./SkillsMarketModal";
+import { MCPInstallModal } from "./MCPInstallModal";
 import { useT } from "../lib/i18n";
-import type { CapabilitiesView, MCPCatalogEntry, MCPServerInput, ServerView, SkillView } from "../lib/types";
+import type { CapabilitiesView, MCPCatalogEntry, ServerView, SkillView } from "../lib/types";
 
 type ExtensionsSection = "skills" | "mcp-browse" | "mcp-installed";
-
-const EXTERNAL_SKILLS_MARKETPLACE_URL = "https://skills.sh";
 
 function serverStatusLabel(status: ServerView["status"], t: ReturnType<typeof useT>): string {
   switch (status) {
@@ -43,6 +42,21 @@ function serverStatusLabel(status: ServerView["status"], t: ReturnType<typeof us
   }
 }
 
+function serverStatusHint(status: ServerView["status"], t: ReturnType<typeof useT>): string | null {
+  switch (status) {
+    case "deferred":
+      return t("plugins.status.deferredHint");
+    case "initializing":
+      return t("plugins.status.startingHint");
+    case "disabled":
+      return t("plugins.status.disabledHint");
+    case "failed":
+      return null;
+    default:
+      return null;
+  }
+}
+
 function skillScopeLabel(scope: string, t: ReturnType<typeof useT>): string {
   switch (scope) {
     case "builtin":
@@ -58,15 +72,13 @@ function skillScopeLabel(scope: string, t: ReturnType<typeof useT>): string {
   }
 }
 
-function catalogToInput(entry: MCPCatalogEntry): MCPServerInput {
-  return {
-    name: entry.id,
-    transport: entry.transport,
-    command: entry.command ?? "",
-    args: entry.args ?? [],
-    url: entry.url ?? "",
-    tier: entry.tier ?? "lazy",
-  };
+function catalogEntryNeedsSetup(entry: MCPCatalogEntry): boolean {
+  return Boolean(
+    entry.envFields?.length ||
+      entry.setupNotes?.length ||
+      entry.requires?.length ||
+      (entry.command === "npx" && (entry.transport === "stdio" || !entry.transport)),
+  );
 }
 
 export function PluginMarketplace() {
@@ -83,6 +95,10 @@ export function PluginMarketplace() {
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [skillsMarketOpen, setSkillsMarketOpen] = useState(false);
+  const [setupEntry, setSetupEntry] = useState<{ entry: MCPCatalogEntry; mode: "install" | "configure" } | null>(null);
+
+  const catalogById = useMemo(() => new Map(catalog.map((entry) => [entry.id, entry])), [catalog]);
 
   const reload = useCallback(async () => {
     const [catalogItems, capabilities] = await Promise.all([
@@ -109,8 +125,22 @@ export function PluginMarketplace() {
   }, [reload]);
 
   useEffect(() => {
+    return onReady(() => {
+      void reload();
+    });
+  }, [reload]);
+
+  useEffect(() => {
+    if (section === "skills") {
+      void reload();
+    }
+  }, [section, reload]);
+
+  useEffect(() => {
     setQuery("");
     setCategory("all");
+    setNotice(null);
+    setErr(null);
   }, [section]);
 
   const servers = caps?.servers ?? [];
@@ -118,6 +148,8 @@ export function PluginMarketplace() {
   const skillRoots = caps?.skillRoots ?? [];
 
   const installedNames = useMemo(() => new Set(servers.map((s) => s.name)), [servers]);
+
+  const installedSkillNames = useMemo(() => new Set(skills.map((s) => s.name)), [skills]);
 
   const categories = useMemo(() => {
     const set = new Set(catalog.map((entry) => entry.category).filter(Boolean));
@@ -181,10 +213,26 @@ export function PluginMarketplace() {
     }
   };
 
-  const install = (entry: MCPCatalogEntry) =>
-    run(async () => {
-      await app.AddMCPServer(catalogToInput(entry));
+  const install = (entry: MCPCatalogEntry) => {
+    if (catalogEntryNeedsSetup(entry)) {
+      setSetupEntry({ entry, mode: "install" });
+      return;
+    }
+    void run(async () => {
+      await app.AddMCPServer({
+        name: entry.id,
+        transport: entry.transport,
+        command: entry.command ?? "",
+        args: entry.args ?? [],
+        url: entry.url ?? "",
+        tier: entry.tier ?? "lazy",
+      });
     }, t("plugins.installedOk", { name: entry.name }));
+  };
+
+  const openConfigure = (entry: MCPCatalogEntry) => {
+    setSetupEntry({ entry, mode: "configure" });
+  };
 
   const toggleServer = (name: string, enabled: boolean) =>
     run(async () => {
@@ -195,6 +243,11 @@ export function PluginMarketplace() {
     run(async () => {
       await app.RetryMCPServer(name);
     });
+
+  const connectServer = (name: string) =>
+    run(async () => {
+      await app.SetMCPServerEnabled(name, true);
+    }, t("plugins.connectOk", { name }));
 
   const removeServer = (name: string) =>
     run(async () => {
@@ -243,7 +296,12 @@ export function PluginMarketplace() {
   const navItems: { id: ExtensionsSection; label: string; count?: number; warn?: boolean }[] = [
     { id: "skills", label: t("extensions.nav.skills"), count: stats.enabledSkills },
     { id: "mcp-browse", label: t("extensions.nav.mcpBrowse"), count: stats.catalog },
-    { id: "mcp-installed", label: t("extensions.nav.mcpInstalled"), count: stats.connected, warn: stats.failed > 0 },
+    {
+      id: "mcp-installed",
+      label: t("extensions.nav.mcpInstalled"),
+      count: stats.installed,
+      warn: stats.failed > 0,
+    },
   ];
 
   return (
@@ -292,9 +350,9 @@ export function PluginMarketplace() {
 
         <div className="extensions-studio__sidebar-foot">
           <p>{t("extensions.skillsMarketHint")}</p>
-          <button type="button" className="extensions-studio__market-btn" onClick={() => openExternal(EXTERNAL_SKILLS_MARKETPLACE_URL)}>
-            <ExternalLink size={14} />
-            {t("plugins.openSkillsMarket")}
+          <button type="button" className="extensions-studio__market-btn" onClick={() => setSkillsMarketOpen(true)}>
+            <Sparkles size={14} />
+            {t("plugins.browseSkillsMarket")}
           </button>
         </div>
       </aside>
@@ -433,9 +491,9 @@ export function PluginMarketplace() {
               {!filteredSkills.length ? (
                 <div className="extensions-studio__empty">
                   <p>{t("plugins.emptySkills")}</p>
-                  <button type="button" className="extensions-studio__market-btn" onClick={() => openExternal(EXTERNAL_SKILLS_MARKETPLACE_URL)}>
-                    <ExternalLink size={14} />
-                    {t("plugins.openSkillsMarket")}
+                  <button type="button" className="extensions-studio__market-btn" onClick={() => setSkillsMarketOpen(true)}>
+                    <Sparkles size={14} />
+                    {t("plugins.browseSkillsMarket")}
                   </button>
                 </div>
               ) : null}
@@ -514,6 +572,15 @@ export function PluginMarketplace() {
                 server.transport === "stdio"
                   ? [server.command, ...(server.args ?? [])].filter(Boolean).join(" ")
                   : server.url ?? "";
+              const showConnect = server.status === "deferred" || server.status === "initializing" || server.status === "disabled";
+              const showRetry = server.status === "failed";
+              const showDisable =
+                server.status === "connected" ||
+                server.status === "deferred" ||
+                server.status === "initializing" ||
+                server.status === "failed";
+              const showConfigure = Boolean(catalogById.get(server.name));
+              const statusHint = serverStatusHint(server.status, t);
               return (
                 <article key={server.name} className={`extensions-studio__row${expanded ? " extensions-studio__row--open" : ""}`}>
                   <div className="extensions-studio__row-main">
@@ -531,6 +598,7 @@ export function PluginMarketplace() {
                         </span>
                       </div>
                       <div className="extensions-studio__row-meta">
+                        {statusHint ? <span className="extensions-studio__status-hint">{statusHint}</span> : null}
                         {server.tools ? <span>{t("plugins.tools", { n: server.tools })}</span> : null}
                         {server.prompts ? <span>{t("plugins.prompts", { n: server.prompts })}</span> : null}
                         {server.resources ? <span>{t("plugins.resources", { n: server.resources })}</span> : null}
@@ -538,18 +606,33 @@ export function PluginMarketplace() {
                       </div>
                     </div>
                     <div className="extensions-studio__row-actions">
-                      {server.status === "failed" ? (
+                      {showConnect ? (
+                        <button type="button" className="extensions-studio__action--primary" disabled={busy} onClick={() => void connectServer(server.name)}>
+                          {t("plugins.connect")}
+                        </button>
+                      ) : null}
+                      {showRetry ? (
                         <button type="button" disabled={busy} onClick={() => void retryServer(server.name)}>
                           {t("plugins.retry")}
                         </button>
                       ) : null}
-                      <button
-                        type="button"
-                        disabled={busy || server.builtIn}
-                        onClick={() => void toggleServer(server.name, server.status === "disabled")}
-                      >
-                        {server.status === "disabled" ? t("plugins.enable") : t("plugins.disable")}
-                      </button>
+                      {showDisable && !server.builtIn ? (
+                        <button type="button" disabled={busy} onClick={() => void toggleServer(server.name, false)}>
+                          {t("plugins.disable")}
+                        </button>
+                      ) : null}
+                      {showConfigure ? (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => {
+                            const entry = catalogById.get(server.name);
+                            if (entry) openConfigure(entry);
+                          }}
+                        >
+                          {t("plugins.configure")}
+                        </button>
+                      ) : null}
                       {!server.builtIn ? (
                         <button type="button" className="extensions-studio__danger" disabled={busy} onClick={() => void removeServer(server.name)}>
                           {t("plugins.remove")}
@@ -591,6 +674,30 @@ export function PluginMarketplace() {
         ) : null}
         </div>
       </main>
+
+      {setupEntry ? (
+        <MCPInstallModal
+          entry={setupEntry.entry}
+          mode={setupEntry.mode}
+          onClose={() => setSetupEntry(null)}
+          onDone={() => {
+            void reload();
+            if (setupEntry.mode === "install") {
+              setNotice(t("plugins.installedOk", { name: setupEntry.entry.name }));
+            }
+          }}
+        />
+      ) : null}
+
+      {skillsMarketOpen ? (
+        <SkillsMarketModal
+          installedNames={installedSkillNames}
+          onClose={() => setSkillsMarketOpen(false)}
+          onInstalled={() => {
+            void reload();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

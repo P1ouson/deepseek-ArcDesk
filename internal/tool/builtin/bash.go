@@ -158,6 +158,7 @@ func (b bash) Execute(ctx context.Context, args json.RawMessage) (string, error)
 			cmd.Dir = workDir
 			cmd.Env = cmdEnv
 			setKillTree(cmd)
+			proc.HideWindow(cmd)
 			cmd.WaitDelay = bashWaitDelay
 			cmd.Stdout = out
 			cmd.Stderr = out
@@ -173,6 +174,7 @@ func (b bash) Execute(ctx context.Context, args json.RawMessage) (string, error)
 	cmd.Dir = b.workDir // "" lets exec use the process working directory
 	cmd.Env = cmdEnv
 	setKillTree(cmd)
+	proc.HideWindow(cmd)
 	cmd.WaitDelay = bashWaitDelay
 	var buf bytes.Buffer
 	w := io.Writer(&buf)
@@ -300,6 +302,7 @@ func runShellPATHCommand(parent context.Context, shell string, args []string) []
 	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, shell, args...)
+	proc.HideWindow(cmd)
 	cmd.Stdin = strings.NewReader("")
 	out, _ := cmd.CombinedOutput()
 	return out

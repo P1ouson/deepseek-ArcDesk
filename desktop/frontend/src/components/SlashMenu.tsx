@@ -45,7 +45,11 @@ export function SlashMenu({
           className={`slashmenu__item ${i === activeIndex ? "slashmenu__item--active" : ""}`}
           onMouseDown={(e) => {
             e.preventDefault();
+            e.stopPropagation();
             onPick(c);
+          }}
+          onPointerDown={(e) => {
+            e.stopPropagation();
           }}
           onMouseMove={() => onHover(i)}
         >

@@ -36,6 +36,23 @@ func TestFailureMemoryConfig(t *testing.T) {
 	}
 }
 
+func TestKnowledgeConfig(t *testing.T) {
+	off := false
+	cfg := KnowledgeConfig{}
+	if !cfg.ShouldEnable() || !cfg.VerifyRetryInjectEnabled() || !cfg.VerifyAutoCaptureEnabled() || !cfg.SystemPromptIndexEnabled() {
+		t.Fatal("defaults on")
+	}
+	if cfg.ResolvedMaxRetryHintChars() != 200 || cfg.ResolvedMaxRetryStderrExcerpt() != 2048 {
+		t.Fatal("defaults sizes")
+	}
+	if (KnowledgeConfig{Enabled: &off}).ShouldEnable() {
+		t.Fatal("explicit off")
+	}
+	if cfg.InjectOnMessageDebugOnly() {
+		t.Fatal("default inject_on_message is off")
+	}
+}
+
 func TestEnvAwareConfig(t *testing.T) {
 	off := false
 	cfg := EnvAwareConfig{}

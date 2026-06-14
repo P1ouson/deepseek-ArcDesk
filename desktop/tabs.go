@@ -659,6 +659,7 @@ func (a *App) buildControllerForTab(tab *WorkspaceTab, buildCtx context.Context,
 		EffortOverride:    effortOverride,
 		SkillInstallGuard: a.desktopSkillInstallGuard(),
 		DeferEagerMCP:     true,
+		PluginCtx:         a.bootContext(),
 		Kit:               kit,
 	})
 	if err != nil {
@@ -753,6 +754,7 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 		EffortOverride:    cloneStringPtr(tab.effort),
 		SkillInstallGuard: a.desktopSkillInstallGuard(),
 		DeferEagerMCP:     true,
+		PluginCtx:         a.bootContext(),
 		Kit:               kit,
 	})
 	if err != nil {
@@ -838,6 +840,7 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 		tab.leaseNotice = ""
 		tab.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: notice})
 	}
+	go a.warmConfiguredMCPServers(tab)
 }
 
 // startTabControllerBuild kicks off agent boot for a tab once. Safe to call repeatedly.
@@ -1180,8 +1183,8 @@ func (a *App) saveTabsLocked() {
 	dir := desktopConfigDir()
 	os.MkdirAll(dir, 0o755)
 	var entries []desktopTabEntry
-	for _, id := range a.orderedTabIDsLocked() {
-		if tab := a.tabs[id]; tab != nil {
+	if activeID := strings.TrimSpace(a.activeTabID); activeID != "" {
+		if tab := a.tabs[activeID]; tab != nil {
 			sessionPath := strings.TrimSpace(tab.sessionPath)
 			if tab.Ctrl != nil {
 				if sp := strings.TrimSpace(tab.Ctrl.SessionPath()); sp != "" {
@@ -2392,6 +2395,26 @@ func topicSummaryKey(scope, workspaceRoot, topicID string) string {
 		return "global::" + topicID
 	}
 	return "project:" + workspaceRoot + ":" + topicID
+}
+
+func activeTabEntryToRestore(f desktopTabsFile) (desktopTabEntry, bool) {
+	if len(f.Tabs) == 0 {
+		return desktopTabEntry{}, false
+	}
+	activeID := strings.TrimSpace(f.ActiveTab)
+	if activeID != "" {
+		for _, entry := range f.Tabs {
+			if entry.ID == activeID && restorableDesktopTabEntry(entry) {
+				return entry, true
+			}
+		}
+	}
+	for _, entry := range f.Tabs {
+		if restorableDesktopTabEntry(entry) {
+			return entry, true
+		}
+	}
+	return desktopTabEntry{}, false
 }
 
 func restorableDesktopTabEntry(entry desktopTabEntry) bool {

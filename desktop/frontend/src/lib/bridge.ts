@@ -21,6 +21,7 @@ import type {
   FilePreview,
   FileEntry,
   HistoryMessage,
+  InstallSkillsMarketResult,
   JobView,
   ClawChannel,
   ClawCallbackInfo,
@@ -31,8 +32,10 @@ import type {
   MobilePendingDecision,
   MobileTunnelStatus,
   MCPCatalogEntry,
+  MCPPrerequisitesView,
   MCPServerInput,
   MemoryView,
+  KnowledgeView,
   Meta,
   ModelInfo,
   NetworkView,
@@ -47,6 +50,7 @@ import type {
   SettingsView,
   SkillRootView,
   SkillView,
+  SkillsMarketSearchResult,
   AgentSettingsInput,
   OutputStyleView,
   DesktopAppearanceView,
@@ -164,6 +168,7 @@ export interface AppBindings {
   Commands(): Promise<CommandInfo[]>;
   Capabilities(): Promise<CapabilitiesView>;
   ListMCPCatalog(): Promise<MCPCatalogEntry[]>;
+  CheckMCPPrerequisites(ids: string[]): Promise<MCPPrerequisitesView>;
   AddMCPServer(input: MCPServerInput): Promise<number>;
   UpdateMCPServer(name: string, input: MCPServerInput): Promise<void>;
   RemoveMCPServer(name: string): Promise<void>;
@@ -174,6 +179,9 @@ export interface AppBindings {
   RemoveSkillPath(path: string): Promise<void>;
   RefreshSkills(): Promise<void>;
   SetSkillEnabled(name: string, enabled: boolean): Promise<void>;
+  SearchSkillsMarket(query: string, limit: number, page: number): Promise<SkillsMarketSearchResult>;
+  SkillsMarketProjectInstallAvailable(): Promise<boolean>;
+  InstallSkillsMarketSkill(source: string, skillId: string, scope: string): Promise<InstallSkillsMarketResult>;
   SetMCPServerEnabled(name: string, enabled: boolean): Promise<void>;
   SetMCPServerTier(name: string, tier: string): Promise<void>;
   SlashArgs(input: string): Promise<SlashArgsResult>;
@@ -199,6 +207,19 @@ export interface AppBindings {
   EffortForTab(tabID: string): Promise<EffortInfo>;
   SetEffortForTab(tabID: string, level: string): Promise<void>;
   Memory(): Promise<MemoryView>;
+  Knowledge(): Promise<KnowledgeView>;
+  KnowledgeConfirm(id: string): Promise<void>;
+  KnowledgeStale(id: string): Promise<void>;
+  KnowledgeCaptureRecord(input: {
+    id: string;
+    fingerprint: string;
+    signature: string;
+    summary: string;
+    error: string;
+    fix: string;
+    paths: string[];
+  }): Promise<void>;
+  KnowledgeCaptureDismiss(fingerprint: string): Promise<void>;
   Remember(scope: string, note: string): Promise<string>;
   Forget(name: string): Promise<void>;
   SaveDoc(path: string, body: string): Promise<string>;
@@ -695,6 +716,9 @@ function makeMockApp(): AppBindings {
       args: ["-y", "@modelcontextprotocol/server-github"],
       tier: "lazy",
       official: true,
+      requires: ["node"],
+      envFields: [{ key: "GITHUB_PERSONAL_ACCESS_TOKEN", required: true, secret: true }],
+      setupNotes: ["githubToken"],
     },
     {
       id: "filesystem",
@@ -1587,6 +1611,8 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
         { name: "compact", description: "Summarize older history to free up context", kind: "builtin" as const },
         { name: "model", description: "Switch model", kind: "builtin" as const },
         { name: "effort", description: "Set reasoning effort", kind: "builtin" as const },
+        { name: "memory", description: "Show memory files", kind: "builtin" as const },
+        { name: "knowledge", description: "Show project knowledge", kind: "builtin" as const },
         { name: "skill", description: "List skills", kind: "builtin" as const },
         { name: "explore", description: "Investigate the codebase in an isolated subagent", kind: "skill" as const },
         { name: "review", description: "Review the staged diff", hint: "[focus]", kind: "custom" as const },
@@ -1601,6 +1627,14 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
     },
     async ListMCPCatalog() {
       return mcpCatalogEntries.map((entry) => ({ ...entry }));
+    },
+    async CheckMCPPrerequisites(ids: string[]) {
+      const items = ids.map((id) => ({
+        id,
+        ok: true,
+        detail: id === "node" ? "v20.0.0" : undefined,
+      }));
+      return { items };
     },
     async AddMCPServer(input: MCPServerInput) {
       const tools = input.transport === "stdio" ? 3 : 5;
@@ -1697,6 +1731,31 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
       }
     },
     async RefreshSkills() {},
+    async SearchSkillsMarket(query: string, limit: number, page: number): Promise<SkillsMarketSearchResult> {
+      const q = query.trim() || "skill";
+      const seeds = ["skill", "agent", "code", "design", "test", "deploy"];
+      const searchQuery = page <= 0 ? q : seeds[Math.min(page, seeds.length - 1)] ?? q;
+      const items = [
+        { id: "anthropics/skills/frontend-design", skillId: "frontend-design", name: "frontend-design", source: "anthropics/skills", installs: 542021 },
+        { id: "coreyhaines31/marketingskills/copywriting", skillId: "copywriting", name: "copywriting", source: "coreyhaines31/marketingskills", installs: 125894 },
+        { id: "vercel-labs/agent-skills/vercel-react-best-practices", skillId: "vercel-react-best-practices", name: "vercel-react-best-practices", source: "vercel-labs/agent-skills", installs: 474603 },
+        { id: "vercel-labs/skills/find-skills", skillId: "find-skills", name: "find-skills", source: "vercel-labs/skills", installs: 2008773 },
+        { id: "vercel-labs/agent-skills/web-design-guidelines", skillId: "web-design-guidelines", name: "web-design-guidelines", source: "vercel-labs/agent-skills", installs: 388998 },
+        { id: "microsoft/azure-skills/azure-ai", skillId: "azure-ai", name: "azure-ai", source: "microsoft/azure-skills", installs: 387471 },
+      ].filter((item) => [item.name, item.source, item.skillId, searchQuery].join(" ").toLowerCase().includes(q.toLowerCase()) || page > 0);
+      const batch = items.slice(0, limit);
+      return { query: searchQuery, skills: batch, count: batch.length, hasMore: page < 4, page };
+    },
+    async SkillsMarketProjectInstallAvailable() {
+      return true;
+    },
+    async InstallSkillsMarketSkill(source: string, skillId: string, scope: string): Promise<InstallSkillsMarketResult> {
+      const name = skillId || "mock-skill";
+      if (!capSkills.some((s) => s.name === name)) {
+        capSkills.push({ name, description: `Installed from ${source}`, scope: scope === "project" ? "project" : "global", runAs: "inline", enabled: true });
+      }
+      return { name, scope, path: scope === "project" ? `./.arcdesk/skills/${name}` : `~/.arcdesk/skills/${name}` };
+    },
     async SetSkillEnabled(name: string, enabled: boolean) {
       const skill = capSkills.find((s) => s.name === name);
       if (skill) skill.enabled = enabled;
@@ -1914,6 +1973,36 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
           { scope: "local", path: "ARCDESK.local.md" },
         ],
       };
+    },
+    async Knowledge() {
+      return {
+        available: true,
+        entries: [
+          {
+            id: "go-test-counter",
+            signature: "go test ./internal/counter",
+            error: "undefined: Add",
+            fix: "export Add from counter package",
+            paths: ["internal/counter/counter.go"],
+            confidence: "verified",
+            hits: 2,
+            kind: "fix",
+            summary: "go test ./internal/counter: export Add from counter package",
+          },
+        ],
+      } satisfies KnowledgeView;
+    },
+    async KnowledgeConfirm(id: string) {
+      emit({ kind: "notice", level: "info", text: `knowledge confirmed → ${id}` });
+    },
+    async KnowledgeStale(id: string) {
+      emit({ kind: "notice", level: "info", text: `knowledge stale → ${id}` });
+    },
+    async KnowledgeCaptureRecord(_input) {
+      emit({ kind: "notice", level: "info", text: "knowledge capture recorded" });
+    },
+    async KnowledgeCaptureDismiss(_fingerprint) {
+      emit({ kind: "notice", level: "info", text: "knowledge capture dismissed" });
     },
     async Remember(scope: string, note: string) {
       emit({ kind: "notice", level: "info", text: `remembered → ${scope}` });

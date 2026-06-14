@@ -9,10 +9,12 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode/utf8"
 
 	"arcdesk/internal/benchagent"
 	"arcdesk/internal/callgraph"
+	"arcdesk/internal/config"
 	"arcdesk/internal/constraint"
 	"arcdesk/internal/dependency"
 	"arcdesk/internal/diff"
@@ -22,6 +24,7 @@ import (
 	"arcdesk/internal/guardian"
 	"arcdesk/internal/instruction"
 	"arcdesk/internal/jobs"
+	"arcdesk/internal/knowledge"
 	"arcdesk/internal/memory"
 	"arcdesk/internal/nilutil"
 	"arcdesk/internal/planner"
@@ -237,6 +240,8 @@ type Agent struct {
 	projectChecks []instruction.VerifyCheck
 
 	verifyMaxRetries int
+	// verifyEnforceFinalAnswer allows the host to re-prompt until project checks pass.
+	verifyEnforceFinalAnswer bool
 
 	// dependencyIndex supplies module-level impact for verify retry prompts.
 	dependencyIndex *dependency.Index
@@ -256,6 +261,12 @@ type Agent struct {
 	// failureStore persists failure→fix lessons when set.
 	failureStore *failuremem.Store
 
+	// knowledgeCfg governs experience injection and auto-capture (v1).
+	knowledgeCfg config.KnowledgeConfig
+
+	// captureJudger decides verify-pass lessons; nil uses ProviderCaptureJudger(prov).
+	captureJudger knowledge.CaptureJudger
+
 	// constraintEngine blocks or warns on policy-violating writes before they run.
 	constraintEngine *constraint.Engine
 
@@ -270,8 +281,9 @@ type Agent struct {
 
 	verifyOnFailure string
 
-	verifyFailureMu   sync.Mutex
-	lastVerifyFailure verifyFailureSnapshot
+	verifyFailureMu     sync.Mutex
+	lastVerifyFailure   verifyFailureSnapshot
+	pendingCapturePaths []string // fix writes after lastVerifyFailure, including prior turns
 
 	// memQueue, when non-nil, lets the remember/forget tools fold a turn-tail note
 	// about a just-made memory change into the next turn, so it applies this
@@ -441,6 +453,10 @@ type Options struct {
 	// checks or todo evidence is missing after a write. Zero uses defaultVerifyMaxRetries.
 	VerifyMaxRetries int
 
+	// VerifyEnforceFinalAnswer enables host-enforced post-write checks before a
+	// final answer. When false (default), checks are advisory only.
+	VerifyEnforceFinalAnswer bool
+
 	// DependencyIndex enables module-level impact context on verify retries.
 	DependencyIndex *dependency.Index
 
@@ -458,6 +474,12 @@ type Options struct {
 
 	// FailureStore enables failuremem_record/search persistence.
 	FailureStore *failuremem.Store
+
+	// Knowledge configures experience retrieval and verify-retry injection.
+	Knowledge config.KnowledgeConfig
+
+	// CaptureJudger judges verify-pass auto-capture; nil uses the main provider.
+	CaptureJudger knowledge.CaptureJudger
 
 	// ConstraintEngine enforces duplicate/reuse/fake-UI/architecture guardrails.
 	ConstraintEngine *constraint.Engine
@@ -511,37 +533,40 @@ func New(prov provider.Provider, tools *tool.Registry, session *Session, opts Op
 		hooks = nil
 	}
 	return &Agent{
-		prov:              prov,
-		tools:             tools,
-		session:           session,
-		maxSteps:          opts.MaxSteps,
-		temperature:       opts.Temperature,
-		pricing:           opts.Pricing,
-		sink:              sink,
-		gate:              gate,
-		hooks:             hooks,
-		jobs:              opts.Jobs,
-		evidence:          evidence.NewLedger(),
-		projectChecks:     append([]instruction.VerifyCheck(nil), opts.ProjectChecks...),
-		verifyMaxRetries:  verifyMaxRetries,
-		dependencyIndex:   opts.DependencyIndex,
-		callgraphIndex:    opts.CallgraphIndex,
-		runtimeHub:        opts.RuntimeHub,
-		selfdebugTracker:  opts.SelfdebugTracker,
-		phaseTracker:      opts.PhaseTracker,
-		failureStore:      opts.FailureStore,
-		constraintEngine:  opts.ConstraintEngine,
-		guardianEngine:    opts.GuardianEngine,
+		prov:               prov,
+		tools:              tools,
+		session:            session,
+		maxSteps:           opts.MaxSteps,
+		temperature:        opts.Temperature,
+		pricing:            opts.Pricing,
+		sink:               sink,
+		gate:               gate,
+		hooks:              hooks,
+		jobs:               opts.Jobs,
+		evidence:           evidence.NewLedger(),
+		projectChecks:      append([]instruction.VerifyCheck(nil), opts.ProjectChecks...),
+		verifyMaxRetries:         verifyMaxRetries,
+		verifyEnforceFinalAnswer: opts.VerifyEnforceFinalAnswer,
+		dependencyIndex:          opts.DependencyIndex,
+		callgraphIndex:     opts.CallgraphIndex,
+		runtimeHub:         opts.RuntimeHub,
+		selfdebugTracker:   opts.SelfdebugTracker,
+		phaseTracker:       opts.PhaseTracker,
+		failureStore:       opts.FailureStore,
+		knowledgeCfg:       opts.Knowledge,
+		captureJudger:      opts.CaptureJudger,
+		constraintEngine:   opts.ConstraintEngine,
+		guardianEngine:     opts.GuardianEngine,
 		toolOutputMaxBytes: opts.ToolOutputMaxBytes,
 		summarizeProv:      opts.SummarizeProvider,
-		rollbackHost:        opts.RollbackHost,
-		verifyOnFailure:     strings.ToLower(strings.TrimSpace(opts.VerifyOnFailure)),
-		contextWindow:     opts.ContextWindow,
-		softCompactRatio:  opts.SoftCompactRatio,
-		compactRatio:      opts.CompactRatio,
-		compactForceRatio: opts.CompactForceRatio,
-		recentKeep:        opts.RecentKeep,
-		archiveDir:        opts.ArchiveDir,
+		rollbackHost:       opts.RollbackHost,
+		verifyOnFailure:    strings.ToLower(strings.TrimSpace(opts.VerifyOnFailure)),
+		contextWindow:      opts.ContextWindow,
+		softCompactRatio:   opts.SoftCompactRatio,
+		compactRatio:       opts.CompactRatio,
+		compactForceRatio:  opts.CompactForceRatio,
+		recentKeep:         opts.RecentKeep,
+		archiveDir:         opts.ArchiveDir,
 	}
 }
 
@@ -555,7 +580,8 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 	if a.evidence != nil {
 		a.evidence.Reset()
 	}
-	a.clearVerifyFailure()
+	// Keep lastVerifyFailure across turns so a later fix+pass (even in the next
+	// user message) can still trigger knowledge capture suggestions.
 	a.repeatSuccessCounts = nil
 	a.sink.Emit(event.Event{Kind: event.TurnStarted})
 	a.session.Add(provider.Message{Role: provider.RoleUser, Content: input})
@@ -626,8 +652,10 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 						msg += "\n\n" + block
 					}
 				}
-				if block := a.rollbackRetryContext(finalReadinessBlocks); block != "" {
-					msg += "\n\n" + block
+				if a.VerifyFailureShouldRollback() {
+					if block := a.rollbackRetryContext(finalReadinessBlocks); block != "" {
+						msg += "\n\n" + block
+					}
 				}
 				a.session.Add(provider.Message{Role: provider.RoleUser, Content: msg})
 				a.maybeCompact(ctx, usage)
@@ -675,19 +703,21 @@ func (a *Agent) finalReadinessFailure() string {
 	if !hasWriter {
 		return strings.Join(missing, "; ")
 	}
-	hasProjectChecks := len(a.projectChecks) > 0
+	hasProjectChecks := a.verifyEnforceFinalAnswer && len(a.projectChecks) > 0
 	hasTodoReceipt := a.evidence.HasSuccessfulTodoWrite()
 	if !hasProjectChecks && !hasTodoReceipt && len(missing) == 0 {
 		return ""
 	}
 
-	for _, check := range a.projectChecks {
-		command := strings.TrimSpace(check.Command)
-		if command == "" {
-			continue
-		}
-		if !a.evidence.HasSuccessfulCommandAfter(command, writer) {
-			missing = append(missing, fmt.Sprintf("run %q from %s after the latest write", command, finalReadinessCheckSource(check)))
+	if hasProjectChecks {
+		for _, check := range a.projectChecks {
+			command := strings.TrimSpace(check.Command)
+			if command == "" {
+				continue
+			}
+			if !a.evidence.HasSuccessfulCommandAfter(command, writer) {
+				missing = append(missing, fmt.Sprintf("run %q from %s after the latest write", command, finalReadinessCheckSource(check)))
+			}
 		}
 	}
 	if hasTodoReceipt && !a.evidence.HasSuccessfulCompleteStepAfter(writer) {
@@ -723,7 +753,7 @@ func finalReadinessCheckSource(check instruction.VerifyCheck) string {
 }
 
 func finalReadinessRetryMessage(reason string) string {
-	return "Host final-answer readiness check failed. Before giving a final answer, address the missing host-observable receipts: " + reason + ". Run each required check via bash (you may prefix with cd; use the listed command text for each check). Then answer when readiness is satisfied."
+	return "Host final-answer readiness check failed. Before giving a final answer, address the missing host-observable receipts: " + reason + ". Run each required check via bash (you may prefix with cd; use the listed command text for each check). If the user explicitly deferred verification, asked not to run tests yet, or asked only to show failure output without fixing code, give a final answer that fulfills their request and do not modify code or revert edits solely to satisfy host readiness. Then answer when readiness is satisfied or their explicit defer/show request is complete."
 }
 
 // VerifyFailureShouldRollback reports whether an exhausted verify turn should
@@ -809,10 +839,11 @@ func (a *Agent) clearVerifyFailure() {
 	}
 	a.verifyFailureMu.Lock()
 	a.lastVerifyFailure = verifyFailureSnapshot{}
+	a.pendingCapturePaths = nil
 	a.verifyFailureMu.Unlock()
 }
 
-func (a *Agent) noteVerifyFailure(call provider.ToolCall, execErr error, result string) {
+func (a *Agent) noteVerifyFailure(ctx context.Context, call provider.ToolCall, execErr error, result string) {
 	var args struct {
 		Command string `json:"command"`
 	}
@@ -826,7 +857,38 @@ func (a *Agent) noteVerifyFailure(call provider.ToolCall, execErr error, result 
 	a.verifyFailureMu.Lock()
 	defer a.verifyFailureMu.Unlock()
 	if execErr == nil {
+		snap := a.lastVerifyFailure
+		pendingPaths := append([]string(nil), a.pendingCapturePaths...)
+		if snap.command != "" && a.failureStore != nil && a.knowledgeCfg.ShouldEnable() && a.knowledgeCfg.VerifyAutoCaptureEnabled() {
+			var paths []string
+			if a.evidence != nil {
+				if writer, ok := a.evidence.LatestSuccessfulWriterIndex(); ok {
+					paths = a.evidence.WritePathsThrough(writer)
+				}
+			}
+			paths = mergeCapturePaths(paths, pendingPaths)
+			judger := a.captureJudger
+			if judger == nil {
+				judger = knowledge.NewProviderCaptureJudger(a.prov)
+			}
+			if judger != nil {
+				failedCmd := snap.command
+				errOut := snap.output
+				pathsCopy := append([]string(nil), paths...)
+				store := a.failureStore
+				cfg := a.knowledgeCfg
+				sink := a.sink
+				parent := ctx
+				if parent == nil {
+					parent = context.Background()
+				}
+				runCtx, cancel := context.WithTimeout(parent, 20*time.Second)
+				knowledge.CaptureOnVerifyPass(runCtx, judger, store, cfg, sink, failedCmd, errOut, pathsCopy)
+				cancel()
+			}
+		}
 		a.lastVerifyFailure = verifyFailureSnapshot{}
+		a.pendingCapturePaths = nil
 		return
 	}
 	out := strings.TrimSpace(result)
@@ -834,6 +896,39 @@ func (a *Agent) noteVerifyFailure(call provider.ToolCall, execErr error, result 
 		out = out[:2000]
 	}
 	a.lastVerifyFailure = verifyFailureSnapshot{command: cmd, output: out}
+	a.pendingCapturePaths = nil
+}
+
+func (a *Agent) noteCaptureFixPaths(paths []string) {
+	if a == nil || len(paths) == 0 {
+		return
+	}
+	a.verifyFailureMu.Lock()
+	defer a.verifyFailureMu.Unlock()
+	if a.lastVerifyFailure.command == "" {
+		return
+	}
+	a.pendingCapturePaths = mergeCapturePaths(a.pendingCapturePaths, paths)
+}
+
+func mergeCapturePaths(a, b []string) []string {
+	if len(a) == 0 {
+		return append([]string(nil), b...)
+	}
+	if len(b) == 0 {
+		return append([]string(nil), a...)
+	}
+	seen := make(map[string]bool, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, p := range append(a, b...) {
+		p = strings.TrimSpace(p)
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
 }
 
 func (a *Agent) dependencyRetryContext() string {
@@ -961,12 +1056,12 @@ func (a *Agent) verificationRetryContext() string {
 
 func (a *Agent) selfdebugInput(attempt int) selfdebug.Input {
 	in := selfdebug.Input{
-		Checks:       a.projectChecks,
-		Attempt:      attempt,
-		MaxRetries:   a.verifyMaxRetries,
-		DepIndex:     a.dependencyIndex,
-		CGIndex:      a.callgraphIndex,
-		RuntimeHub:   a.runtimeHub,
+		Checks:     a.projectChecks,
+		Attempt:    attempt,
+		MaxRetries: a.verifyMaxRetries,
+		DepIndex:   a.dependencyIndex,
+		CGIndex:    a.callgraphIndex,
+		RuntimeHub: a.runtimeHub,
 	}
 	if a.evidence == nil {
 		return in
@@ -995,8 +1090,23 @@ func (a *Agent) selfdebugInput(attempt int) selfdebug.Input {
 	failedCmd, stderr := a.latestVerifyFailureForRetry(writer)
 	in.FailedCmd = failedCmd
 	in.Stderr = stderr
+	in.RuntimeSlim = knowledgeSlimRuntime(failedCmd)
+	in.StderrMaxBytes = a.knowledgeCfg.ResolvedMaxRetryStderrExcerpt()
 	in.HasSuccessfulCommandAfter = a.evidence.HasSuccessfulCommandAfter
 	return in
+}
+
+func knowledgeSlimRuntime(failedCmd string) bool {
+	cmd := strings.ToLower(strings.TrimSpace(failedCmd))
+	if cmd == "" {
+		return false
+	}
+	for _, kw := range []string{"go test", "go vet", "go build", "pnpm test", "npm test", "vitest", "jest", "cargo test", "pytest"} {
+		if strings.Contains(cmd, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Agent) selfdebugRetryContext(attempt int) string {
@@ -1028,14 +1138,20 @@ func (a *Agent) selfdebugRetryContext(attempt int) string {
 		}
 	}
 	a.selfdebugTracker.Update(selfdebug.AnalyzeSnapshot(in))
-	if block != "" && a.failureStore != nil {
-		block += "\n\nTip: search failuremem_search for similar past fixes before guessing."
+	if block != "" && a.failureStore != nil && a.knowledgeCfg.VerifyRetryInjectEnabled() {
+		if hint := knowledge.RetryHint(a.failureStore, a.knowledgeCfg, knowledge.RetryParams{
+			FailedCmd: in.FailedCmd,
+			Stderr:    in.Stderr,
+			Paths:     in.WrittenPaths,
+		}); hint != "" {
+			block += "\n\n" + hint
+		}
 	}
 	return block
 }
 
 func (a *Agent) selfdebugImmediateHint(cmd, stderr string) string {
-	if a == nil || a.selfdebugTracker == nil || a.evidence == nil {
+	if a == nil || !a.verifyEnforceFinalAnswer || a.selfdebugTracker == nil || a.evidence == nil {
 		return ""
 	}
 	cmd = strings.TrimSpace(cmd)
@@ -1495,6 +1611,7 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 	if len(a.projectChecks) > 0 {
 		cctx = instruction.WithChecks(cctx, a.projectChecks)
 	}
+	cctx = instruction.WithEnforceVerification(cctx, a.verifyEnforceFinalAnswer)
 	if a.jobs != nil {
 		cctx = jobs.WithManager(cctx, a.jobs)
 	}
@@ -1506,17 +1623,25 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 		a.sink.Emit(event.Event{Kind: event.ToolProgress, Tool: event.Tool{ID: callID, Output: chunk}})
 	})
 	result, err := t.Execute(cctx, json.RawMessage(call.Arguments))
-	if call.Name == "bash" {
-		a.noteVerifyFailure(call, err, result)
-	}
 	if a.evidence != nil {
 		if call.Name == "complete_step" {
 			if err == nil {
-				a.evidence.Record(evidence.ReceiptFromToolCall(call.Name, json.RawMessage(call.Arguments), true, t.ReadOnly()))
+				receipt := evidence.ReceiptFromToolCall(call.Name, json.RawMessage(call.Arguments), true, t.ReadOnly())
+				a.evidence.Record(receipt)
+				if receipt.Write {
+					a.noteCaptureFixPaths(receipt.Paths)
+				}
 			}
 		} else {
-			a.evidence.Record(evidence.ReceiptFromToolCall(call.Name, json.RawMessage(call.Arguments), err == nil, t.ReadOnly()))
+			receipt := evidence.ReceiptFromToolCall(call.Name, json.RawMessage(call.Arguments), err == nil, t.ReadOnly())
+			a.evidence.Record(receipt)
+			if err == nil && receipt.Write {
+				a.noteCaptureFixPaths(receipt.Paths)
+			}
 		}
+	}
+	if call.Name == "bash" {
+		a.noteVerifyFailure(ctx, call, err, result)
 	}
 	// PostToolUse hooks observe the result (they can't block); fired whether the
 	// call succeeded or errored, since the tool did run.

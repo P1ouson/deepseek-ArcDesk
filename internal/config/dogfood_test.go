@@ -19,6 +19,9 @@ func TestDogfoodArcdeskTOML(t *testing.T) {
 	if cfg.Verification.Disabled() {
 		t.Fatal("verification should be enabled in dogfood arcdesk.toml")
 	}
+	if !cfg.Verification.EnforcesFinalAnswer() {
+		t.Fatal("dogfood arcdesk.toml should opt into enforce_final_answer for ArcDesk repo development")
+	}
 	maxRetries, onFailure := cfg.Verification.ResolvedPolicy()
 	if maxRetries != 3 || onFailure != "rollback" {
 		t.Fatalf("policy max=%d on_failure=%q", maxRetries, onFailure)

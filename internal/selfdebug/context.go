@@ -102,14 +102,22 @@ func BuildRetryContext(in Input) string {
 		}
 	}
 	if in.RuntimeHub != nil {
-		if block := runtime.BuildVerifyContext(in.RuntimeHub, failedCmd, in.Stderr); block != "" {
+		stderr := in.Stderr
+		if in.StderrMaxBytes > 0 && len(stderr) > in.StderrMaxBytes {
+			stderr = stderr[len(stderr)-in.StderrMaxBytes:]
+		}
+		if block := runtime.BuildVerifyContextSlim(in.RuntimeHub, failedCmd, stderr, in.RuntimeSlim, in.StderrMaxBytes); block != "" {
 			b.WriteString("\n")
 			b.WriteString(block)
 			b.WriteByte('\n')
 		}
 	}
 	if len(in.Checks) > 0 {
-		if block := verification.BuildRetryContext(in.Checks, failedCmd, in.Stderr); block != "" {
+		stderr := in.Stderr
+		if in.StderrMaxBytes > 0 && len(stderr) > in.StderrMaxBytes {
+			stderr = stderr[len(stderr)-in.StderrMaxBytes:]
+		}
+		if block := verification.BuildRetryContext(in.Checks, failedCmd, stderr); block != "" {
 			b.WriteString("\n")
 			b.WriteString(block)
 			b.WriteByte('\n')

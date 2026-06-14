@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"arcdesk/internal/proc"
 )
 
 const defaultGoListTimeout = 30 * time.Second
@@ -389,6 +391,7 @@ type goListError struct {
 func runGoListJSON(ctx context.Context, root string) ([]goListPackage, error) {
 	cmd := exec.CommandContext(ctx, "go", "list", "-json", "-e", "./...")
 	cmd.Dir = root
+	proc.HideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {

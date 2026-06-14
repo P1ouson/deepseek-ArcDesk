@@ -167,9 +167,9 @@ func TestCompleteStepAllowsManualAsUnverified(t *testing.T) {
 func TestCompleteStepRejectsMissingProjectCheckAfterWrite(t *testing.T) {
 	ledger := evidence.NewLedger()
 	ledger.Record(evidence.Receipt{ToolName: "write_file", Success: true, Paths: []string{"changed.go"}, Write: true})
-	ctx := instruction.WithChecks(evidence.WithLedger(context.Background(), ledger), []instruction.VerifyCheck{
+	ctx := instruction.WithEnforceVerification(instruction.WithChecks(evidence.WithLedger(context.Background(), ledger), []instruction.VerifyCheck{
 		{Command: "go test ./...", SourcePath: "AGENTS.md", Line: 3},
-	})
+	}), true)
 
 	_, err := completeStep{}.Execute(ctx, json.RawMessage(`{
 		"step":"Edit code",
@@ -190,9 +190,9 @@ func TestCompleteStepRejectsProjectCheckBeforeWrite(t *testing.T) {
 	ledger := evidence.NewLedger()
 	ledger.Record(evidence.Receipt{ToolName: "bash", Success: true, Command: "go test ./..."})
 	ledger.Record(evidence.Receipt{ToolName: "write_file", Success: true, Paths: []string{"changed.go"}, Write: true})
-	ctx := instruction.WithChecks(evidence.WithLedger(context.Background(), ledger), []instruction.VerifyCheck{
+	ctx := instruction.WithEnforceVerification(instruction.WithChecks(evidence.WithLedger(context.Background(), ledger), []instruction.VerifyCheck{
 		{Command: "go test ./...", SourcePath: "AGENTS.md", Line: 3},
-	})
+	}), true)
 
 	_, err := completeStep{}.Execute(ctx, json.RawMessage(`{
 		"step":"Edit code",
@@ -209,10 +209,10 @@ func TestCompleteStepAcceptsProjectChecksAfterWrite(t *testing.T) {
 	ledger.Record(evidence.Receipt{ToolName: "write_file", Success: true, Paths: []string{"changed.go"}, Write: true})
 	ledger.Record(evidence.Receipt{ToolName: "bash", Success: true, Command: "go test ./..."})
 	ledger.Record(evidence.Receipt{ToolName: "bash", Success: true, Command: "git diff --check"})
-	ctx := instruction.WithChecks(evidence.WithLedger(context.Background(), ledger), []instruction.VerifyCheck{
+	ctx := instruction.WithEnforceVerification(instruction.WithChecks(evidence.WithLedger(context.Background(), ledger), []instruction.VerifyCheck{
 		{Command: "go test ./...", SourcePath: "AGENTS.md", Line: 3},
 		{Command: "git diff --check", SourcePath: "AGENTS.md", Line: 4},
-	})
+	}), true)
 
 	out, err := completeStep{}.Execute(ctx, json.RawMessage(`{
 		"step":"Edit code",
@@ -230,9 +230,9 @@ func TestCompleteStepAcceptsProjectChecksAfterWrite(t *testing.T) {
 func TestCompleteStepProjectChecksOnlyGateWriteBackedCompletions(t *testing.T) {
 	ledger := evidence.NewLedger()
 	ledger.Record(evidence.Receipt{ToolName: "read_file", Success: true, Paths: []string{"notes.md"}, Read: true})
-	ctx := instruction.WithChecks(evidence.WithLedger(context.Background(), ledger), []instruction.VerifyCheck{
+	ctx := instruction.WithEnforceVerification(instruction.WithChecks(evidence.WithLedger(context.Background(), ledger), []instruction.VerifyCheck{
 		{Command: "go test ./...", SourcePath: "AGENTS.md", Line: 3},
-	})
+	}), true)
 
 	cases := []string{
 		`{"step":"Manual","result":"checked","evidence":[{"kind":"manual","summary":"operator checked"}]}`,

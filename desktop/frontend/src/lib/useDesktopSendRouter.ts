@@ -7,7 +7,7 @@ import type { AppMode } from "./appMode";
 import type { Translator } from "./i18n";
 import type { Mode } from "./types";
 import { applyThemeFromSettings } from "./applyThemeFromSettings";
-import { getTheme, getThemeStyle, normalizeThemeStyleForTheme } from "./theme";
+import { getTheme, getThemeStyle, normalizeThemeStyleForTheme, themeForStyle } from "./theme";
 import { toErrorMessage } from "./errors";
 import { applyWriteModeSkill } from "./writeSkill";
 
@@ -20,6 +20,7 @@ export type DesktopSendRouterDeps = {
   runShell: (command: string) => void;
   switchModel: (name: string) => void | Promise<void>;
   openMemory: () => void | Promise<void>;
+  openKnowledge: () => void | Promise<void>;
   setGoalLabel: (label: string) => void;
   dispatchSideChat: (text: string) => void | Promise<void>;
   setAppMode: (mode: AppMode) => void;
@@ -45,6 +46,9 @@ async function executeDesktopSendRoute(route: DesktopSendRoute, deps: DesktopSen
       return;
     case "openMemory":
       void deps.openMemory();
+      return;
+    case "openKnowledge":
+      void deps.openKnowledge();
       return;
     case "setGoal":
       deps.setGoalLabel(route.label);
@@ -91,6 +95,13 @@ async function executeDesktopSendRoute(route: DesktopSendRoute, deps: DesktopSen
       deps.notice(deps.t("settings.themeChangedSimple", { theme: route.theme }));
       return;
     }
+    case "themeStyleSet": {
+      const nextTheme = themeForStyle(route.style);
+      await app.SetDesktopAppearance(nextTheme, route.style);
+      applyThemeFromSettings(await app.Settings(), "slash");
+      deps.notice(deps.t("settings.themeChangedSimple", { theme: route.style }));
+      return;
+    }
     case "themeUnknown":
       deps.notice(deps.t("settings.themeUnknown", { name: route.name }), "warn");
       return;
@@ -111,51 +122,11 @@ async function executeDesktopSendRoute(route: DesktopSendRoute, deps: DesktopSen
 }
 
 export function useDesktopSendRouter(deps: DesktopSendRouterDeps) {
-  const {
-    appMode,
-    mode,
-    filePreviewComposerOpen,
-    t,
-    notice,
-    runShell,
-    switchModel,
-    openMemory,
-    setGoalLabel,
-    dispatchSideChat,
-    setAppMode,
-    openDockTab,
-    openWebPreview,
-    runCodeReview,
-    setSddOpen,
-    syncModeToController,
-    send,
-    exitExpandedPreviewComposer,
-  } = deps;
-
   return useCallback(
     async (displayText: string, submitText = displayText) => {
       const route = routeDesktopSend(displayText, submitText);
       await executeDesktopSendRoute(route, deps);
     },
-    [
-      appMode,
-      mode,
-      filePreviewComposerOpen,
-      t,
-      notice,
-      runShell,
-      switchModel,
-      openMemory,
-      setGoalLabel,
-      dispatchSideChat,
-      setAppMode,
-      openDockTab,
-      openWebPreview,
-      runCodeReview,
-      setSddOpen,
-      syncModeToController,
-      send,
-      exitExpandedPreviewComposer,
-    ],
+    [deps],
   );
 }

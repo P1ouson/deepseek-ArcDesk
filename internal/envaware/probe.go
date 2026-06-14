@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"arcdesk/internal/proc"
 )
 
 // Snapshot is a point-in-time view of the execution environment.
@@ -85,6 +87,7 @@ func runVersion(ctx context.Context, name string, args ...string) string {
 	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, name, args...)
+	proc.HideWindow(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return ""

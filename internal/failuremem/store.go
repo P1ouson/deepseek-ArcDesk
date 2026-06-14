@@ -17,12 +17,17 @@ const fileName = "failure-memory.jsonl"
 
 // Entry is one recorded failure and its fix.
 type Entry struct {
-	TS        time.Time `json:"ts"`
-	Signature string    `json:"signature"`
-	Error     string    `json:"error"`
-	Fix       string    `json:"fix"`
-	Paths     []string  `json:"paths,omitempty"`
-	Tags      []string  `json:"tags,omitempty"`
+	TS         time.Time `json:"ts"`
+	Signature  string    `json:"signature"`
+	Error      string    `json:"error"`
+	Fix        string    `json:"fix"`
+	Paths      []string  `json:"paths,omitempty"`
+	Tags       []string  `json:"tags,omitempty"`
+	Kind       string    `json:"kind,omitempty"`
+	Confidence string    `json:"confidence,omitempty"`
+	Hits       int       `json:"hits,omitempty"`
+	LastUsedAt time.Time `json:"last_used_at,omitempty"`
+	ID         string    `json:"id,omitempty"`
 }
 
 // Store appends and searches failure memory for a workspace.
@@ -44,7 +49,11 @@ func Open(root string, maxEntries int) (*Store, error) {
 	if _, err := repomap.ProjectDir(root); err != nil {
 		return nil, err
 	}
-	return &Store{root: root, maxEntries: maxEntries}, nil
+	s := &Store{root: root, maxEntries: maxEntries}
+	if err := s.CompactDuplicates(); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 func (s *Store) path() (string, error) {
@@ -55,19 +64,22 @@ func (s *Store) path() (string, error) {
 	return filepath.Join(dir, fileName), nil
 }
 
-// Record appends an entry (truncating old rows when over maxEntries).
+// WorkspaceRoot returns the bound workspace directory.
+func (s *Store) WorkspaceRoot() string {
+	if s == nil {
+		return ""
+	}
+	return s.root
+}
+
+// Record appends or merges an entry (truncating old rows when over maxEntries).
 func (s *Store) Record(e Entry) error {
 	if s == nil {
 		return fmt.Errorf("failure memory not configured")
 	}
-	e.Signature = strings.TrimSpace(e.Signature)
-	e.Error = strings.TrimSpace(e.Error)
-	e.Fix = strings.TrimSpace(e.Fix)
+	NormalizeEntry(&e)
 	if e.Signature == "" || e.Fix == "" {
 		return fmt.Errorf("signature and fix are required")
-	}
-	if e.TS.IsZero() {
-		e.TS = time.Now().UTC()
 	}
 	if len(e.Error) > 2000 {
 		e.Error = e.Error[:1997] + "..."
@@ -75,17 +87,236 @@ func (s *Store) Record(e Entry) error {
 	if len(e.Fix) > 2000 {
 		e.Fix = e.Fix[:1997] + "..."
 	}
+	fp := Fingerprint(e)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entries, err := s.loadLocked()
 	if err != nil {
 		return err
 	}
+	for i := range entries {
+		if Fingerprint(entries[i]) != fp {
+			continue
+		}
+		MergeInto(&entries[i], e)
+		return s.saveLocked(entries)
+	}
+	if e.Hits <= 0 {
+		e.Hits = 1
+	}
+	e.LastUsedAt = e.TS
 	entries = append(entries, e)
 	if len(entries) > s.maxEntries {
 		entries = entries[len(entries)-s.maxEntries:]
 	}
 	return s.saveLocked(entries)
+}
+
+// MarkStale marks an entry non-injectable by id or signature prefix.
+func (s *Store) MarkStale(idOrSig string) error {
+	if s == nil {
+		return fmt.Errorf("failure memory not configured")
+	}
+	idOrSig = strings.TrimSpace(strings.ToLower(idOrSig))
+	if idOrSig == "" {
+		return fmt.Errorf("id required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := s.loadLocked()
+	if err != nil {
+		return err
+	}
+	changed := false
+	for i := range entries {
+		id := strings.ToLower(strings.TrimSpace(entries[i].ID))
+		if id == idOrSig {
+			entries[i].Confidence = ConfidenceStale
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		for i := range entries {
+			sig := strings.ToLower(strings.TrimSpace(entries[i].Signature))
+			if sig == idOrSig || strings.HasPrefix(sig, idOrSig) {
+				entries[i].Confidence = ConfidenceStale
+				changed = true
+				break
+			}
+		}
+	}
+	if !changed {
+		return fmt.Errorf("entry not found")
+	}
+	return s.saveLocked(entries)
+}
+
+// Touch records a successful retrieval for scoring.
+func (s *Store) Touch(fp string) error {
+	if s == nil || strings.TrimSpace(fp) == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := s.loadLocked()
+	if err != nil {
+		return err
+	}
+	for i := range entries {
+		if Fingerprint(entries[i]) != fp {
+			continue
+		}
+		entries[i].Hits++
+		entries[i].LastUsedAt = time.Now().UTC()
+		return s.saveLocked(entries)
+	}
+	return nil
+}
+
+// CompactDuplicates merges rows that share a fingerprint (newest wins body).
+func (s *Store) CompactDuplicates() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := s.loadLocked()
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	byFP := map[string]Entry{}
+	order := []string{}
+	for _, e := range entries {
+		NormalizeEntry(&e)
+		fp := Fingerprint(e)
+		if prev, ok := byFP[fp]; ok {
+			MergeInto(&prev, e)
+			prev.Hits += e.Hits
+			if prev.Hits <= 0 {
+				prev.Hits = 2
+			}
+			byFP[fp] = prev
+			continue
+		}
+		if e.Hits <= 0 {
+			e.Hits = 1
+		}
+		byFP[fp] = e
+		order = append(order, fp)
+	}
+	if len(order) == len(entries) {
+		return nil
+	}
+	out := make([]Entry, 0, len(byFP))
+	seen := map[string]bool{}
+	for _, fp := range order {
+		if seen[fp] {
+			continue
+		}
+		seen[fp] = true
+		out = append(out, byFP[fp])
+	}
+	return s.saveLocked(out)
+}
+
+type scoredEntry struct {
+	e     Entry
+	score float64
+}
+
+// RankedSearch scores entries for knowledge injection.
+func (s *Store) RankedSearch(query string, paths []string, limit int) ([]Entry, error) {
+	if s == nil {
+		return nil, fmt.Errorf("failure memory not configured")
+	}
+	if limit <= 0 {
+		limit = 3
+	}
+	entries, err := s.List(s.maxEntries)
+	if err != nil {
+		return nil, err
+	}
+	q := strings.ToLower(strings.TrimSpace(query))
+	var ranked []scoredEntry
+	for _, e := range entries {
+		NormalizeEntry(&e)
+		if !e.IsInjectable() {
+			continue
+		}
+		sc := scoreEntry(e, q, paths)
+		if sc <= 0 {
+			continue
+		}
+		ranked = append(ranked, scoredEntry{e: e, score: sc})
+	}
+	sortEntriesByScore(ranked)
+	if len(ranked) > limit {
+		ranked = ranked[:limit]
+	}
+	out := make([]Entry, len(ranked))
+	for i, r := range ranked {
+		out[i] = r.e
+	}
+	return out, nil
+}
+
+func scoreEntry(e Entry, query string, paths []string) float64 {
+	if !e.IsInjectable() {
+		return 0
+	}
+	q := strings.ToLower(strings.TrimSpace(query))
+	score := 0.0
+	if q != "" {
+		low := strings.ToLower(e.Signature + " " + e.Error + " " + e.Fix)
+		if strings.Contains(low, q) {
+			score += 0.5
+		}
+		for _, tok := range strings.Fields(query) {
+			if len(tok) < 2 {
+				continue
+			}
+			if strings.Contains(low, strings.ToLower(tok)) {
+				score += 0.25
+			}
+		}
+	}
+	for _, p := range paths {
+		p = strings.ToLower(strings.TrimSpace(p))
+		if p == "" {
+			continue
+		}
+		for _, ep := range e.Paths {
+			if strings.Contains(strings.ToLower(ep), p) || strings.Contains(p, strings.ToLower(ep)) {
+				score += 0.35
+				break
+			}
+		}
+	}
+	if e.Hits > 0 {
+		score += float64(e.Hits) * 0.05
+	}
+	if e.Confidence == ConfidenceUserConfirmed {
+		score += 0.2
+	} else if e.Confidence == ConfidenceVerified {
+		score += 0.1
+	} else if e.Confidence == ConfidenceDraft {
+		score *= 0.5
+	}
+	return score
+}
+
+func sortEntriesByScore(ranked []scoredEntry) {
+	for i := 0; i < len(ranked); i++ {
+		for j := i + 1; j < len(ranked); j++ {
+			if ranked[j].score > ranked[i].score {
+				ranked[i], ranked[j] = ranked[j], ranked[i]
+			}
+		}
+	}
 }
 
 // List returns the most recent entries (newest last in slice).

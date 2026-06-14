@@ -153,6 +153,33 @@ func TestSaveTabsDoesNotPersistYoloMode(t *testing.T) {
 	}
 }
 
+func TestSaveTabsPersistsActiveTabOnly(t *testing.T) {
+	isolateDesktopUserDirs(t)
+
+	app := NewApp()
+	tabA := testTab("a", t.TempDir())
+	tabB := testTab("b", t.TempDir())
+	tabB.model = "deepseek/deepseek-v4-flash"
+	app.tabs = map[string]*WorkspaceTab{tabA.ID: tabA, tabB.ID: tabB}
+	app.tabOrder = []string{tabA.ID, tabB.ID}
+	app.activeTabID = tabB.ID
+
+	app.mu.Lock()
+	app.saveTabsLocked()
+	app.mu.Unlock()
+
+	got := loadTabsFile()
+	if len(got.Tabs) != 1 {
+		t.Fatalf("tabs len = %d, want 1", len(got.Tabs))
+	}
+	if got.Tabs[0].ID != tabB.ID {
+		t.Fatalf("saved tab id = %q, want %q", got.Tabs[0].ID, tabB.ID)
+	}
+	if got.ActiveTab != tabB.ID {
+		t.Fatalf("active tab = %q, want %q", got.ActiveTab, tabB.ID)
+	}
+}
+
 func userConfigPathForTest() string {
 	if dir, err := os.UserConfigDir(); err == nil {
 		return dir + "/arcdesk/ARCDESK.toml"

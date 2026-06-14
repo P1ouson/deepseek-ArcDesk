@@ -26,8 +26,9 @@ func TestSelfdebugImmediateHintOnBashFailure(t *testing.T) {
 	a := New(&scriptedProvider{name: "p", turns: [][]provider.Chunk{
 		{toolCallChunk("w", "write_file", `{}`), toolCallChunk("b", "bash", `{"command":"go test ./..."}`), {Type: provider.ChunkDone}},
 	}}, reg, NewSession(""), Options{
-		ProjectChecks:    []instruction.VerifyCheck{{Command: "go test ./..."}},
-		SelfdebugTracker: tracker,
+		ProjectChecks:            []instruction.VerifyCheck{{Command: "go test ./..."}},
+		VerifyEnforceFinalAnswer: true,
+		SelfdebugTracker:         tracker,
 	}, event.Discard)
 	a.evidence = readinessLedger(writer)
 	out := a.executeOne(context.Background(), provider.ToolCall{Name: "bash", Arguments: `{"command":"go test ./..."}`})
@@ -57,8 +58,9 @@ func TestSelfdebugRetryContextEndToEnd(t *testing.T) {
 	}}
 
 	a := New(prov, reg, NewSession(""), Options{
-		ProjectChecks:    []instruction.VerifyCheck{{Command: "go test ./...", SourcePath: "AGENTS.md"}},
-		SelfdebugTracker: tracker,
+		ProjectChecks:            []instruction.VerifyCheck{{Command: "go test ./...", SourcePath: "AGENTS.md"}},
+		VerifyEnforceFinalAnswer: true,
+		SelfdebugTracker:         tracker,
 	}, event.Discard)
 
 	if err := a.Run(context.Background(), "fix and verify"); err != nil {
@@ -82,7 +84,7 @@ func TestSelfdebugRetryContextNilTrackerUsesLegacy(t *testing.T) {
 		evidence:      readinessLedger(writer),
 		projectChecks: []instruction.VerifyCheck{{Command: "go test ./...", Category: "unit"}},
 	}
-	a.noteVerifyFailure(provider.ToolCall{Arguments: `{"command":"go test ./..."}`}, errors.New("fail"), "FAIL")
+	a.noteVerifyFailure(context.Background(),provider.ToolCall{Arguments: `{"command":"go test ./..."}`}, errors.New("fail"), "FAIL")
 	got := a.verificationRetryContext()
 	if !strings.Contains(got, "## Verification Engine") {
 		t.Fatalf("got %q", got)

@@ -71,6 +71,7 @@ type Config struct {
 	CostRouter    CostRouterConfig    `toml:"cost_router"`
 	ContextCompression ContextCompressionConfig `toml:"context_compression"`
 	EnvAware      EnvAwareConfig    `toml:"env_aware"`
+	Knowledge     KnowledgeConfig   `toml:"knowledge"`
 	Statusline    StatuslineConfig  `toml:"statusline"`
 	LSP           LSPConfig         `toml:"lsp"`
 }
@@ -362,19 +363,22 @@ func (c CodegraphConfig) ResolvedTier() string {
 }
 
 // VerificationConfig governs post-write project checks (P0 verification loop).
-// AfterWrite lists shell commands the agent must run successfully after the
-// latest file write before giving a final answer. When empty, checks may still
-// come from AGENTS.md host checks or auto-discovery (go.mod / package.json).
-// MaxRetries bounds how many times the harness re-prompts before verification
-// is exhausted; OnFailure selects retry (default), rollback, or ask.
+// When enabled, checks are registered for verification_plan/status and optional
+// self-debug hints. They do not block the agent from finishing a turn unless
+// EnforceFinalAnswer is true — the agent only runs what the user asked.
+// AfterWrite lists commands; when empty, checks may come from AGENTS.md host
+// checks or auto-discovery (go.mod / package.json). MaxRetries bounds how many
+// times the harness re-prompts when enforcement is on; OnFailure selects retry
+// (default), rollback, or ask.
 type VerificationConfig struct {
-	Enabled      *bool    `toml:"enabled"`
-	AfterWrite   []string `toml:"after_write"`
-	AutoDiscover *bool    `toml:"auto_discover"`
-	IncludeUnit  *bool    `toml:"include_unit"`
-	IncludeE2E   *bool    `toml:"include_e2e"`
-	MaxRetries   int      `toml:"max_retries"`
-	OnFailure    string   `toml:"on_failure"`
+	Enabled            *bool    `toml:"enabled"`
+	EnforceFinalAnswer *bool    `toml:"enforce_final_answer"`
+	AfterWrite         []string `toml:"after_write"`
+	AutoDiscover       *bool    `toml:"auto_discover"`
+	IncludeUnit        *bool    `toml:"include_unit"`
+	IncludeE2E         *bool    `toml:"include_e2e"`
+	MaxRetries         int      `toml:"max_retries"`
+	OnFailure          string   `toml:"on_failure"`
 }
 
 func (c VerificationConfig) Disabled() bool {
@@ -386,6 +390,13 @@ func (c VerificationConfig) AutoDiscoverEnabled() bool {
 		return *c.AutoDiscover
 	}
 	return true
+}
+
+// EnforcesFinalAnswer reports whether the host may re-open a turn and require
+// configured checks before the model's final answer. Default is false so the
+// agent only executes what the user explicitly requested.
+func (c VerificationConfig) EnforcesFinalAnswer() bool {
+	return c.EnforceFinalAnswer != nil && *c.EnforceFinalAnswer
 }
 
 func (c VerificationConfig) ResolvedPolicy() (maxRetries int, onFailure string) {
@@ -705,6 +716,90 @@ func (c FailureMemoryConfig) ResolvedMaxEntries() int {
 		return 500
 	}
 	return c.MaxEntries
+}
+
+// KnowledgeConfig governs experience retrieval, retry injection, and capture (v1).
+type KnowledgeConfig struct {
+	Enabled *bool `toml:"enabled"`
+
+	InjectOnMessage      string `toml:"inject_on_message"`       // off | debug_only
+	InjectOnVerifyRetry  *bool  `toml:"inject_on_verify_retry"`
+	MaxRetryHintChars    int    `toml:"max_retry_hint_chars"`
+	MaxRetryStderrExcerpt int   `toml:"max_retry_stderr_excerpt"`
+
+	AutoCaptureOnVerify *bool  `toml:"auto_capture_on_verify"`
+	// RequireCaptureConfirm when true keeps the Record/Ignore card instead of
+	// writing qualified lessons automatically (default false).
+	RequireCaptureConfirm *bool `toml:"capture_requires_confirm"`
+	IndexInSystemPrompt *bool  `toml:"index_in_system_prompt"`
+	MaxIndexLines       int    `toml:"max_index_lines"`
+	MergeOnWrite        *bool  `toml:"merge_on_write"`
+}
+
+func (c KnowledgeConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c KnowledgeConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+func (c KnowledgeConfig) VerifyRetryInjectEnabled() bool {
+	if c.InjectOnVerifyRetry != nil {
+		return *c.InjectOnVerifyRetry
+	}
+	return true
+}
+
+func (c KnowledgeConfig) VerifyAutoCaptureEnabled() bool {
+	if c.AutoCaptureOnVerify != nil {
+		return *c.AutoCaptureOnVerify
+	}
+	return true
+}
+
+func (c KnowledgeConfig) CaptureRequiresConfirm() bool {
+	if c.RequireCaptureConfirm != nil {
+		return *c.RequireCaptureConfirm
+	}
+	return false
+}
+
+func (c KnowledgeConfig) SystemPromptIndexEnabled() bool {
+	if c.IndexInSystemPrompt != nil {
+		return *c.IndexInSystemPrompt
+	}
+	return true
+}
+
+func (c KnowledgeConfig) ResolvedMaxRetryHintChars() int {
+	if c.MaxRetryHintChars > 0 {
+		return c.MaxRetryHintChars
+	}
+	return 200
+}
+
+func (c KnowledgeConfig) ResolvedMaxRetryStderrExcerpt() int {
+	if c.MaxRetryStderrExcerpt > 0 {
+		return c.MaxRetryStderrExcerpt
+	}
+	return 2048
+}
+
+func (c KnowledgeConfig) ResolvedMaxIndexLines() int {
+	if c.MaxIndexLines > 0 {
+		return c.MaxIndexLines
+	}
+	return 30
+}
+
+func (c KnowledgeConfig) InjectOnMessageDebugOnly() bool {
+	switch strings.ToLower(strings.TrimSpace(c.InjectOnMessage)) {
+	case "debug_only", "debug", "auto":
+		return true
+	default:
+		return false
+	}
 }
 
 // EnvAwareConfig governs host OS/toolchain probing (P1-#12).

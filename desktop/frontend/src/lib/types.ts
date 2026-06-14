@@ -17,7 +17,9 @@ export type EventKind =
   | "turn_done"
   | "compaction_started"
   | "compaction_done"
-  | "retrying";
+  | "retrying"
+  | "knowledge_capture_suggest"
+  | "knowledge_capture_recorded";
 
 export interface WireCompaction {
   trigger?: string; // "auto" | "manual"
@@ -105,6 +107,16 @@ export interface QuestionAnswer {
   selected: string[];
 }
 
+export interface WireKnowledgeCapture {
+  id: string;
+  fingerprint: string;
+  signature: string;
+  summary: string;
+  error?: string;
+  fix: string;
+  paths?: string[];
+}
+
 export interface WireEvent {
   kind: EventKind;
   text?: string;
@@ -115,6 +127,7 @@ export interface WireEvent {
   usage?: WireUsage;
   approval?: WireApproval;
   ask?: WireAsk;
+  knowledgeCapture?: WireKnowledgeCapture;
   compaction?: WireCompaction;
   err?: string;
   retryAttempt?: number;
@@ -435,9 +448,16 @@ export interface MCPServerInput {
   url: string;
   env?: Record<string, string> | null;
   tier: string;
+  confirmed?: boolean;
 }
 
 // Curated MCP directory entries for the plugin marketplace UI.
+export interface MCPCatalogEnvField {
+  key: string;
+  required: boolean;
+  secret: boolean;
+}
+
 export interface MCPCatalogEntry {
   id: string;
   name: string;
@@ -449,6 +469,41 @@ export interface MCPCatalogEntry {
   url?: string;
   tier?: string;
   official?: boolean;
+  requires?: string[];
+  envFields?: MCPCatalogEnvField[];
+  setupNotes?: string[];
+}
+
+export interface MCPPrerequisiteView {
+  id: string;
+  ok: boolean;
+  detail?: string;
+}
+
+export interface MCPPrerequisitesView {
+  items: MCPPrerequisiteView[];
+}
+
+export interface SkillsMarketEntry {
+  id: string;
+  skillId: string;
+  name: string;
+  source: string;
+  installs: number;
+}
+
+export interface SkillsMarketSearchResult {
+  query: string;
+  skills: SkillsMarketEntry[];
+  count: number;
+  hasMore: boolean;
+  page: number;
+}
+
+export interface InstallSkillsMarketResult {
+  name: string;
+  scope: string;
+  path: string;
 }
 
 export interface ModelInfo {
@@ -504,6 +559,23 @@ export interface MemoryView {
   scopes: MemoryScope[];
   storeDir: string;
   available: boolean;
+}
+
+export interface KnowledgeEntry {
+  id: string;
+  signature: string;
+  error?: string;
+  fix: string;
+  paths?: string[];
+  confidence: string;
+  hits: number;
+  kind?: string;
+  summary: string;
+}
+
+export interface KnowledgeView {
+  available: boolean;
+  entries: KnowledgeEntry[];
 }
 
 // Settings panel payloads (desktop/settings_app.go).

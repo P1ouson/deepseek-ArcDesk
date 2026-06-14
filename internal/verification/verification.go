@@ -20,8 +20,9 @@ type Policy struct {
 const defaultMaxRetries = 3
 
 // Resolve merges explicit config, AGENTS.md host checks, and optional auto-
-// discovery into the checks wired into the agent. The returned enabled flag is
-// false when verification is disabled or no checks were resolved.
+// discovery into the checks wired into the agent. Checks are advisory unless
+// config.EnforceFinalAnswer is true. The returned enabled flag is false when
+// verification is disabled or no checks were resolved.
 func Resolve(root string, cfg config.VerificationConfig, memDocs []memory.Source) ([]instruction.VerifyCheck, Policy, bool) {
 	maxRetries, onFailure := cfg.ResolvedPolicy()
 	policy := Policy{MaxRetries: maxRetries, OnFailure: onFailure}

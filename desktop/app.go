@@ -197,61 +197,31 @@ func (a *App) restoreOrBuildTabs() {
 	}
 
 	f := loadTabsFile()
-	if len(f.Tabs) > 0 {
-		var pending []*WorkspaceTab
-		for _, entry := range f.Tabs {
-			if !restorableDesktopTabEntry(entry) {
-				continue
-			}
-			a.mu.Lock()
-			id := a.restoredTabIDLocked(entry.ID)
-			a.mu.Unlock()
-
-			var tab *WorkspaceTab
-			if entry.Scope == "project" {
-				tab = a.createTabEntryWithID(entry.Scope, entry.WorkspaceRoot, entry.TopicID, id)
-			} else {
-				tab = a.createTabEntryWithID("global", globalTabWorkspaceRoot(), entry.TopicID, id)
-			}
-			tab.model = entry.Model
-			if strings.TrimSpace(entry.Model) != "" {
-				tab.Label = entry.Model
-			}
-			tab.effort = cloneStringPtr(entry.Effort)
-			tab.mode = persistedTabMode(entry.Mode)
-			tab.sessionPath = sanitizePersistedSessionPath(entry.SessionPath)
-			tab.sink = &tabEventSink{tabID: tab.ID, app: a, ctx: ctx}
-			a.mu.Lock()
-			a.tabs[tab.ID] = tab
-			a.tabOrder = append(a.tabOrder, tab.ID)
-			a.mu.Unlock()
-			pending = append(pending, tab)
-		}
+	if entry, ok := activeTabEntryToRestore(f); ok {
 		a.mu.Lock()
-		if _, ok := a.tabs[f.ActiveTab]; ok {
-			a.activeTabID = f.ActiveTab
+		id := a.restoredTabIDLocked(entry.ID)
+		a.mu.Unlock()
+
+		var tab *WorkspaceTab
+		if entry.Scope == "project" {
+			tab = a.createTabEntryWithID(entry.Scope, entry.WorkspaceRoot, entry.TopicID, id)
 		} else {
-			ordered := a.orderedTabIDsLocked()
-			if len(ordered) > 0 {
-				a.activeTabID = ordered[0]
-			} else {
-				a.activeTabID = ""
-			}
+			tab = a.createTabEntryWithID("global", globalTabWorkspaceRoot(), entry.TopicID, id)
 		}
-		if len(pending) == 0 {
-			a.tabs = map[string]*WorkspaceTab{}
-			a.tabOrder = nil
-			a.activeTabID = ""
-			a.saveTabsLocked()
+		tab.model = entry.Model
+		if strings.TrimSpace(entry.Model) != "" {
+			tab.Label = entry.Model
 		}
+		tab.effort = cloneStringPtr(entry.Effort)
+		tab.mode = persistedTabMode(entry.Mode)
+		tab.sessionPath = sanitizePersistedSessionPath(entry.SessionPath)
+		tab.sink = &tabEventSink{tabID: tab.ID, app: a, ctx: ctx}
+		a.mu.Lock()
+		a.tabs[tab.ID] = tab
+		a.tabOrder = []string{tab.ID}
+		a.activeTabID = tab.ID
 		a.mu.Unlock()
 		a.emitTabsShellReady()
-		if len(pending) == 0 {
-			a.emitReady(a.ctx)
-		}
-		for _, tab := range pending {
-			_ = tab // tabs restore shell only; agent boots on first Submit
-		}
 		return
 	}
 
@@ -1408,15 +1378,18 @@ type CommandInfo struct {
 func (a *App) Commands() []CommandInfo {
 	out := []CommandInfo{
 		{Name: "new", Description: i18n.M.CmdNew, Kind: "builtin"},
-		{Name: "compact", Description: i18n.M.CmdCompact, Kind: "builtin"},
-		{Name: "model", Description: i18n.M.CmdModel, Kind: "builtin"},
-		{Name: "effort", Description: i18n.M.CmdEffort, Kind: "builtin"},
+		{Name: "compact", Description: i18n.M.CmdCompact, Hint: i18n.M.CmdCompactArg, Kind: "builtin"},
+		{Name: "model", Description: i18n.M.CmdModel, Hint: i18n.M.CmdModelArg, Kind: "builtin"},
+		{Name: "effort", Description: i18n.M.CmdEffort, Hint: a.effortCommandHint(), Kind: "builtin"},
 		{Name: "memory", Description: i18n.M.CmdMemory, Kind: "builtin"},
-		{Name: "remember", Description: i18n.M.CmdRemember, Kind: "builtin"},
-		{Name: "mcp", Description: i18n.M.CmdMcp, Kind: "builtin"},
-		{Name: "hooks", Description: i18n.M.CmdHooks, Kind: "builtin"},
-		{Name: "theme", Description: i18n.M.CmdTheme, Kind: "builtin"},
-		{Name: "skill", Description: i18n.M.CmdSkill, Kind: "builtin"},
+		{Name: "knowledge", Description: i18n.M.CmdKnowledge, Kind: "builtin"},
+		{Name: "remember", Description: i18n.M.CmdRemember, Hint: i18n.M.CmdRememberArg, Kind: "builtin"},
+		{Name: "mcp", Description: i18n.M.CmdMcp, Hint: i18n.M.CmdMcpArg, Kind: "builtin"},
+		{Name: "hooks", Description: i18n.M.CmdHooks, Hint: i18n.M.CmdHooksArg, Kind: "builtin"},
+		{Name: "theme", Description: i18n.M.CmdTheme, Hint: i18n.M.CmdThemeArg, Kind: "builtin"},
+		{Name: "language", Description: i18n.M.CmdLanguage, Hint: i18n.M.CmdLanguageArg, Kind: "builtin"},
+		{Name: "auto-plan", Description: i18n.M.CmdAutoPlan, Hint: i18n.M.CmdAutoPlanArg, Kind: "builtin"},
+		{Name: "skill", Description: i18n.M.CmdSkill, Hint: i18n.M.CmdSkillArg, Kind: "builtin"},
 	}
 	a.mu.RLock()
 	ctrl := a.activeCtrlLocked()
@@ -1470,21 +1443,24 @@ func (a *App) SlashArgs(input string) SlashArgsResult {
 		model = tab.model
 	}
 	a.mu.RUnlock()
-	if ctrl == nil {
-		return SlashArgsResult{Items: []SlashArgItem{}}
-	}
-	data := control.ArgData{
-		Skills:          ctrl.Skills(),
-		DisabledSkills:  ctrl.DisabledSkills(),
-		ConfiguredMCP:   ctrl.ConfiguredMCPNames(),
-		DisconnectedMCP: ctrl.DisconnectedMCPNames(),
-		CurrentModel:    model,
-	}
+
+	data := control.ArgData{CurrentModel: model}
 	for _, m := range a.Models() {
 		data.ModelRefs = append(data.ModelRefs, m.Ref)
 	}
-	if h := ctrl.Host(); h != nil {
-		data.ServerNames = h.ServerNames()
+	if ctrl != nil {
+		data.Skills = ctrl.Skills()
+		data.DisabledSkills = ctrl.DisabledSkills()
+		data.ConfiguredMCP = ctrl.ConfiguredMCPNames()
+		data.DisconnectedMCP = ctrl.DisconnectedMCPNames()
+		if h := ctrl.Host(); h != nil {
+			data.ServerNames = h.ServerNames()
+		}
+	} else if cfg, err := config.Load(); err == nil {
+		for _, p := range cfg.Plugins {
+			data.ConfiguredMCP = append(data.ConfiguredMCP, p.Name)
+			data.DisconnectedMCP = append(data.DisconnectedMCP, p.Name)
+		}
 	}
 	items, from := control.SlashArgItems(input, data)
 	// Non-nil so it serializes as a JSON array, never null �?the frontend filters
@@ -1580,6 +1556,52 @@ func (a *App) Capabilities() CapabilitiesView {
 	}
 	order := append([]string(nil), tab.mcpOrder...)
 	if ctrl == nil {
+		out.Skills = a.skillsViewForTab(tab)
+		out.SkillRoots = skillRootsViewForWorkspace(tab.WorkspaceRoot)
+		if cfg, err := config.LoadForRoot(tab.WorkspaceRoot); err == nil {
+			retainedDisabled := map[string]ServerView{}
+			seen := map[string]bool{}
+			for _, p := range cfg.Plugins {
+				if s, ok := disabled[p.Name]; ok {
+					s.Status = "disabled"
+					s = withPluginConfig(s, p)
+					s.Error = ""
+					out.Servers = append(out.Servers, s)
+					retainedDisabled[p.Name] = s
+					seen[p.Name] = true
+					delete(disabled, p.Name)
+					continue
+				}
+				status := "disabled"
+				if p.ShouldAutoStart() {
+					status = "deferred"
+				}
+				out.Servers = append(out.Servers, withPluginConfig(ServerView{Name: p.Name, Status: status}, p))
+				seen[p.Name] = true
+			}
+			if !seen["codegraph"] {
+				status := "disabled"
+				if cfg.Codegraph.Enabled {
+					status = "deferred"
+				}
+				if s, ok := disabled["codegraph"]; ok {
+					s.Status = "disabled"
+					s.Transport = "stdio"
+					s.BuiltIn = true
+					s = withCodegraphConfig(s, cfg.Codegraph)
+					s.Error = ""
+					out.Servers = append(out.Servers, s)
+					retainedDisabled["codegraph"] = s
+				} else {
+					out.Servers = append(out.Servers, withCodegraphConfig(ServerView{Name: "codegraph", Status: status}, cfg.Codegraph))
+				}
+			}
+			out.Servers = orderServerViews(out.Servers, order)
+			a.mu.Lock()
+			tab.disabledMCP = retainedDisabled
+			tab.mcpOrder = mergeServerOrder(tab.mcpOrder, out.Servers)
+			a.mu.Unlock()
+		}
 		return out
 	}
 	seen := map[string]bool{}
@@ -1696,72 +1718,78 @@ func (a *App) Capabilities() CapabilitiesView {
 			Enabled: ctrl.SkillEnabled(s.Name),
 		})
 	}
-	out.SkillRoots = skillRootsView()
+	out.SkillRoots = skillRootsViewForWorkspace(tab.WorkspaceRoot)
 	return out
 }
 
-func withPluginConfig(v ServerView, p config.PluginEntry) ServerView {
-	tt := p.Type
-	if tt == "" {
-		tt = "stdio"
+func (a *App) skillsViewForTab(tab *WorkspaceTab) []SkillView {
+	if tab == nil {
+		return []SkillView{}
 	}
-	v.Transport = tt
-	v.Configured = true
-	v.AutoStart = p.ShouldAutoStart()
-	v.Tier = p.ResolvedTier()
-	v.Command = p.Command
-	v.Args = append([]string(nil), p.Args...)
-	v.URL = p.URL
-	v.AuthConfigured = mcpdiag.HasAuthConfig(p.Headers, p.Env, p.URL)
-	if len(p.Env) > 0 {
-		v.EnvKeys = make([]string, 0, len(p.Env))
-		for k := range p.Env {
-			v.EnvKeys = append(v.EnvKeys, k)
+	root := strings.TrimSpace(tab.WorkspaceRoot)
+	if root == "" {
+		if wd, err := os.Getwd(); err == nil {
+			root = wd
 		}
-		sort.Strings(v.EnvKeys)
 	}
-	auth := mcpdiag.DiagnoseAuth(v.Transport, v.Status, v.Error, v.URL, v.AuthConfigured)
-	v.AuthStatus = auth.Status
-	v.AuthURL = auth.URL
-	return v
-}
-
-func withCodegraphConfig(v ServerView, c config.CodegraphConfig) ServerView {
-	v.Name = "codegraph"
-	v.Transport = "stdio"
-	v.BuiltIn = true
-	v.Configured = true
-	v.AutoStart = c.ShouldAutoStart()
-	v.Tier = c.ResolvedTier()
-	v.AuthStatus = mcpdiag.AuthNone
-	return v
+	cfg, _ := config.LoadForRoot(root)
+	var custom []string
+	disabled := map[string]bool{}
+	if cfg != nil {
+		custom = cfg.SkillCustomPaths()
+		for _, name := range cfg.Skills.DisabledSkills {
+			disabled[name] = true
+		}
+	}
+	projectTrusted := hook.IsTrusted(root, "")
+	st := skill.New(skill.Options{ProjectRoot: root, CustomPaths: custom, ProjectTrusted: projectTrusted, Stderr: io.Discard})
+	list := st.List()
+	out := make([]SkillView, 0, len(list))
+	for _, sk := range list {
+		out = append(out, SkillView{
+			Name: sk.Name, Description: sk.Description,
+			Scope: string(sk.Scope), RunAs: string(sk.RunAs),
+			Enabled: !disabled[sk.Name],
+		})
+	}
+	return out
 }
 
 func skillRootsView() []SkillRootView {
 	cwd, _ := os.Getwd()
-	cfg, _ := config.Load()
+	return skillRootsViewForWorkspace(cwd)
+}
+
+func skillRootsViewForWorkspace(workspaceRoot string) []SkillRootView {
+	root := strings.TrimSpace(workspaceRoot)
+	if root == "" {
+		if wd, err := os.Getwd(); err == nil {
+			root = wd
+		}
+	}
+	cfg, _ := config.LoadForRoot(root)
 	userCfg := config.LoadForEdit(config.UserConfigPath())
 	var custom []string
 	if cfg != nil {
 		custom = cfg.SkillCustomPaths()
 	}
-	projectTrusted := hook.IsTrusted(cwd, "")
-	st := skill.New(skill.Options{ProjectRoot: cwd, CustomPaths: custom, DisableBuiltins: true, ProjectTrusted: true, Stderr: io.Discard})
+	projectTrusted := hook.IsTrusted(root, "")
+	st := skill.New(skill.Options{ProjectRoot: root, CustomPaths: custom, DisableBuiltins: true, ProjectTrusted: projectTrusted, Stderr: io.Discard})
 	counts := map[string]int{}
 	skillItems := map[string][]SkillRootSkillView{}
 	for _, sk := range st.List() {
-		root := config.CanonicalSkillPath(filepath.Dir(skillRootPath(sk.Path)))
-		counts[root]++
-		skillItems[root] = append(skillItems[root], SkillRootSkillView{
+		skillRoot := config.CanonicalSkillPath(filepath.Dir(skillRootPath(sk.Path)))
+		counts[skillRoot]++
+		skillItems[skillRoot] = append(skillItems[skillRoot], SkillRootSkillView{
 			Name:        sk.Name,
 			Description: sk.Description,
 			Scope:       string(sk.Scope),
 			RunAs:       string(sk.RunAs),
 		})
 	}
-	for root := range skillItems {
-		sort.Slice(skillItems[root], func(i, j int) bool {
-			return skillItems[root][i].Name < skillItems[root][j].Name
+	for skillRoot := range skillItems {
+		sort.Slice(skillItems[skillRoot], func(i, j int) bool {
+			return skillItems[skillRoot][i].Name < skillItems[skillRoot][j].Name
 		})
 	}
 	userConfigured := map[string]bool{}
@@ -1802,6 +1830,43 @@ func skillRootsView() []SkillRootView {
 		}
 	}
 	return out
+}
+
+func withPluginConfig(v ServerView, p config.PluginEntry) ServerView {
+	tt := p.Type
+	if tt == "" {
+		tt = "stdio"
+	}
+	v.Transport = tt
+	v.Configured = true
+	v.AutoStart = p.ShouldAutoStart()
+	v.Tier = p.ResolvedTier()
+	v.Command = p.Command
+	v.Args = append([]string(nil), p.Args...)
+	v.URL = p.URL
+	v.AuthConfigured = mcpdiag.HasAuthConfig(p.Headers, p.Env, p.URL)
+	if len(p.Env) > 0 {
+		v.EnvKeys = make([]string, 0, len(p.Env))
+		for k := range p.Env {
+			v.EnvKeys = append(v.EnvKeys, k)
+		}
+		sort.Strings(v.EnvKeys)
+	}
+	auth := mcpdiag.DiagnoseAuth(v.Transport, v.Status, v.Error, v.URL, v.AuthConfigured)
+	v.AuthStatus = auth.Status
+	v.AuthURL = auth.URL
+	return v
+}
+
+func withCodegraphConfig(v ServerView, c config.CodegraphConfig) ServerView {
+	v.Name = "codegraph"
+	v.Transport = "stdio"
+	v.BuiltIn = true
+	v.Configured = true
+	v.AutoStart = c.ShouldAutoStart()
+	v.Tier = c.ResolvedTier()
+	v.AuthStatus = mcpdiag.AuthNone
+	return v
 }
 
 func rootActive(roots []SkillRootView, path string) bool {
@@ -1956,16 +2021,15 @@ type MCPServerInput struct {
 	URL       string            `json:"url"`
 	Env       map[string]string `json:"env"`
 	Tier      string            `json:"tier"`
+	Confirmed bool              `json:"confirmed,omitempty"`
 }
 
-// AddMCPServer connects a server live and persists it to config (Customize �?MCP �?// Add). Returns the number of tools it exposed.
+// AddMCPServer persists a server to config and connects it live when a session
+// controller is running. Returns the number of tools it exposed (0 when saved
+// for a later session start).
 func (a *App) AddMCPServer(in MCPServerInput) (int, error) {
-	if !a.confirmAddMCPServer(in.Name) {
+	if !in.Confirmed && !a.confirmAddMCPServer(in.Name) {
 		return 0, fmt.Errorf("MCP server add cancelled")
-	}
-	ctrl := a.activeCtrl()
-	if ctrl == nil {
-		return 0, fmt.Errorf("no active session")
 	}
 	entry := config.PluginEntry{
 		Name:    in.Name,
@@ -1979,6 +2043,11 @@ func (a *App) AddMCPServer(in MCPServerInput) (int, error) {
 	if err := a.saveDesktopMCPServer(entry); err != nil {
 		return 0, err
 	}
+	config.InvalidateConfigCache("")
+	ctrl := a.activeCtrl()
+	if ctrl == nil {
+		return 0, nil
+	}
 	return ctrl.ConnectMCPServer(entry)
 }
 
@@ -1987,10 +2056,6 @@ func (a *App) AddMCPServer(in MCPServerInput) (int, error) {
 func (a *App) UpdateMCPServer(name string, in MCPServerInput) error {
 	if name == "codegraph" {
 		return fmt.Errorf("codegraph is built in; configure it with [codegraph]")
-	}
-	ctrl := a.activeCtrl()
-	if ctrl == nil {
-		return fmt.Errorf("no active session")
 	}
 	if strings.TrimSpace(in.Name) != "" && strings.TrimSpace(in.Name) != name {
 		return fmt.Errorf("renaming MCP servers is not supported; remove and add a new server")
@@ -2008,7 +2073,14 @@ func (a *App) UpdateMCPServer(name string, in MCPServerInput) error {
 	updated.URL = strings.TrimSpace(in.URL)
 	updated.Tier = normalizeMCPTier(in.Tier)
 	if in.Env != nil {
-		updated.Env = in.Env
+		if updated.Env == nil {
+			updated.Env = map[string]string{}
+		}
+		for k, v := range in.Env {
+			if strings.TrimSpace(v) != "" {
+				updated.Env[k] = strings.TrimSpace(v)
+			}
+		}
 	}
 	if updated.Type == "stdio" {
 		updated.URL = ""
@@ -2018,6 +2090,12 @@ func (a *App) UpdateMCPServer(name string, in MCPServerInput) error {
 	}
 	if err := a.saveDesktopMCPServer(updated); err != nil {
 		return err
+	}
+	config.InvalidateConfigCache("")
+
+	ctrl := a.activeCtrl()
+	if ctrl == nil {
+		return nil
 	}
 
 	a.mu.RLock()
@@ -2047,19 +2125,22 @@ func (a *App) RemoveMCPServer(name string) error {
 		return fmt.Errorf("codegraph is built in; it cannot be removed")
 	}
 	tab := a.activeTab()
-	if tab == nil || tab.Ctrl == nil {
-		return fmt.Errorf("no active session")
+	var disconnected bool
+	if tab != nil && tab.Ctrl != nil {
+		disconnected = tab.Ctrl.DisconnectMCPServer(name)
 	}
-	disconnected := tab.Ctrl.DisconnectMCPServer(name)
 	removed, err := a.removeDesktopMCPServer(name)
 	if err != nil {
 		return err
 	}
 	if disconnected || removed {
-		a.mu.Lock()
-		delete(tab.disabledMCP, name)
-		tab.mcpOrder = removeServerOrder(tab.mcpOrder, name)
-		a.mu.Unlock()
+		if tab != nil {
+			a.mu.Lock()
+			delete(tab.disabledMCP, name)
+			tab.mcpOrder = removeServerOrder(tab.mcpOrder, name)
+			a.mu.Unlock()
+		}
+		config.InvalidateConfigCache("")
 		return nil
 	}
 	return fmt.Errorf("no MCP server named %q", name)
@@ -2069,8 +2150,11 @@ func (a *App) RemoveMCPServer(name string) error {
 // without touching config (the failed row's retry button).
 func (a *App) RetryMCPServer(name string) error {
 	tab := a.activeTab()
-	if tab == nil || tab.Ctrl == nil {
-		return fmt.Errorf("no active session")
+	if tab == nil {
+		return fmt.Errorf("no active workspace tab")
+	}
+	if err := a.ensureTabControllerReady(tab, 90*time.Second); err != nil {
+		return err
 	}
 	_, err := a.connectConfiguredMCPServerForTab(tab, name)
 	return err
@@ -2083,41 +2167,58 @@ func (a *App) ClearMCPServerAuthentication(name string) error {
 	if name == "codegraph" {
 		return fmt.Errorf("codegraph is built in; it has no stored MCP authentication")
 	}
-	ctrl := a.activeCtrl()
-	if ctrl == nil {
-		return fmt.Errorf("no active session")
-	}
 	if _, _, _, err := config.ClearPluginAuthenticationInSource(name); err != nil {
 		return err
 	}
-	ctrl.DisconnectMCPServer(name)
-	if h := ctrl.Host(); h != nil {
-		h.ClearFailure(name)
+	if ctrl := a.activeCtrl(); ctrl != nil {
+		ctrl.DisconnectMCPServer(name)
+		if h := ctrl.Host(); h != nil {
+			h.ClearFailure(name)
+		}
 	}
 	return nil
 }
 
 // SetMCPServerEnabled is the connector toggle: on reconnects a configured server
-// for this session, off disconnects it (config untouched either way �?like Claude
+// for this session, off disconnects it (config untouched either way — like Claude
 // Code's per-conversation enable/disable, it resets on the next session start).
 func (a *App) SetMCPServerEnabled(name string, enabled bool) error {
 	tab := a.activeTab()
-	if tab == nil || tab.Ctrl == nil {
-		return fmt.Errorf("no active session")
+	if tab == nil {
+		return fmt.Errorf("no active workspace tab")
 	}
 	if name == "codegraph" {
 		return a.setCodegraphEnabled(enabled)
 	}
 	if enabled {
-		_, err := a.connectConfiguredMCPServerForTab(tab, name)
-		if err == nil {
-			a.mu.Lock()
-			delete(tab.disabledMCP, name)
-			a.mu.Unlock()
+		a.mu.Lock()
+		delete(tab.disabledMCP, name)
+		a.mu.Unlock()
+		if err := a.ensureTabControllerReady(tab, 90*time.Second); err != nil {
+			return err
 		}
-		return err
+		if tab.Ctrl != nil {
+			_, err := a.connectConfiguredMCPServerForTab(tab, name)
+			return err
+		}
+		return nil
 	}
-	if s, ok := findMCPServerView(tab.Ctrl, name); ok {
+	var s ServerView
+	found := false
+	if tab.Ctrl != nil {
+		if view, ok := findMCPServerView(tab.Ctrl, name); ok {
+			s = view
+			found = true
+		}
+		tab.Ctrl.DisconnectMCPServer(name)
+	}
+	if !found {
+		if view, ok := a.configuredMCPServerView(name); ok {
+			s = view
+			found = true
+		}
+	}
+	if found {
 		s.Status = "disabled"
 		s.Error = ""
 		a.mu.Lock()
@@ -2128,8 +2229,33 @@ func (a *App) SetMCPServerEnabled(name string, enabled bool) error {
 		tab.mcpOrder = mergeServerOrder(tab.mcpOrder, []ServerView{s})
 		a.mu.Unlock()
 	}
-	tab.Ctrl.DisconnectMCPServer(name)
 	return nil
+}
+
+func (a *App) configuredMCPServerView(name string) (ServerView, bool) {
+	if name == "codegraph" {
+		cfg, err := config.LoadForRoot(a.activeWorkspaceRoot())
+		if err != nil {
+			return ServerView{}, false
+		}
+		return withCodegraphConfig(ServerView{Name: "codegraph", Status: "disabled", BuiltIn: true, Transport: "stdio"}, cfg.Codegraph), true
+	}
+	p, found, err := a.desktopMCPServerForEdit(name)
+	if err != nil || !found {
+		return ServerView{}, false
+	}
+	return withPluginConfig(ServerView{Name: name, Status: "disabled"}, p), true
+}
+
+func (a *App) ensureTabControllerReady(tab *WorkspaceTab, timeout time.Duration) error {
+	if tab == nil {
+		return fmt.Errorf("no active workspace tab")
+	}
+	if tab.Ctrl != nil {
+		return nil
+	}
+	a.startTabControllerBuild(tab)
+	return a.waitTabControllerReady(tab, timeout)
 }
 
 func (a *App) connectConfiguredMCPServerForTab(tab *WorkspaceTab, name string) (int, error) {
@@ -2149,6 +2275,45 @@ func (a *App) connectConfiguredMCPServerForTab(tab *WorkspaceTab, name string) (
 		return tab.Ctrl.ConnectCodegraphMCPServer(cfg)
 	}
 	return 0, fmt.Errorf("no configured MCP server named %q", name)
+}
+
+// warmConfiguredMCPServers connects installed MCP servers in the background after
+// a tab controller boots so the extensions UI shows them as connected without
+// requiring a manual「连接」click each session.
+func (a *App) warmConfiguredMCPServers(tab *WorkspaceTab) {
+	if tab == nil {
+		return
+	}
+	a.mu.RLock()
+	ctrl := tab.Ctrl
+	disabled := make(map[string]bool, len(tab.disabledMCP))
+	for name := range tab.disabledMCP {
+		disabled[name] = true
+	}
+	root := tab.WorkspaceRoot
+	a.mu.RUnlock()
+	if ctrl == nil {
+		return
+	}
+	cfg, err := config.LoadForRoot(root)
+	if err != nil {
+		return
+	}
+	for _, p := range cfg.Plugins {
+		if disabled[p.Name] || mcpConnected(ctrl, p.Name) || mcpFailed(ctrl, p.Name) {
+			continue
+		}
+		if _, err := ctrl.ConnectMCPServer(p); err != nil {
+			recordMCPFailure(ctrl, p, err)
+		} else {
+			a.mu.Lock()
+			delete(tab.disabledMCP, p.Name)
+			a.mu.Unlock()
+		}
+	}
+	if a.ctx != nil {
+		a.emitReady(a.ctx)
+	}
 }
 
 // SetMCPServerTier persists how a configured MCP server should start on future
@@ -2193,8 +2358,8 @@ func (a *App) setCodegraphEnabled(enabled bool) error {
 		return err
 	}
 	tab := a.activeTab()
-	if tab == nil || tab.Ctrl == nil {
-		return fmt.Errorf("no active session")
+	if tab == nil {
+		return fmt.Errorf("no active workspace tab")
 	}
 	cfg.Codegraph.Enabled = enabled
 	if err := cfg.SaveTo(path); err != nil {
@@ -2207,16 +2372,23 @@ func (a *App) setCodegraphEnabled(enabled bool) error {
 		a.mu.Lock()
 		delete(tab.disabledMCP, "codegraph")
 		a.mu.Unlock()
-		if _, err := tab.Ctrl.ConnectCodegraphMCPServer(cfg); err != nil {
-			recordCodegraphFailure(tab.Ctrl, cfg.Codegraph, err)
-			return nil
+		if err := a.ensureTabControllerReady(tab, 90*time.Second); err != nil {
+			return err
+		}
+		if tab.Ctrl != nil {
+			if _, err := tab.Ctrl.ConnectCodegraphMCPServer(cfg); err != nil {
+				recordCodegraphFailure(tab.Ctrl, cfg.Codegraph, err)
+				return nil
+			}
 		}
 		return nil
 	}
-	if h := tab.Ctrl.Host(); h != nil {
-		h.ClearFailure("codegraph")
+	if tab.Ctrl != nil {
+		if h := tab.Ctrl.Host(); h != nil {
+			h.ClearFailure("codegraph")
+		}
+		tab.Ctrl.DisconnectMCPServer("codegraph")
 	}
-	tab.Ctrl.DisconnectMCPServer("codegraph")
 	s := withCodegraphConfig(ServerView{Name: "codegraph", Status: "disabled"}, cfg.Codegraph)
 	a.mu.Lock()
 	if tab.disabledMCP == nil {
@@ -3188,6 +3360,18 @@ func (a *App) noticeForTab(tabID, text string) {
 	}
 }
 
+func (a *App) effortCommandHint() string {
+	entry, err := a.currentProviderEntryForTab("")
+	if err != nil || entry == nil {
+		return i18n.M.CmdEffortArg
+	}
+	cap := config.EffortCapabilityForEntry(entry)
+	if !cap.Supported || len(cap.Levels) == 0 {
+		return i18n.M.CmdEffortArg
+	}
+	return strings.Join(cap.Levels, "|")
+}
+
 func (a *App) runEffortCommand(input string) {
 	a.runEffortCommandForTab("", input)
 }
@@ -4009,18 +4193,28 @@ func (a *App) TriggerScheduledTask(id string) error {
 	return a.runScheduledTaskByID(id, "manual")
 }
 
+// MCPCatalogEnvField describes one env var the install wizard should collect.
+type MCPCatalogEnvField struct {
+	Key      string `json:"key"`
+	Required bool   `json:"required"`
+	Secret   bool   `json:"secret"`
+}
+
 // MCPCatalogEntry is a curated marketplace item for the plugin UI.
 type MCPCatalogEntry struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Category    string   `json:"category"`
-	Description string   `json:"description"`
-	Transport   string   `json:"transport"`
-	Command     string   `json:"command,omitempty"`
-	Args        []string `json:"args,omitempty"`
-	URL         string   `json:"url,omitempty"`
-	Tier        string   `json:"tier,omitempty"`
-	Official    bool     `json:"official,omitempty"`
+	ID          string               `json:"id"`
+	Name        string               `json:"name"`
+	Category    string               `json:"category"`
+	Description string               `json:"description"`
+	Transport   string               `json:"transport"`
+	Command     string               `json:"command,omitempty"`
+	Args        []string             `json:"args,omitempty"`
+	URL         string               `json:"url,omitempty"`
+	Tier        string               `json:"tier,omitempty"`
+	Official    bool                 `json:"official,omitempty"`
+	Requires    []string             `json:"requires,omitempty"`
+	EnvFields   []MCPCatalogEnvField `json:"envFields,omitempty"`
+	SetupNotes  []string             `json:"setupNotes,omitempty"`
 }
 
 // ListMCPCatalog returns curated MCP servers for the plugin marketplace.

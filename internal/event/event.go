@@ -79,6 +79,12 @@ const (
 	// event — or TurnDone — clears. Appended last to keep the Kind values before
 	// it wire-stable.
 	Retrying
+	// KnowledgeCaptureSuggest offers a verify-pass lesson for user confirmation
+	// before it is written to failure memory (KnowledgeCapture payload). Non-blocking.
+	KnowledgeCaptureSuggest
+	// KnowledgeCaptureRecorded fires after a qualified verify fail→pass lesson was
+	// written to failure memory automatically (KnowledgeCapture payload).
+	KnowledgeCaptureRecorded
 )
 
 // Level classifies a Notice so sinks can style or filter it.
@@ -175,6 +181,18 @@ type AskAnswer struct {
 	Selected   []string
 }
 
+// KnowledgeCapture is a proposed lesson after verify fail→pass. The frontend
+// shows Record / Ignore; only Record writes a draft entry.
+type KnowledgeCapture struct {
+	ID          string   // stable id (fingerprint slug)
+	Fingerprint string   // merge key
+	Signature   string   // usually failed command
+	Summary     string   // one-line human summary for the card
+	Error       string   // stderr excerpt
+	Fix         string   // proposed fix text
+	Paths       []string // edited files
+}
+
 // CacheDiagnostics describes whether and why the cacheable prefix changed since
 // the last turn. It rides on the Usage event so every frontend can show
 // cache-churn attribution.
@@ -210,6 +228,7 @@ type Event struct {
 	Code         string     // Notice: stable machine code (e.g. agent_busy); Text remains human-readable
 	Approval     Approval   // ApprovalRequest
 	Ask          Ask        // AskRequest
+	KnowledgeCapture KnowledgeCapture // KnowledgeCaptureSuggest
 	Err          error      // TurnDone: non-nil on failure
 	Compaction   Compaction // Compaction
 	RetryAttempt int        // Retrying: 1-based attempt about to be made

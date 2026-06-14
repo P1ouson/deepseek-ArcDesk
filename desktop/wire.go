@@ -21,6 +21,7 @@ type wireEvent struct {
 	Usage        *wireUsage      `json:"usage,omitempty"`
 	Approval     *wireApproval   `json:"approval,omitempty"`
 	Ask          *wireAsk        `json:"ask,omitempty"`
+	KnowledgeCapture *wireKnowledgeCapture `json:"knowledgeCapture,omitempty"`
 	Compaction   *wireCompaction `json:"compaction,omitempty"`
 	Err          string          `json:"err,omitempty"`
 	RetryAttempt int             `json:"retryAttempt,omitempty"`
@@ -111,6 +112,16 @@ type wireApproval struct {
 	Subject string `json:"subject"`
 }
 
+type wireKnowledgeCapture struct {
+	ID          string   `json:"id"`
+	Fingerprint string   `json:"fingerprint"`
+	Signature   string   `json:"signature"`
+	Summary     string   `json:"summary"`
+	Error       string   `json:"error,omitempty"`
+	Fix         string   `json:"fix"`
+	Paths       []string `json:"paths,omitempty"`
+}
+
 // kindNames maps the event.Kind enum to stable wire strings.
 var kindNames = map[event.Kind]string{
 	event.TurnStarted:       "turn_started",
@@ -129,6 +140,8 @@ var kindNames = map[event.Kind]string{
 	event.CompactionDone:    "compaction_done",
 	event.ToolProgress:      "tool_progress",
 	event.Retrying:          "retrying",
+	event.KnowledgeCaptureSuggest:  "knowledge_capture_suggest",
+	event.KnowledgeCaptureRecorded: "knowledge_capture_recorded",
 }
 
 // toWireAsk converts an event.Ask into its JSON wire form.
@@ -190,6 +203,17 @@ func toWire(e event.Event) wireEvent {
 		w.Approval = &wireApproval{ID: e.Approval.ID, Tool: e.Approval.Tool, Subject: e.Approval.Subject}
 	case event.AskRequest:
 		w.Ask = toWireAsk(e.Ask)
+	case event.KnowledgeCaptureSuggest, event.KnowledgeCaptureRecorded:
+		kc := e.KnowledgeCapture
+		w.KnowledgeCapture = &wireKnowledgeCapture{
+			ID:          kc.ID,
+			Fingerprint: kc.Fingerprint,
+			Signature:   kc.Signature,
+			Summary:     kc.Summary,
+			Error:       kc.Error,
+			Fix:         kc.Fix,
+			Paths:       append([]string(nil), kc.Paths...),
+		}
 	case event.CompactionStarted, event.CompactionDone:
 		w.Compaction = &wireCompaction{
 			Trigger: e.Compaction.Trigger, Messages: e.Compaction.Messages,

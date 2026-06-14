@@ -45,6 +45,11 @@ type Input struct {
 	CGIndex    *callgraph.Index
 	RuntimeHub *runtime.Hub
 
+	// RuntimeSlim skips noisy console/Wails tails on compile/test verify retries.
+	RuntimeSlim bool
+	// StderrMaxBytes caps stderr folded into retry blocks (0 = default).
+	StderrMaxBytes int
+
 	HasSuccessfulCommandAfter func(cmd string, after int) bool
 }
 

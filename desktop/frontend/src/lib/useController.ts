@@ -19,7 +19,7 @@ import {
   withIPCTimeout,
 } from "./ipc";
 import { notifyBackgroundTabDecision } from "./agentNotifications";
-import { notifyTabMetasChanged } from "./events";
+import { notifyKnowledgeRecorded, notifyTabMetasChanged } from "./events";
 import { t } from "./i18n";
 import { recordCompactionActivity, recordUsageActivity } from "./usageActivity";
 import { installRuntimeObserve } from "./runtimeObserve";
@@ -38,6 +38,7 @@ import type {
   WireApproval,
   WireAsk,
   WireEvent,
+  WireKnowledgeCapture,
   WireUsage,
 } from "./types";
 
@@ -90,6 +91,7 @@ export interface State {
   turnActive: boolean;
   approval?: WireApproval;
   ask?: WireAsk;
+  knowledgeCapture?: WireKnowledgeCapture;
   usage?: WireUsage;
   context: ContextInfo;
   meta?: Meta;
@@ -153,6 +155,7 @@ export type Action =
   | { type: "local_notice"; level: "info" | "warn"; text: string }
   | { type: "clearApproval" }
   | { type: "clearAsk" }
+  | { type: "clearKnowledgeCapture" }
   | { type: "clearRecentCompletion" }
   | { type: "resolveAsk"; id: string; answers: QuestionAnswer[]; dismissed: boolean }
   | { type: "reset" };
@@ -445,6 +448,17 @@ function applyEvent(s: State, e: WireEvent): State {
       return { ...s, running: s.turnActive ? s.running : false, seq: s.seq + 1, items };
     }
     case "approval_request": return { ...s, approval: e.approval };
+    case "knowledge_capture_suggest":
+      return e.knowledgeCapture ? { ...s, knowledgeCapture: e.knowledgeCapture } : s;
+    case "knowledge_capture_recorded": {
+      if (!e.knowledgeCapture) return s;
+      const text = e.knowledgeCapture.summary?.trim() || "Knowledge recorded (draft).";
+      return {
+        ...s,
+        seq: s.seq + 1,
+        items: [...s.items, { kind: "notice", id: `kcr${s.seq}`, level: "info", text }],
+      };
+    }
     case "ask_request": {
       const ask = e.ask;
       if (!ask) return { ...s, ask };
@@ -518,6 +532,7 @@ function reducer(s: State, a: Action): State {
     case "local_notice": return { ...s, seq: s.seq + 1, items: [...s.items, { kind: "notice", id: `n${s.seq}`, level: a.level, text: a.text }] };
     case "clearApproval": return { ...s, approval: undefined };
     case "clearAsk": return { ...s, ask: undefined };
+    case "clearKnowledgeCapture": return { ...s, knowledgeCapture: undefined };
     case "clearRecentCompletion": return { ...s, recentlyCompleted: false };
     case "resolveAsk": {
       const items = s.items.map((it) =>
@@ -809,6 +824,9 @@ export function useController() {
       if (e.kind === "compaction_done" && e.compaction?.summary) {
         recordCompactionActivity(e.compaction.trigger);
       }
+      if (e.kind === "knowledge_capture_recorded") {
+        notifyKnowledgeRecorded();
+      }
       if (e.kind === "turn_done") {
         turnWatchdogFiredRef.current.delete(targetTabId);
         turnWatchdogForceClearedRef.current.delete(targetTabId);
@@ -1030,6 +1048,39 @@ export function useController() {
     app.AnswerQuestionForTab(activeTabId, id, answers).catch(reportFailure);
   }, [activeTabId, dispatchTo, reportFailure]);
 
+  const recordKnowledgeCapture = useCallback(async () => {
+    if (!activeTabId) return;
+    const capture = stateRef.current.knowledgeCapture;
+    if (!capture) return;
+    dispatchTo(activeTabId, { type: "clearKnowledgeCapture" });
+    try {
+      await app.KnowledgeCaptureRecord({
+        id: capture.id,
+        fingerprint: capture.fingerprint,
+        signature: capture.signature,
+        summary: capture.summary,
+        error: capture.error ?? "",
+        fix: capture.fix,
+        paths: capture.paths ?? [],
+      });
+      notice(t("knowledge.capture.recorded"));
+    } catch (err) {
+      reportFailure(err);
+    }
+  }, [activeTabId, dispatchTo, notice, reportFailure]);
+
+  const dismissKnowledgeCapture = useCallback(async () => {
+    if (!activeTabId) return;
+    const capture = stateRef.current.knowledgeCapture;
+    if (!capture) return;
+    dispatchTo(activeTabId, { type: "clearKnowledgeCapture" });
+    try {
+      await app.KnowledgeCaptureDismiss(capture.fingerprint);
+    } catch (err) {
+      reportFailure(err);
+    }
+  }, [activeTabId, dispatchTo, reportFailure]);
+
   const setControllerMode = useCallback((mode: "plan" | "yolo" | "normal"): Promise<void> => {
     return app.SetModeForTab(activeTabId ?? "", mode).then(() => {
       if (mode === "yolo" && activeTabId) dispatchTo(activeTabId, { type: "clearApproval" });
@@ -1152,6 +1203,22 @@ export function useController() {
 
   const fetchMemory = useCallback((): Promise<MemoryView> =>
     app.Memory().catch(() => ({ docs: [], facts: [], scopes: [], storeDir: "", available: false })), []);
+  const fetchKnowledge = useCallback(() =>
+    app.Knowledge().catch(() => ({ available: false, entries: [] })), []);
+  const confirmKnowledge = useCallback(async (id: string) => {
+    try {
+      await app.KnowledgeConfirm(id);
+    } catch (err) {
+      reportFailure(err);
+    }
+  }, [reportFailure]);
+  const staleKnowledge = useCallback(async (id: string) => {
+    try {
+      await app.KnowledgeStale(id);
+    } catch (err) {
+      reportFailure(err);
+    }
+  }, [reportFailure]);
   const remember = useCallback(async (scope: string, note: string) => {
     try {
       await app.Remember(scope, note);
@@ -1301,10 +1368,10 @@ export function useController() {
     state: activeState,
     activeTabId,
     bootPhase,
-    send, runShell, notice, cancel, approve, answerQuestion, setControllerMode,
+    send, runShell, notice, cancel, approve, answerQuestion, recordKnowledgeCapture, dismissKnowledgeCapture, setControllerMode,
     newSession, listSessions, listTrashedSessions, resumeSession, previewSession, deleteSession, restoreSession, purgeTrashedSession, renameSession,
     refreshMeta, pickWorkspace, switchWorkspace, compact, rewind, setModel, setEffort,
-    fetchMemory, remember, forget, saveDoc,
+    fetchMemory, fetchKnowledge, confirmKnowledge, staleKnowledge, remember, forget, saveDoc,
     switchTab, openProjectTab, openGlobalTab, closeTab, reorderTabs,
     syncActiveTab: syncActiveTabFromBackend,
     getAllTabStates,

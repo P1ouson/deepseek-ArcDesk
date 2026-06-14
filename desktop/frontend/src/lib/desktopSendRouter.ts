@@ -1,4 +1,5 @@
-import type { Theme } from "./theme";
+import type { Theme, ThemeStyle } from "./theme";
+import { isThemeStyle } from "./theme";
 
 /** Pure routing result for desktop-native send interception. Side effects run in the hook/App boundary. */
 export type DesktopSendRoute =
@@ -6,6 +7,7 @@ export type DesktopSendRoute =
   | { action: "shell"; cmd: string }
   | { action: "switchModel"; model: string }
   | { action: "openMemory" }
+  | { action: "openKnowledge" }
   | { action: "setGoal"; label: string }
   | { action: "sideChat"; text: string }
   | { action: "reviewOpen" }
@@ -14,6 +16,7 @@ export type DesktopSendRoute =
   | { action: "openPreview"; url?: string }
   | { action: "themeShowCurrent" }
   | { action: "themeSet"; theme: Theme }
+  | { action: "themeStyleSet"; style: ThemeStyle }
   | { action: "themeUnknown"; name: string }
   | { action: "send"; displayText: string; submitText: string };
 
@@ -32,6 +35,7 @@ export function routeDesktopSend(displayText: string, submitText = displayText):
   const model = /^\/model\s+(\S+)$/.exec(trimmed);
   if (model) return { action: "switchModel", model: model[1] };
   if (trimmed === "/memory") return { action: "openMemory" };
+  if (trimmed === "/knowledge") return { action: "openKnowledge" };
   const goal = /^\/goal\s+(.+)$/.exec(trimmed);
   if (goal) return { action: "setGoal", label: goal[1].trim() };
   const btw = /^\/btw\s+(.+)$/.exec(trimmed);
@@ -47,6 +51,7 @@ export function routeDesktopSend(displayText: string, submitText = displayText):
     const arg = theme[1]?.toLowerCase();
     if (!arg) return { action: "themeShowCurrent" };
     if (isThemeMode(arg)) return { action: "themeSet", theme: arg };
+    if (isThemeStyle(arg)) return { action: "themeStyleSet", style: arg };
     return { action: "themeUnknown", name: arg };
   }
   return { action: "send", displayText: trimmed, submitText: submitText.trim() };

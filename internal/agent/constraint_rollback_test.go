@@ -130,8 +130,9 @@ func TestRollbackRetryContextOnFinalAttempt(t *testing.T) {
 
 	a := New(nil, tool.NewRegistry(), NewSession(""), Options{
 		ProjectChecks:    []instruction.VerifyCheck{{Command: "go test ./..."}},
-		VerifyMaxRetries: 2,
-		VerifyOnFailure:  "rollback",
+		VerifyMaxRetries:         2,
+		VerifyEnforceFinalAnswer: true,
+		VerifyOnFailure:          "rollback",
 		RollbackHost:     host,
 	}, event.Discard)
 	a.evidence = evidence.NewLedger()
@@ -153,5 +154,43 @@ func TestSetRollbackAndVerifyOnFailure(t *testing.T) {
 	a.SetVerifyOnFailure("rollback")
 	if a.rollbackHost == nil || a.verifyOnFailure != "rollback" {
 		t.Fatalf("rollbackHost=%v onFailure=%q", a.rollbackHost, a.verifyOnFailure)
+	}
+}
+
+func TestReadinessRetryOmitsRollbackPreviewWithoutFailedVerify(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.go"), []byte("broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cp := checkpoint.New("", root)
+	cp.Begin(0, "fix", 0)
+	cp.Snapshot(diff.Change{Path: "a.go", Kind: diff.Modify, OldText: "v0"})
+	host := rollback.NewHost(func() *checkpoint.Store { return cp }, root, func() int { return 0 })
+
+	a := New(nil, tool.NewRegistry(), NewSession(""), Options{
+		ProjectChecks:    []instruction.VerifyCheck{{Command: "go test ./..."}},
+		VerifyMaxRetries:         2,
+		VerifyEnforceFinalAnswer: true,
+		VerifyOnFailure:          "rollback",
+		RollbackHost:     host,
+	}, event.Discard)
+	a.evidence = evidence.NewLedger()
+	a.evidence.Record(evidence.ReceiptFromToolCall("write_file", json.RawMessage(`{"path":"a.go"}`), true, false))
+
+	msg := finalReadinessRetryMessage("run \"go test ./...\"")
+	if strings.Contains(msg, "revert edits") {
+		// defer/show guidance present
+	} else {
+		t.Fatalf("missing defer guidance: %q", msg)
+	}
+	if a.VerifyFailureShouldRollback() {
+		t.Fatal("readiness without failed verify should not trigger rollback policy")
+	}
+	if got := a.rollbackRetryContext(1); got == "" || !strings.Contains(got, "## Rollback Preview") {
+		t.Fatalf("rollbackRetryContext should still build preview for failed-verify path, got %q", got)
+	}
+	a.evidence.Record(evidence.Receipt{ToolName: "bash", Success: false, Command: "go test ./..."})
+	if !a.VerifyFailureShouldRollback() {
+		t.Fatal("failed verify should trigger rollback policy")
 	}
 }

@@ -515,6 +515,7 @@ func (a *App) rebuild() error {
 	} else if path != "" {
 		ctrl.SetSessionPath(path)
 	}
+	go a.warmConfiguredMCPServers(tab)
 	return nil
 }
 

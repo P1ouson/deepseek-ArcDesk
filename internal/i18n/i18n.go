@@ -148,6 +148,7 @@ type Messages struct {
 	CmdResume       string // /resume
 	CmdModel        string // /model
 	CmdMemory       string // /memory
+	CmdKnowledge    string // /knowledge (desktop)
 	CmdRemember     string // /remember
 	CmdForget       string // /forget
 	CmdMcp          string // /mcp
@@ -163,6 +164,17 @@ type Messages struct {
 	CmdHelp         string // /help
 	CmdTodo         string // /todo
 	CmdQuit         string // /quit (also accepts /exit as hidden alias)
+	// Cmd*Arg hints shown in the slash menu so users know what to type next.
+	CmdModelArg    string // /model <ref>
+	CmdEffortArg   string // /effort <level>
+	CmdThemeArg    string // /theme <mode|style>
+	CmdLanguageArg string // /language <tag>
+	CmdAutoPlanArg string // /auto-plan <off|on>
+	CmdHooksArg    string // /hooks <list|trust>
+	CmdSkillArg    string // /skills <subcommand>
+	CmdMcpArg      string // /mcp <subcommand>
+	CmdRememberArg string // /remember <note>
+	CmdCompactArg  string // /compact [focus]
 	ArgSkillList    string // /skills list
 	ArgSkillShow    string // /skills show
 	ArgSkillNew     string // /skills new

@@ -139,7 +139,12 @@ func (s Shell) argv(command string) []string {
 		path = s.Kind.String()
 	}
 	if s.Kind == ShellPowerShell {
-		return []string{path, "-NoProfile", "-NonInteractive", "-Command", psUTF8Prologue + command}
+		args := []string{path, "-NoProfile", "-NonInteractive"}
+		if runtime.GOOS == "windows" {
+			args = append(args, "-WindowStyle", "Hidden")
+		}
+		args = append(args, "-Command", psUTF8Prologue+command)
+		return args
 	}
 	return []string{path, "-c", command}
 }

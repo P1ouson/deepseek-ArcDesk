@@ -91,6 +91,18 @@ compact_force_ratio = 0.9   # force compacting at this high-water mark
 # enabled     = true
 # max_entries = 500
 
+# Knowledge layer (v1): ranked retry hints + boot index over failure_memory.
+# [knowledge]
+# enabled                  = true
+# inject_on_verify_retry     = true
+# max_retry_hint_chars       = 200
+# max_retry_stderr_excerpt   = 2048
+# auto_capture_on_verify     = true   # LLM-judged auto-record after verify fail→pass
+# capture_requires_confirm   = false  # true = show Record/Ignore card instead of auto-write
+# index_in_system_prompt     = true
+# max_index_lines            = 30
+# inject_on_message          = "off"   # off | debug_only
+
 # Environment awareness (P1): OS + Go/Node/Wails toolchain probing.
 # [env_aware]
 # enabled          = true

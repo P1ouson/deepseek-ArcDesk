@@ -102,14 +102,14 @@ func (a *App) WorkspaceChanges() WorkspaceChangesView {
 
 func workspaceGitStatus(base string) ([]gitStatusEntry, error) {
 	cmd := exec.Command("git", "-C", base, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-	proc.HideWindowDetached(cmd)
+	proc.HideWindow(cmd)
 	raw, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
 	entries := parseGitStatusPorcelainZ(raw)
 	topCmd := exec.Command("git", "-C", base, "rev-parse", "--show-toplevel")
-	proc.HideWindowDetached(topCmd)
+	proc.HideWindow(topCmd)
 	topRaw, err := topCmd.Output()
 	if err != nil {
 		return nil, err

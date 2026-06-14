@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -20,7 +21,7 @@ func TestRuntimeRetryContextWithVerifyFailure(t *testing.T) {
 		projectChecks: []instruction.VerifyCheck{{Command: "go test ./..."}},
 		runtimeHub:    hub,
 	}
-	a.noteVerifyFailure(provider.ToolCall{Arguments: `{"command":"go test ./..."}`}, errors.New("fail"), "broken")
+	a.noteVerifyFailure(context.Background(),provider.ToolCall{Arguments: `{"command":"go test ./..."}`}, errors.New("fail"), "broken")
 	got := a.runtimeRetryContext()
 	if !strings.Contains(got, "## Runtime Observation") {
 		t.Fatalf("got %q", got)
@@ -55,7 +56,7 @@ func TestRuntimeRetryContextStderrFallback(t *testing.T) {
 		projectChecks: []instruction.VerifyCheck{{Command: "go build ./..."}},
 		runtimeHub:    hub,
 	}
-	a.noteVerifyFailure(
+	a.noteVerifyFailure(context.Background(),
 		provider.ToolCall{Arguments: `{"command":"go build ./..."}`},
 		errors.New("fail"),
 		"compile error: undefined symbol",

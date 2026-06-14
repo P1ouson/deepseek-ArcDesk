@@ -401,7 +401,7 @@ func TestSubSinkForDirect(t *testing.T) {
 
 func TestClearVerifyFailure(t *testing.T) {
 	a := &Agent{}
-	a.noteVerifyFailure(provider.ToolCall{Arguments: `{"command":"go test"}`}, errors.New("fail"), "output")
+	a.noteVerifyFailure(context.Background(),provider.ToolCall{Arguments: `{"command":"go test"}`}, errors.New("fail"), "output")
 	a.clearVerifyFailure()
 	cmd, stderr := a.latestVerifyFailureForRetry(1)
 	if cmd != "" || stderr != "" {
@@ -411,7 +411,7 @@ func TestClearVerifyFailure(t *testing.T) {
 
 func TestNoteVerifyFailureSkipsNonVerify(t *testing.T) {
 	a := &Agent{}
-	a.noteVerifyFailure(provider.ToolCall{Arguments: `{"command":"git status"}`}, errors.New("fail"), "output")
+	a.noteVerifyFailure(context.Background(),provider.ToolCall{Arguments: `{"command":"git status"}`}, errors.New("fail"), "output")
 	cmd, _ := a.latestVerifyFailureForRetry(1)
 	if cmd != "" {
 		t.Fatalf("cmd = %q", cmd)
@@ -562,7 +562,7 @@ func TestCallgraphRetryContextWithVerifyFailure(t *testing.T) {
 		projectChecks:  []instruction.VerifyCheck{{Command: "go test ./..."}},
 		callgraphIndex: idx,
 	}
-	a.noteVerifyFailure(provider.ToolCall{Arguments: `{"command":"go test ./..."}`}, errors.New("fail"), "broken")
+	a.noteVerifyFailure(context.Background(),provider.ToolCall{Arguments: `{"command":"go test ./..."}`}, errors.New("fail"), "broken")
 	if got := a.callgraphRetryContext(); got == "" {
 		t.Fatal("expected callgraph retry context")
 	}
@@ -715,7 +715,7 @@ func TestListSessionsWithUserTurn(t *testing.T) {
 func TestNoteVerifyFailureTruncatesLongOutput(t *testing.T) {
 	a := &Agent{}
 	long := strings.Repeat("x", 3000)
-	a.noteVerifyFailure(provider.ToolCall{Arguments: `{"command":"go test ./..."}`}, errors.New("fail"), long)
+	a.noteVerifyFailure(context.Background(),provider.ToolCall{Arguments: `{"command":"go test ./..."}`}, errors.New("fail"), long)
 	_, stderr := a.latestVerifyFailureForRetry(0)
 	if len(stderr) != 2000 {
 		t.Fatalf("stderr len = %d", len(stderr))
@@ -808,7 +808,7 @@ func TestVerificationRetryContextPendingCheck(t *testing.T) {
 
 func TestNoteVerifyFailureBadJSON(t *testing.T) {
 	a := &Agent{}
-	a.noteVerifyFailure(provider.ToolCall{Arguments: `{`}, errors.New("fail"), "output")
+	a.noteVerifyFailure(context.Background(),provider.ToolCall{Arguments: `{`}, errors.New("fail"), "output")
 	cmd, stderr := a.latestVerifyFailureForRetry(0)
 	if cmd != "" || stderr != "" {
 		t.Fatalf("cmd=%q stderr=%q", cmd, stderr)
@@ -856,7 +856,7 @@ func TestCallgraphRetryContextMergesLaterWritePaths(t *testing.T) {
 		projectChecks:  []instruction.VerifyCheck{{Command: "go test ./..."}},
 		callgraphIndex: idx,
 	}
-	a.noteVerifyFailure(provider.ToolCall{Arguments: `{"command":"go test ./..."}`}, errors.New("fail"), "FAIL")
+	a.noteVerifyFailure(context.Background(),provider.ToolCall{Arguments: `{"command":"go test ./..."}`}, errors.New("fail"), "FAIL")
 	if got := a.callgraphRetryContext(); got == "" {
 		t.Fatal("expected callgraph retry context with merged write paths")
 	}

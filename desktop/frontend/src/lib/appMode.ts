@@ -1,1 +1,1 @@
-export type AppMode = "code" | "write" | "phone" | "schedule" | "plugins" | "settings";
+export type AppMode = "code" | "write" | "knowledge" | "phone" | "schedule" | "plugins" | "settings";

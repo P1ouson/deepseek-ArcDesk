@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { X, Sparkles, ArrowRight } from "lucide-react";
 import { useT } from "../lib/i18n";
 
@@ -31,13 +32,16 @@ export function RequirementDraft({ onClose, onGeneratePlan, onAiAssist }: Requir
       t("sdd.generatedAsk"),
     ].join("\n\n");
 
-  return (
-    <div className="requirement-draft-overlay">
+  return createPortal(
+    <div className="requirement-draft-overlay" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
       <div
         className="requirement-draft motion-fade-in"
         role="dialog"
         aria-modal="true"
         aria-labelledby="requirement-draft-title"
+        onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="requirement-draft__head">
           <div>
@@ -85,6 +89,7 @@ export function RequirementDraft({ onClose, onGeneratePlan, onAiAssist }: Requir
           )}
         </footer>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

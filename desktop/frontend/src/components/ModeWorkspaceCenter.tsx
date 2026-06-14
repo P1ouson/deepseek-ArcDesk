@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import type { AppMode } from "../lib/appMode";
-import type { ComposerWriteContext } from "../lib/types";
+import type { ComposerWriteContext, KnowledgeView } from "../lib/types";
 import type { WriteTurn } from "../lib/writeConversation";
 import type { RightDockTab } from "./Topbar";
 import { ConnectPhoneView } from "./ConnectPhoneView";
@@ -14,6 +14,9 @@ const PluginMarketplace = lazy(() =>
 );
 const SettingsPage = lazy(() =>
   import("./SettingsPanel").then((module) => ({ default: module.SettingsPage })),
+);
+const KnowledgePanel = lazy(() =>
+  import("./KnowledgePanel").then((module) => ({ default: module.KnowledgePanel })),
 );
 
 function ModeCenterFallback() {
@@ -46,6 +49,9 @@ export interface ModeWorkspaceCenterProps {
   onOpenDockTab?: (tab: RightDockTab) => void;
   onOpenTerminal?: () => void;
   onOpenOnboarding?: () => void;
+  knowledgeView?: KnowledgeView | null;
+  onKnowledgeConfirm?: (id: string) => Promise<void> | void;
+  onKnowledgeStale?: (id: string) => Promise<void> | void;
 }
 
 function WriteModeWorkspace({
@@ -121,6 +127,9 @@ export function ModeWorkspaceCenter({
   onOpenDockTab,
   onOpenTerminal,
   onOpenOnboarding,
+  knowledgeView = null,
+  onKnowledgeConfirm,
+  onKnowledgeStale,
 }: ModeWorkspaceCenterProps) {
   switch (mode) {
     case "write":
@@ -146,6 +155,17 @@ export function ModeWorkspaceCenter({
       );
     case "schedule":
       return <ScheduleTasksView workspaceRoot={workspaceRoot} />;
+    case "knowledge":
+      return (
+        <Suspense fallback={<ModeCenterFallback />}>
+          <KnowledgePanel
+            presentation="page"
+            view={knowledgeView}
+            onConfirm={onKnowledgeConfirm ?? (async () => {})}
+            onStale={onKnowledgeStale ?? (async () => {})}
+          />
+        </Suspense>
+      );
     case "plugins":
       return (
         <Suspense fallback={<ModeCenterFallback />}>

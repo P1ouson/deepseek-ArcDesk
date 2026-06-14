@@ -3,6 +3,7 @@ package failuremem
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,7 +115,7 @@ func TestFailureMemToolsEdgeCases(t *testing.T) {
 		t.Fatal("bad search json")
 	}
 	record, _ := reg.Get("failuremem_record")
-	if _, err := record.Execute(ctx, json.RawMessage(`{"signature":"s","fix":"f","paths":["a"],"tags":["t"]}`)); err != nil {
+	if _, err := record.Execute(ctx, json.RawMessage(`{"signature":"sig-name","fix":"add missing import path","paths":["a"],"tags":["t"]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := record.Execute(ctx, json.RawMessage(`{`)); err == nil {
@@ -246,7 +247,7 @@ func TestOpenDefaultMaxEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 3; i++ {
-		_ = store.Record(Entry{Signature: "s", Fix: "f"})
+		_ = store.Record(Entry{Signature: fmt.Sprintf("sig-%d", i), Fix: "f"})
 	}
 	entries, _ := store.List(0)
 	if len(entries) != 3 {

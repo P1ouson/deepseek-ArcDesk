@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ func TestVerificationRetryContextInjected(t *testing.T) {
 			{Command: "pnpm exec playwright test --reporter=line", Category: "e2e"},
 		},
 	}
-	a.noteVerifyFailure(provider.ToolCall{Arguments: `{"command":"go test ./..."}`}, errors.New("fail"), "FAIL pkg")
+	a.noteVerifyFailure(context.Background(),provider.ToolCall{Arguments: `{"command":"go test ./..."}`}, errors.New("fail"), "FAIL pkg")
 	got := a.verificationRetryContext()
 	if !strings.Contains(got, "## Verification Engine") {
 		t.Fatalf("got %q", got)

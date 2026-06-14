@@ -107,6 +107,9 @@ func (t fmRecordTool) Execute(ctx context.Context, args json.RawMessage) (string
 		Paths:     append([]string(nil), p.Paths...),
 		Tags:      append([]string(nil), p.Tags...),
 	}
+	if !QualifiesForRecord(e) {
+		return "", fmt.Errorf("fix too short or generic; describe what failed and what change fixed it (≥12 chars)")
+	}
 	if err := t.store.Record(e); err != nil {
 		return "", err
 	}

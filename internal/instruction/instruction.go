@@ -18,6 +18,7 @@ type VerifyCheck struct {
 }
 
 type contextKey struct{}
+type enforceKey struct{}
 
 func WithChecks(ctx context.Context, checks []VerifyCheck) context.Context {
 	if len(checks) == 0 {
@@ -33,6 +34,21 @@ func FromContext(ctx context.Context) []VerifyCheck {
 		return nil
 	}
 	return append([]VerifyCheck(nil), checks...)
+}
+
+// WithEnforceVerification marks whether project checks may gate complete_step
+// and final-answer readiness. Default (unset/false) keeps checks advisory only.
+func WithEnforceVerification(ctx context.Context, enforce bool) context.Context {
+	if !enforce {
+		return ctx
+	}
+	return context.WithValue(ctx, enforceKey{}, true)
+}
+
+// EnforceVerificationFromContext reports whether verification checks are enforced.
+func EnforceVerificationFromContext(ctx context.Context) bool {
+	enforce, _ := ctx.Value(enforceKey{}).(bool)
+	return enforce
 }
 
 // ExtractHostChecks reads only the structured "arcdesk host checks" section.

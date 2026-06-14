@@ -28,6 +28,7 @@ import { SettingsWorkspaceDataModal, type SettingsDataModalState } from "./compo
 import { FilePreviewPanel } from "./components/FilePreviewPanel";
 import { AgentDecisionLayer } from "./components/AgentDecisionLayer";
 import { clearAgentDecisionNotifications, notifyAgentDecision } from "./lib/agentNotifications";
+import { KNOWLEDGE_RECORDED_EVENT } from "./lib/events";
 const HistoryPanel = lazy(() => import("./components/HistoryPanel").then((m) => ({ default: m.HistoryPanel })));
 const LazyMemoryPanel = lazy(() => import("./components/MemoryPanel").then((m) => ({ default: m.MemoryPanel })));
 import { UpdateBanner } from "./components/UpdateBanner";
@@ -44,7 +45,7 @@ import type { AppMode } from "./lib/appMode";
 import { getDefaultAppMode } from "./lib/startupPrefs";
 import { parseTodos } from "./lib/tools";
 import { shouldShowTodoPanel } from "./lib/todoVisibility";
-import type { ComposerInsertRequest, ComposerWriteContext, MemoryView, Mode, QuestionAnswer, SessionMeta, TabMeta } from "./lib/types";
+import type { ComposerInsertRequest, ComposerWriteContext, KnowledgeView, MemoryView, Mode, QuestionAnswer, SessionMeta, TabMeta } from "./lib/types";
 import { recordRecentWorkspace } from "./lib/workspaceRecents";
 import { basename } from "./lib/workspaceFilePreview";
 import {
@@ -153,6 +154,8 @@ export default function App() {
     cancel,
     approve,
     answerQuestion,
+    recordKnowledgeCapture,
+    dismissKnowledgeCapture,
     setControllerMode,
     listSessions,
     listTrashedSessions,
@@ -168,9 +171,12 @@ export default function App() {
     setModel,
     setEffort,
     fetchMemory,
+    fetchKnowledge,
     remember,
     forget,
     saveDoc,
+    confirmKnowledge,
+    staleKnowledge,
     openProjectTab,
     openGlobalTab,
     switchTab,
@@ -213,6 +219,7 @@ export default function App() {
   const [onboardingSession, setOnboardingSession] = useState(0);
   const [sandboxSetup, setSandboxSetup] = useState<null | { reason: "yolo" | "manual" }>(null);
   const [memView, setMemView] = useState<MemoryView | null>(null);
+  const [knowledgeView, setKnowledgeView] = useState<KnowledgeView | null>(null);
   const [histView, setHistView] = useState<HistoryViewState | null>(null);
   const [settingsDockTab, setSettingsDockTab] = useState<RightDockTab | null>(null);
   const [settingsDataModal, setSettingsDataModal] = useState<SettingsDataModalState | null>(null);
@@ -673,6 +680,25 @@ export default function App() {
 
   const closeMemory = useCallback(() => setMemView(null), []);
 
+  const openKnowledge = useCallback(() => {
+    setAppMode("knowledge");
+  }, []);
+
+  const refreshKnowledge = useCallback(async () => {
+    setKnowledgeView(await fetchKnowledge());
+  }, [fetchKnowledge]);
+
+  useEffect(() => {
+    if (appMode !== "knowledge") return;
+    void refreshKnowledge();
+  }, [appMode, refreshKnowledge, activeTab?.workspaceRoot, activeTabId]);
+
+  useEffect(() => {
+    const handler = () => { void refreshKnowledge(); };
+    window.addEventListener(KNOWLEDGE_RECORDED_EVENT, handler);
+    return () => window.removeEventListener(KNOWLEDGE_RECORDED_EVENT, handler);
+  }, [refreshKnowledge]);
+
   const clearCodeReview = useCallback(() => {
     setCodeReview((current) => ({ status: "idle", mode: current.mode, scope: current.scope }));
   }, []);
@@ -731,11 +757,13 @@ export default function App() {
   );
 
   // handleSend intercepts the slash commands that need a desktop-native action
-  // before they reach the backend: "/model <ref>" rebuilds on that model, and
-  // "/memory" opens the memory drawer. Everything else — skills (/init, …),
-  // custom commands, bare /model and the other read-only management verbs
-  // (/skill, /hooks, /mcp) — goes straight to Submit, which the controller
-  // resolves (a turn, or a listing Notice).
+  // before they reach the backend: "/model <ref>" rebuilds on that model, "/memory"
+  // opens the memory drawer, and bare "/knowledge" opens the knowledge page. Everything
+  // else goes straight to Submit.
+  const handleLocalSlash = useCallback(() => {
+    void openMemory();
+  }, [openMemory]);
+
   const handleSend = useDesktopSendRouter({
     appMode,
     mode,
@@ -745,6 +773,7 @@ export default function App() {
     runShell,
     switchModel,
     openMemory,
+    openKnowledge,
     setGoalLabel,
     dispatchSideChat: (text) => dispatchSideChatRef.current(text),
     setAppMode,
@@ -1158,7 +1187,6 @@ export default function App() {
     t,
   ]);
 
-  const startNewSession = useCallback(() => startNewTopic(false), [startNewTopic]);
   const startFreshSession = useCallback(() => startNewTopic(true), [startNewTopic]);
 
   const handleCloseOpenTab = useCallback(
@@ -1412,10 +1440,7 @@ export default function App() {
           onOpenWorkspace={() => {
             void openCodeWorkspace();
           }}
-          onNewChat={() => {
-            void startNewSession();
-          }}
-          onNewFreshChat={() => {
+          onNewSession={() => {
             void startFreshSession();
           }}
           onModeChange={setAppMode}
@@ -1591,6 +1616,15 @@ export default function App() {
                       setOnboardingSession((session) => session + 1);
                       setOnboardingManual(true);
                     }}
+                    knowledgeView={knowledgeView}
+                    onKnowledgeConfirm={async (id) => {
+                      await confirmKnowledge(id);
+                      await refreshKnowledge();
+                    }}
+                    onKnowledgeStale={async (id) => {
+                      await staleKnowledge(id);
+                      await refreshKnowledge();
+                    }}
                   />
                 )}
               </div>
@@ -1605,6 +1639,7 @@ export default function App() {
                       <AgentDecisionLayer
                         approval={state.approval}
                         ask={state.ask}
+                        knowledgeCapture={state.knowledgeCapture}
                         surface={appMode === "write" ? "write" : "code"}
                         planToolCount={planToolCount}
                         onApprove={(allow, session, persist) => {
@@ -1625,6 +1660,8 @@ export default function App() {
                           const askId = state.ask?.id;
                           if (askId) handleAnswerQuestion(askId, []);
                         }}
+                        onRecordKnowledgeCapture={() => void recordKnowledgeCapture()}
+                        onDismissKnowledgeCapture={() => void dismissKnowledgeCapture()}
                       />
                       {composerAgentRunning ? (
                         <TurnProgressLine
@@ -1643,6 +1680,7 @@ export default function App() {
                         tabId={activeTabId}
                         effort={state.effort}
                         onSend={handleSend}
+                        onLocalSlash={handleLocalSlash}
                         onCancel={cancel}
                         onCycleMode={cycleMode}
                         onSetMode={applyMode}
