@@ -43,17 +43,14 @@
 <p align="center">
   <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-windows-amd64-installer.exe"><strong>Windows</strong></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-darwin-universal.dmg"><strong>macOS</strong></a>
-  &nbsp;·&nbsp;
-  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-linux-amd64-installer.tar.gz"><strong>Linux</strong></a>
-  &nbsp;·&nbsp;
   <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases">All releases</a>
 </p>
 
 > **Before first install**
 >
 > - **ArcDesk is an independent MIT project — not an official DeepSeek product.** Model usage is billed by your API provider.
-> - Installers are **not** Apple-notarized / Authenticode-signed yet. macOS / Windows may block first launch — see [Troubleshooting](#troubleshooting).
+> - **Prebuilt desktop installers are Windows-only for now.** macOS / Linux: build from source (see [`desktop/README.md`](./desktop/README.md)).
+> - Windows installer is **not** Authenticode-signed yet — SmartScreen may prompt on first launch.
 > - Windows setup **downloads WebView2** when missing (normal, a few MB).
 > - Install to **`%LOCALAPPDATA%\Programs\ArcDesk`** or a new empty folder — **not** into a git checkout or dev tree.
 
@@ -90,11 +87,9 @@ Sidebar also covers **Writing · Extensions (Skills / MCP) · Schedule · Connec
 
 ## Quick start {#quick-start}
 
-1. Install the platform installer from [Releases](https://github.com/P1ouson/deepseek-ArcDesk/releases)
+1. Install the **Windows** installer from [Releases](https://github.com/P1ouson/deepseek-ArcDesk/releases)
 2. Paste your [DeepSeek API key](https://platform.deepseek.com/) (stored locally)
 3. Import a project folder and describe your task
-
-Linux: `tar -xzf arcdesk-desktop-linux-amd64-installer.tar.gz && ./install.sh && arcdesk-desktop`
 
 ### CLI / from source {#cli}
 
@@ -115,7 +110,7 @@ Desktop from source: `cd desktop && wails build` · Windows installer: `desktop/
 The Go kernel builds on [**Reasonix**](https://github.com/esengine/DeepSeek-Reasonix). ArcDesk is **desktop-first**:
 
 - **Native Wails shell** — sidebar, project drawer, inline diffs (not terminal TUI)
-- **Three-platform installers** — Windows NSIS / macOS dmg / Linux tar.gz via GitHub Actions
+- **Windows release installer** — NSIS via GitHub Actions (`release-desktop.yml`); macOS / Linux prebuilts paused
 - **Security hardening** — per-project MCP trust, sensitive-action prompts, workspace sandbox ([`SECURITY.md`](./SECURITY.md))
 - **Migration** — `arcdesk.toml`, non-destructive import from `~/.reasonix/`
 
@@ -145,11 +140,8 @@ Full schema, permissions, slash commands, plugins → [`docs/SPEC.md`](./docs/SP
 
 | Symptom | Fix |
 |---------|-----|
-| macOS "app is damaged" | `xattr -dr com.apple.quarantine /Applications/ArcDesk.app` |
 | Windows SmartScreen | Expected for unsigned installers → *More info → Run anyway* (setup also installs WebView2) |
 | Windows blank window | Install [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) manually |
-| Linux command not found | Add `~/.local/bin` to PATH (not needed when launching from app menu) |
-| Linux blank / flicker | WebKitGTK 4.1; try `WEBKIT_DISABLE_COMPOSITING_MODE=1` |
 | MCP not loading | Trust project/server in desktop UI; check `.mcp.json` |
 | Uninstall left files behind | Install to a dedicated folder (not a dev tree); see latest installer release notes |
 

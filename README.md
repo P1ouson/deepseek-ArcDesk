@@ -101,7 +101,7 @@
 | 陷阱 | 说明 |
 |------|------|
 | **非 DeepSeek 官方产品** | ArcDesk 是独立 MIT 开源项目；模型推理按 API 用量计费 |
-| **安装包未签名** | 当前构建尚未 Apple 公证 / Windows Authenticode 签名；macOS 可能提示「已损坏」，Windows 可能出现 SmartScreen |
+| **安装包未签名** | 当前 Windows 安装包尚未 Authenticode 签名，首次运行可能出现 SmartScreen 提示 |
 | **Windows WebView2** | 安装程序会在缺失时自动下载 WebView2（约数 MB，属正常行为） |
 | **安装路径** | 请选 `%LOCALAPPDATA%\Programs\ArcDesk` 或新建空文件夹；**不要**装到含 `.git` 的开发目录 |
 | **MCP 默认隔离** | 项目 `.mcp.json` 中的服务器需在桌面 UI 中按项目**显式信任**后才加载 |
@@ -112,9 +112,7 @@
 
 | 现象 | 处理 |
 |------|------|
-| macOS「应用已损坏」 | `xattr -dr com.apple.quarantine /Applications/ArcDesk.app` |
 | Windows SmartScreen | 更多信息 → 仍要运行；必要时安装 [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) |
-| Linux 空白 / 闪烁 | 安装 WebKitGTK 4.1；可试 `WEBKIT_DISABLE_COMPOSITING_MODE=1` |
 | MCP 未加载 | 在桌面 UI 信任项目 MCP；检查 `.mcp.json` 与 `arcdesk.toml` |
 
 <br/>
@@ -123,13 +121,11 @@
 
 ### 方式一：桌面版（推荐）
 
-支持 **Windows · macOS · Linux (amd64)**。从 [Releases](https://github.com/P1ouson/deepseek-ArcDesk/releases) 下载**安装包**（非 Source code zip）。
+当前 [Releases](https://github.com/P1ouson/deepseek-ArcDesk/releases) **仅提供 Windows (amd64) 安装包**（非 Source code zip）。macOS / Linux 预编译包暂未发布，需从源码自行构建（见方式三）。
 
 | 平台 | 安装包 |
 |------|--------|
 | **Windows** | [`arcdesk-desktop-windows-amd64-installer.exe`](https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-windows-amd64-installer.exe) |
-| **macOS** | [`arcdesk-desktop-darwin-universal.dmg`](https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-darwin-universal.dmg) |
-| **Linux** | [`arcdesk-desktop-linux-amd64-installer.tar.gz`](https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-linux-amd64-installer.tar.gz) |
 
 ### 方式二：CLI（源码构建）
 
