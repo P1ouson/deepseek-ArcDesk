@@ -79,8 +79,6 @@
   <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases">全部 Release</a>
 </p>
 
-> 想自己复现录屏？可用 [`demo/todo-api`](demo/todo-api) + [`demo/README.md`](demo/README.md) 里的 Prompt。
-
 <br/>
 
 ## 技术栈
