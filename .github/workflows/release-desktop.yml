@@ -17,12 +17,7 @@ jobs:
           - os: windows-latest
             platform: windows/amd64
             arch: amd64
-          - os: macos-14
-            platform: darwin/universal
-            arch: universal
-          - os: ubuntu-24.04
-            platform: linux/amd64
-            arch: amd64
+          # macOS / Linux builds paused for v0.1.7 — Windows-only release channel.
 
     runs-on: ${{ matrix.os }}
 
