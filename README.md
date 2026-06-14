@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="ArcDesk" width="420"/>
+  <img src="docs/logo.svg" alt="ArcDesk" width="200"/>
 </p>
 
 <h1 align="center">ArcDesk</h1>
 
 <p align="center">
-  <strong>本地 DeepSeek 桌面 Coding Agent — 独立窗口完成读代码、改文件、跑命令</strong><br/>
-  不绑浏览器标签页 · 工具调用需审批 · MCP / Skills · 针对 DeepSeek 长会话成本优化
+  <strong>不止聊天：工具齐全的 DeepSeek 桌面 Agent</strong><br/>
+  读文件 · 改代码 · 跑命令 · 接 MCP/Skills — 一个窗口配齐工具链，每一步你可审批
 </p>
 
 <!-- 荣誉勋章 · shields.io -->
@@ -55,11 +55,11 @@
 |:---:|:---:|:---:|:---:|
 | 形态 | 原生桌面 + CLI | 浏览器标签 | IDE 分支 |
 | Agent 工作流 | 读文件 / bash / Diff / 审批 | 以对话为主 | 深度 IDE 集成 |
+| 工具链深度 | 内置工具 + MCP + Skills + 项目记忆 | 基本无工具 | IDE 内置 + 插件 |
 | DeepSeek 长会话成本 | 前缀缓存 + 压缩策略 | 无专门优化 | 多模型订阅 |
 | MCP + 项目级信任 | ✅ | ❌ | ✅ |
-| 开源可审计 | MIT | ❌ | ❌ |
 
-**适合：** 对 API 成本敏感、需要独立 Agent 窗口、重视工具审批与 MCP 可审计流程的开发者。
+**适合：** 想要「能动手」而不只是聊天的开发者 — 工具链要全、DeepSeek 长会话要省、每一步工具调用要能审批。
 
 **不适合：** 需要完整 IDE 一站式替代、只要单行补全、或不愿配置 API Key 的用户。
 
@@ -68,30 +68,18 @@
 ## Demo
 
 <p align="center">
-  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases">
-    <img src="docs/screenshots/desktop-hero.gif" alt="ArcDesk 代码工作区：欢迎页与快速开始" width="920"/>
-  </a>
+  <img src="docs/screenshots/demo-agent-loop.gif" alt="ArcDesk：一条 Prompt，读改跑工具链全开" width="920"/>
 </p>
 
-<p align="center"><sub>导入项目 → 代码工作区欢迎页 → 一键卡片发起 Agent 任务</sub></p>
+<p align="center"><sub>导入工作区 → 一条 Prompt → <code>list_dir</code> · <code>write_file</code> · <code>bash</code> 工具链依次执行</sub></p>
 
 <p align="center">
   <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-windows-amd64-installer.exe"><strong>⬇ Windows</strong></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-darwin-universal.dmg"><strong>macOS</strong></a>
-  &nbsp;·&nbsp;
-  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases/latest/download/arcdesk-desktop-linux-amd64-installer.tar.gz"><strong>Linux</strong></a>
-  &nbsp;·&nbsp;
   <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases">全部 Release</a>
 </p>
 
-<p align="center">
-  <img src="docs/screenshots/desktop-workbench.png" alt="ArcDesk 代码工作区欢迎页" width="920"/>
-</p>
-
-<p align="center"><sub><strong>代码工作区</strong> — 项目导览 / 最近变更 / auto · plan · yolo · 底部 DeepSeek 用量</sub></p>
-
-> 暂无在线 Demo 托管；请从 [Releases](https://github.com/P1ouson/deepseek-ArcDesk/releases) 下载安装包体验。更多截图见 [`docs/screenshots/README.md`](docs/screenshots/README.md)。
+> 想自己复现录屏？可用 [`demo/todo-api`](demo/todo-api) + [`demo/README.md`](demo/README.md) 里的 Prompt。
 
 <br/>
 

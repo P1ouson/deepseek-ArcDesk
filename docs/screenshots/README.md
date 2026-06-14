@@ -2,24 +2,22 @@
 
 README 截图资源。路径相对于仓库根目录 `docs/screenshots/`。
 
-## 已提交（Phase A · 第一眼）
+## 已提交 / 待录制
 
 | 文件 | 用途 |
 |------|------|
-| `desktop-hero.gif` | README 顶部 30 秒预览（实机窗口录帧） |
-| `desktop-workbench.png` | 静态主图：代码工作区欢迎页 |
-| `desktop-hero.svg` | 无实机时的占位矢量图（备用） |
+| `demo-agent-loop.gif` | README 主 Demo（一条 Prompt 工具链） |
+| `desktop-hero.svg` | 无 GIF 时的占位矢量图 |
 
-### 重新生成
+录制剧本与 Prompt → [`demo/README.md`](../../demo/README.md)（演示项目 `demo/todo-api`）。
+
+### 重新生成（旧脚本 · 欢迎页）
 
 需先构建桌面版：`cd desktop && wails build`
 
 ```powershell
-# Windows · PNG
-python desktop/scripts/capture-screenshot.py
-
-# Windows · GIF（8 帧）
-python desktop/scripts/capture-hero-gif.py
+python desktop/scripts/capture-hero-gif.py   # → desktop-hero.gif（旧）
+python desktop/scripts/capture-screenshot.py # → desktop-workbench.png
 ```
 
 ```powershell
