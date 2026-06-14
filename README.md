@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="ArcDesk" width="200"/>
+  <img src="docs/logo.svg" alt="ArcDesk" width="96"/>
 </p>
 
 <h1 align="center">ArcDesk</h1>
