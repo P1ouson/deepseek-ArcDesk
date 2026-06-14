@@ -52,7 +52,7 @@ cd DeepSeek-ARCDESK && make build                        # -> bin/ARCDESK(.exe)
 
 | Legacy | ARCDESK 1.0 |
 |---|---|
-| TS config files | `ARCDESK.toml` (project) / `~/.config/ARCDESK/config.toml` (user) — see `ARCDESK.example.toml` |
+| TS config files | `ARCDESK.toml` (project) / `~/.config/ARCDESK/config.toml` (user) — see `docs/examples/arcdesk.example.toml` |
 | env / API keys | `.env` or the environment (`DEEPSEEK_API_KEY`, `MIMO_API_KEY`, …) via `api_key_env` |
 | project memory | `ARCDESK.md` (+ auto-memory), Claude-Code-compatible |
 | MCP servers | `[[plugins]]` in `ARCDESK.toml`, or a Claude-Code `.mcp.json` (read as-is) |

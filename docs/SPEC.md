@@ -21,7 +21,7 @@
 
 Language: **English is the primary language for all code** — comments,
 user-facing strings, tool descriptions, system prompts, and this spec. The
-README is bilingual (`README.md` English + `README.zh-CN.md`).
+README is bilingual (`README.md` 简体中文 + `README.en.md` English).
 
 ## 2. Layout
 
@@ -29,9 +29,13 @@ README is bilingual (`README.md` English + `README.zh-CN.md`).
 ARCDESK/
 ├── go.mod / go.sum          # module ARCDESK; require BurntSushi/toml
 ├── Makefile                 # build / cross / vet / fmt / test
-├── README.md / README.zh-CN.md
-├── ARCDESK.example.toml         # sample config
-├── docs/SPEC.md             # this file
+├── README.md / README.en.md
+├── ARCDESK.md               # stub → docs/project/ARCDESK.md
+├── docs/
+│   ├── SPEC.md              # this file
+│   ├── CHANGELOG.md
+│   ├── examples/arcdesk.example.toml
+│   └── project/ARCDESK.md   # project memory (full)
 ├── cmd/ARCDESK/main.go          # entry; blank-imports built-in providers/tools
 ├── cmd/ARCDESK-plugin-example/  # reference MCP stdio plugin (a runnable example)
 └── internal/

@@ -30,7 +30,7 @@ mem.prof
 /desktop/frontend/test-results/
 /desktop/frontend/playwright-report/
 
-# Environment / local config (ARCDESK.example.toml is the shared template)
+# Environment / local config (docs/examples/arcdesk.example.toml is the shared template)
 .env
 .env.local
 *.local
@@ -62,3 +62,40 @@ Thumbs.db
 /.codex/
 /_rename-to-arcdesk.ps1
 reasonix.toml.bak*
+
+# Accidental `go test -o ./pkg` / coverage scratch at repo root
+/agent/
+/agentcov/
+/bootcov/
+/callgraph_cov/
+/cfg/
+/cfgcov/
+/cg/
+/checkpoint/
+/codegraph_cov/
+/coverage/
+/coverage_*/
+/ctrl*/
+/dep/
+/dep_cov/
+/dependency_cov/
+/ea/
+/fm/
+/gitrag/
+/pl/
+/rb/
+/repomapcov/
+/rollback_cov/
+/runtime/
+/t/
+# Keep demo/ for README recording scripts; ignore only root-level go test scratch named demo
+/demo
+!/demo/
+/_extract_cycle/
+/_tmp_parse_check/
+/cmd/_dogfood/
+/internal/agent/agent_cov/
+/internal/callgraph/coverage/
+/internal/codegraph/cov/
+/internal/dependency/cmd/
+*.test.exe

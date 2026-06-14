@@ -211,7 +211,7 @@ mode  = "ask"
 deny  = ["bash(rm -rf*)"]
 ```
 
-完整 schema → [`docs/SPEC.md`](docs/SPEC.md) · 完整示例 → [`arcdesk.example.toml`](arcdesk.example.toml)
+完整 schema → [`docs/SPEC.md`](docs/SPEC.md) · 完整示例 → [`docs/examples/arcdesk.example.toml`](docs/examples/arcdesk.example.toml)
 
 <br/>
 
@@ -245,9 +245,9 @@ deepseek-ArcDesk/
 ├── desktop/               # Wails 桌面应用
 │   ├── app.go             # Go ↔ React 绑定
 │   └── frontend/          # React UI
-├── docs/                  # SPEC、迁移指南、截图
-├── arcdesk.example.toml   # 配置示例
-└── Makefile
+├── docs/                  # SPEC、示例配置、截图、变更记录
+├── Makefile
+└── README.md
 ```
 
 <br/>
@@ -306,7 +306,9 @@ make build && make test && make vet
 
 | 文档 | 说明 |
 |------|------|
+| [`docs/README.md`](docs/README.md) | 文档索引 |
 | [`docs/SPEC.md`](docs/SPEC.md) | 配置 schema、工具、MCP、权限 |
+| [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | 版本变更 |
 | [`desktop/README.md`](desktop/README.md) | 桌面构建与开发 |
 | [`docs/MIGRATING.md`](docs/MIGRATING.md) | 从 Reasonix / 旧版迁移 |
 | [`SECURITY.md`](SECURITY.md) | 安全模型与漏洞报告 |

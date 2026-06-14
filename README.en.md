@@ -125,7 +125,7 @@ The Go kernel builds on [**Reasonix**](https://github.com/esengine/DeepSeek-Reas
 
 TOML-driven: `./arcdesk.toml` (project) · `~/.config/arcdesk/config.toml` (user) · `.mcp.json` supported.
 
-Full schema, permissions, slash commands, plugins → [`docs/SPEC.md`](./docs/SPEC.md) · example → [`arcdesk.example.toml`](./arcdesk.example.toml)
+Full schema, permissions, slash commands, plugins → [`docs/SPEC.md`](./docs/SPEC.md) · example → [`docs/examples/arcdesk.example.toml`](./docs/examples/arcdesk.example.toml)
 
 <br/>
 
