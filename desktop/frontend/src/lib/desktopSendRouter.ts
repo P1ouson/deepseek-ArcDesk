@@ -18,6 +18,8 @@ export type DesktopSendRoute =
   | { action: "themeSet"; theme: Theme }
   | { action: "themeStyleSet"; style: ThemeStyle }
   | { action: "themeUnknown"; name: string }
+  | { action: "planEnter" }
+  | { action: "planSend"; displayText: string; text: string }
   | { action: "send"; displayText: string; submitText: string };
 
 function isThemeMode(value: string): value is Theme {
@@ -44,6 +46,12 @@ export function routeDesktopSend(displayText: string, submitText = displayText):
     return trimmed === "/review run" ? { action: "reviewRun" } : { action: "reviewOpen" };
   }
   if (trimmed === "/sdd") return { action: "openSdd" };
+  const plan = /^\/plan(?:\s+(.*))?$/s.exec(trimmed);
+  if (plan) {
+    const body = (plan[1] ?? "").trim();
+    if (!body) return { action: "planEnter" };
+    return { action: "planSend", displayText: trimmed, text: body };
+  }
   const preview = /^\/preview(?:\s+(\S+))?$/.exec(trimmed);
   if (preview) return { action: "openPreview", url: preview[1] };
   const theme = /^\/theme(?:\s+(\S+))?$/.exec(trimmed);

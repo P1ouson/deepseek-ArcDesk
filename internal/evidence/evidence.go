@@ -157,6 +157,65 @@ func (l *Ledger) HasSuccessfulTodoWrite() bool {
 	return false
 }
 
+// LatestSuccessfulTodoArgs returns the args JSON and parsed todos from the most
+// recent successful todo_write receipt in this turn.
+func (l *Ledger) LatestSuccessfulTodoArgs() (argsJSON string, todos []TodoItem, ok bool) {
+	if l == nil {
+		return "", nil, false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i := len(l.receipts) - 1; i >= 0; i-- {
+		r := l.receipts[i]
+		if !r.Success || r.ToolName != "todo_write" {
+			continue
+		}
+		args := strings.TrimSpace(string(r.Args))
+		if args == "" {
+			return "", nil, false
+		}
+		return args, append([]TodoItem(nil), r.Todos...), true
+	}
+	return "", nil, false
+}
+
+// AdvanceTodoArgsAfterStep marks a verified complete_step target as completed and
+// advances the next pending item to in_progress. Returns updated todo_write args.
+func (l *Ledger) AdvanceTodoArgsAfterStep(step string) (string, bool) {
+	step = strings.TrimSpace(step)
+	if l == nil || step == "" {
+		return "", false
+	}
+	match, hasTodo := l.MatchLatestTodoStep(step)
+	if !hasTodo || !match.Found {
+		return "", false
+	}
+	_, items, ok := l.LatestSuccessfulTodoArgs()
+	if !ok || len(items) == 0 {
+		return "", false
+	}
+	idx := match.Index - 1
+	if idx < 0 || idx >= len(items) {
+		return "", false
+	}
+	status := todoStatus(items[idx].Status)
+	if status != "in_progress" && status != "completed" {
+		return "", false
+	}
+	items[idx].Status = "completed"
+	for i := idx + 1; i < len(items); i++ {
+		if todoStatus(items[i].Status) != "completed" {
+			items[i].Status = "in_progress"
+			break
+		}
+	}
+	b, err := json.Marshal(map[string]any{"todos": items})
+	if err != nil {
+		return "", false
+	}
+	return string(b), true
+}
+
 func (l *Ledger) IncompleteLatestTodos() ([]TodoStepMatch, bool) {
 	if l == nil {
 		return nil, false

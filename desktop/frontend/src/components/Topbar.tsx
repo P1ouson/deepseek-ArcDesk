@@ -14,7 +14,6 @@ export interface TopbarProps {
   onStartRename: () => void;
   onCommitRename: () => void;
   onCancelRename: () => void;
-  running: boolean;
   goalLabel?: string;
   sideConversationCount: number;
   onOpenSideConversation?: () => void;
@@ -39,7 +38,6 @@ export function Topbar({
   onStartRename,
   onCommitRename,
   onCancelRename,
-  running,
   goalLabel,
   sideConversationCount,
   onOpenSideConversation,
@@ -91,9 +89,6 @@ export function Topbar({
             <span className="studio-header__workspace" title={workspacePath}>
               {workspacePath}
             </span>
-          ) : null}
-          {running ? (
-            <span className="studio-header__status-dot" role="status" aria-label={t("status.running")} title={t("status.running")} />
           ) : null}
           {goalLabel ? (
             <span className="studio-header__pill" title={goalLabel}>

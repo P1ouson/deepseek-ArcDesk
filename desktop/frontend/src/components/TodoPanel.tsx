@@ -9,11 +9,15 @@ export function TodoPanel({
   stale,
   onDismiss,
   onStartPlan,
+  onSyncProgress,
+  syncing,
 }: {
   todos: Todo[];
   stale?: boolean;
   onDismiss: () => void;
   onStartPlan?: () => void;
+  onSyncProgress?: () => void;
+  syncing?: boolean;
 }) {
   const t = useT();
   const currentRef = useRef<HTMLDivElement | null>(null);
@@ -61,11 +65,26 @@ export function TodoPanel({
             )}
           </p>
         </div>
-        <Tooltip label={t("todo.dismiss")}>
-          <button type="button" className="dock-panel__ghost" onClick={onDismiss} aria-label={t("todo.dismiss")}>
-            <X size={14} strokeWidth={1.75} />
-          </button>
-        </Tooltip>
+        <div className="dock-panel__head-actions">
+          {onSyncProgress && (
+            <Tooltip label={t("todo.syncProgress")}>
+              <button
+                type="button"
+                className="dock-panel__ghost"
+                onClick={onSyncProgress}
+                disabled={syncing}
+                aria-label={t("todo.syncProgress")}
+              >
+                <RefreshCw size={14} strokeWidth={1.75} className={syncing ? "todo-panel__sync-spin" : undefined} />
+              </button>
+            </Tooltip>
+          )}
+          <Tooltip label={t("todo.dismiss")}>
+            <button type="button" className="dock-panel__ghost" onClick={onDismiss} aria-label={t("todo.dismiss")}>
+              <X size={14} strokeWidth={1.75} />
+            </button>
+          </Tooltip>
+        </div>
       </header>
 
       {current && (

@@ -46,6 +46,15 @@ describe("routeDesktopSend", () => {
     expect(routeDesktopSend("/theme neon")).toEqual({ action: "themeUnknown", name: "neon" });
   });
 
+  it("routes /plan", () => {
+    expect(routeDesktopSend("/plan")).toEqual({ action: "planEnter" });
+    expect(routeDesktopSend("/plan fix the login bug")).toEqual({
+      action: "planSend",
+      displayText: "/plan fix the login bug",
+      text: "fix the login bug",
+    });
+  });
+
   it("passthrough send for plain text and backend slash", () => {
     expect(routeDesktopSend("hello")).toEqual({ action: "send", displayText: "hello", submitText: "hello" });
     expect(routeDesktopSend("  hello  ", " submit ")).toEqual({
@@ -53,7 +62,6 @@ describe("routeDesktopSend", () => {
       displayText: "hello",
       submitText: "submit",
     });
-    expect(routeDesktopSend("/plan")).toEqual({ action: "send", displayText: "/plan", submitText: "/plan" });
     expect(routeDesktopSend("/skill")).toEqual({ action: "send", displayText: "/skill", submitText: "/skill" });
     expect(routeDesktopSend("/mcp show github")).toEqual({
       action: "send",

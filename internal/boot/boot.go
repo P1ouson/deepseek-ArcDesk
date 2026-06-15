@@ -34,6 +34,7 @@ import (
 	"arcdesk/internal/failuremem"
 	"arcdesk/internal/gitrag"
 	"arcdesk/internal/guardian"
+	"arcdesk/internal/harness"
 	"arcdesk/internal/hook"
 	"arcdesk/internal/jobs"
 	"arcdesk/internal/knowledge"
@@ -721,6 +722,11 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		reg.Add(t)
 	}
 
+	layerFlags := harness.BuildLayerFlags(cfg, root, len(skills), mcpServerCount(pluginHost), mem)
+	plane := harness.NewPlane(harness.Config{Layers: layerFlags, Sink: sink})
+	plane.Memory.SetSemanticLoaded(harness.SemanticLoaded(mem))
+	harness.RegisterTools(reg, plane)
+
 	sysPrompt = prompt.AlignWithRegistry(sysPrompt, reg)
 
 	execSess := agent.NewSession(sysPrompt)
@@ -843,6 +849,8 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		OnRemember: func(rule string) {
 			rememberPermissionRule(opts.WorkspaceRoot, rule)
 		},
+		Plane:      plane,
+		LayerFlags: layerFlags,
 	}
 	if classifier != nil {
 		ctrlOpts.Classifier = classifier
@@ -1094,4 +1102,11 @@ func providerNames(cfg *config.Config) string {
 		names[i] = p.Name
 	}
 	return strings.Join(names, "/")
+}
+
+func mcpServerCount(host *plugin.Host) int {
+	if host == nil {
+		return 0
+	}
+	return len(host.ServerNames())
 }

@@ -21,7 +21,7 @@
 }
 
 .workbench--studio.workbench--drawer-open {
-  grid-template-columns: var(--studio-sidebar-w-open) minmax(0, 1fr);
+  grid-template-columns: var(--studio-sidebar-w-open, calc(var(--studio-rail-w) + var(--studio-drawer-w))) minmax(0, 1fr);
 }
 
 .workbench--studio.workbench--dock-open,
@@ -35,7 +35,7 @@
 
 .workbench--studio.workbench--drawer-open.workbench--dock-open,
 .workbench--studio.workbench--drawer-open.workbench--dock-hidden {
-  grid-template-columns: var(--studio-sidebar-w-open) minmax(0, 1fr);
+  grid-template-columns: var(--studio-sidebar-w-open, calc(var(--studio-rail-w) + var(--studio-drawer-w))) minmax(0, 1fr);
 }
 
 /* Left shell: labeled rail + optional docked project panel */
@@ -787,6 +787,43 @@
 }
 
 /* ========== Stage + vertical tool rail ========== */
+/* File-tree preview: file tree (1.5) left, preview (2.5) right within the right budget */
+.workbench--studio .workbench__body--file-tree-split .workbench__stack {
+  order: 0;
+}
+
+.workbench--studio .workbench__body--file-tree-split .workbench__resizer--dock {
+  order: 1;
+}
+
+.workbench--studio .workbench__body--file-tree-split .workbench__dock-slot {
+  order: 2;
+}
+
+.workbench--studio .workbench__body--file-tree-split .workbench__resizer--preview {
+  order: 3;
+}
+
+.workbench--studio .workbench__body--file-tree-split .workbench__preview-slot {
+  order: 4;
+}
+
+/* File-tree preview expanded: preview uses the full right budget */
+.workbench--studio .workbench__body--file-tree-preview-expanded .workbench__dock-slot,
+.workbench--studio .workbench__body--file-tree-preview-expanded .workbench__resizer--dock,
+.workbench--studio .workbench__body--file-tree-preview-expanded .workbench__resizer--preview {
+  display: none;
+}
+
+.workbench--studio .workbench__body--file-tree-preview-expanded .workbench__preview-slot {
+  flex: 0 0 var(--preview-column-width, var(--file-preview-render-width, 620px));
+  width: var(--preview-column-width, var(--file-preview-render-width, 620px));
+}
+
+.workbench--studio .workbench__body--file-tree-split .studio-tool-rail {
+  order: 5;
+}
+
 .workbench--studio .workbench__body {
   flex: 1 1 auto;
   min-height: 0;

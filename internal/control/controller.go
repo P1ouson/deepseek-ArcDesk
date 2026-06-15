@@ -1,13 +1,7 @@
 // Package control is the transport-agnostic session driver. A Controller owns
-// the agent run loop and session lifecycle, takes commands (Send/Cancel/Approve/
-// SetPlanMode/Compact/NewSession/…), and emits everything that happens —
-// reasoning, tool calls, approvals, turn completion — as a typed event stream to
-// a single event.Sink.
-//
-// The point is one orchestration layer behind every frontend: a terminal TUI, a
-// desktop webview, or an HTTP/SSE server each drive the Controller identically
-// (issue commands, render events) and none of them re-implement turn lifecycle,
-// cancellation, or approval. The Controller depends on no frontend.
+// the agent run loop and session lifecycle, backed by the unified Harness
+// control plane (internal/harness): PLAN-EXECUTE-VERIFY FSM, four-layer memory,
+// and a seven-layer capability map exposed via harness_status.
 package control
 
 import (
@@ -34,6 +28,7 @@ import (
 	"arcdesk/internal/config"
 	"arcdesk/internal/diff"
 	"arcdesk/internal/event"
+	"arcdesk/internal/harness"
 	"arcdesk/internal/hook"
 	"arcdesk/internal/i18n"
 	"arcdesk/internal/jobs"
@@ -118,6 +113,8 @@ type Controller struct {
 	cancel      context.CancelFunc
 	running     bool
 	planMode    bool
+	// latestTodoArgs caches the right-dock task list for Compose injection.
+	latestTodoArgs string
 	sessionPath string
 	approvals   map[string]chan approvalReply
 	asks        map[string]chan []event.AskAnswer
@@ -139,12 +136,8 @@ type Controller struct {
 	// resolved before the approver, so a denied tool is still blocked in YOLO mode.
 	bypass bool
 
-	// pendingMemory holds memory notes added mid-session (via "#" quick-add or a
-	// memory edit) that haven't yet been folded into a turn. Compose drains it
-	// onto the next outgoing turn — never into the cache-stable system prefix — so
-	// a fresh memory takes effect this session without busting the prompt cache;
-	// it joins the prefix naturally on the next session.
-	pendingMemory []string
+	// plane is the unified Harness control plane (FSM, four-layer memory, layer map).
+	plane *harness.Plane
 
 	verifyOnFailure string // retry | rollback | ask — from [verification].on_failure
 
@@ -205,6 +198,10 @@ type Options struct {
 	VerifyOnFailure string
 	// RuntimeHub is the session-scoped runtime observation store (may be nil).
 	RuntimeHub *runtime.Hub
+	// Plane is the unified Harness control plane. When nil, New builds one with
+	// LayerFlags.ControlPlane=true and LayerFlags.Context=true.
+	Plane *harness.Plane
+	LayerFlags harness.LayerFlags
 }
 
 // New builds a Controller. A nil Sink is replaced with event.Discard.
@@ -222,38 +219,59 @@ func New(opts Options) *Controller {
 		pluginCtx = context.Background()
 	}
 	c := &Controller{
-		runner:        opts.Runner,
-		executor:      opts.Executor,
-		sink:          sink,
-		policy:        opts.Policy,
-		label:         opts.Label,
-		systemPrompt:  opts.SystemPrompt,
-		sessionDir:    opts.SessionDir,
-		sessionPath:   opts.SessionPath,
-		host:          opts.Host,
-		commands:      opts.Commands,
-		skills:        opts.Skills,
-		allSkills:     opts.AllSkills,
-		hooks:         opts.Hooks,
-		mem:           opts.Memory,
-		cleanup:       opts.Cleanup,
-		autoPlan:      normalizeAutoPlan(opts.AutoPlan),
-		classifier:    classifier,
-		onRemember:    opts.OnRemember,
+		runner:          opts.Runner,
+		executor:        opts.Executor,
+		sink:            sink,
+		policy:          opts.Policy,
+		label:           opts.Label,
+		systemPrompt:    opts.SystemPrompt,
+		sessionDir:      opts.SessionDir,
+		sessionPath:     opts.SessionPath,
+		host:            opts.Host,
+		commands:        opts.Commands,
+		skills:          opts.Skills,
+		allSkills:       opts.AllSkills,
+		hooks:           opts.Hooks,
+		mem:             opts.Memory,
+		cleanup:         opts.Cleanup,
+		autoPlan:        normalizeAutoPlan(opts.AutoPlan),
+		classifier:      classifier,
+		onRemember:      opts.OnRemember,
 		verifyOnFailure: strings.ToLower(strings.TrimSpace(opts.VerifyOnFailure)),
 		runtimeHub:      opts.RuntimeHub,
-		balanceURL:    opts.BalanceURL,
-		balanceKey:    opts.BalanceKey,
-		balanceClient: opts.BalanceClient,
-		jobs:          opts.Jobs,
-		reg:           opts.Registry,
-		pluginCtx:     pluginCtx,
-		cpRoot:        opts.WorkspaceRoot,
-		readRoots:     opts.ReadRoots,
-		approvals:     map[string]chan approvalReply{},
-		asks:          map[string]chan []event.AskAnswer{},
-		granted:       map[string]bool{},
+		balanceURL:      opts.BalanceURL,
+		balanceKey:      opts.BalanceKey,
+		balanceClient:   opts.BalanceClient,
+		jobs:            opts.Jobs,
+		reg:             opts.Registry,
+		pluginCtx:       pluginCtx,
+		cpRoot:          opts.WorkspaceRoot,
+		readRoots:       opts.ReadRoots,
+		approvals:       map[string]chan approvalReply{},
+		asks:            map[string]chan []event.AskAnswer{},
+		granted:         map[string]bool{},
 	}
+	layerFlags := opts.LayerFlags
+	layerFlags.ControlPlane = true
+	if !layerFlags.Context {
+		layerFlags.Context = true
+	}
+	if opts.Plane != nil {
+		c.plane = opts.Plane
+	} else {
+		c.plane = harness.NewPlane(harness.Config{Layers: layerFlags, Sink: sink})
+	}
+	if c.mem != nil {
+		c.plane.Memory.SetSemanticLoaded(harness.SemanticLoaded(c.mem))
+	}
+	c.bindHarnessLiveLayers()
+	c.syncHarnessMCP()
+	c.plane.BindSession(opts.SessionPath)
+	c.plane.OnSemanticRefresh(func() {
+		c.mu.Lock()
+		c.refreshMemoryLocked()
+		c.mu.Unlock()
+	})
 	// Checkpoints: bind a store to the session and route writer pre-edits into it.
 	c.rebindCheckpoints(opts.SessionPath)
 	if c.executor != nil {
@@ -301,6 +319,12 @@ func ckptDir(sessionPath string) string {
 // checkpoints already on disk, and resets the turn boundaries. Called on
 // construction and whenever the session path changes (NewSession/Resume/SetSessionPath).
 func (c *Controller) rebindCheckpoints(sessionPath string) {
+	c.mu.Lock()
+	c.sessionPath = sessionPath
+	c.mu.Unlock()
+	if c.plane != nil {
+		c.plane.BindSession(sessionPath)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.cp = checkpoint.New(ckptDir(sessionPath), c.cpRoot)
@@ -431,13 +455,13 @@ func (c *Controller) runTurn(ctx context.Context, input string) error {
 
 func (c *Controller) runTurnWithRaw(ctx context.Context, input, raw string) error {
 	c.maybeSessionStart(ctx)
-	c.maybeAutoPlan(ctx, raw)
+	planMode, autoEntered := c.beginHarnessTurnWithCtx(ctx, raw)
 	input = c.Compose(input)
+	c.emitHarnessBegin(planMode, autoEntered)
 	startMessages := c.messageCount()
 	defer c.snapshotActivityIfChanged(startMessages)
-	// Open a checkpoint for this turn before the user message is appended, so the
-	// recorded message boundary precedes it and pre-edit snapshots land here.
 	c.beginCheckpoint(input)
+	c.harnessEpisodicBound()
 	// UserPromptSubmit / Stop hooks bracket the whole turn (incl. the plan
 	// research + approved-execution sub-turns below): a gating UserPromptSubmit
 	// aborts before any model call; Stop fires once when the turn returns.
@@ -452,12 +476,14 @@ func (c *Controller) runTurnWithRaw(ctx context.Context, input, raw string) erro
 		defer func() { c.hooks.Stop(ctx, lastAssistantText(c.History()), turn) }()
 	}
 	if err := c.runner.Run(ctx, input); err != nil {
+		c.harnessAfterRun(err)
 		return err
 	}
 	c.mu.Lock()
 	plan := c.planMode
 	c.mu.Unlock()
 	if !plan {
+		c.harnessTurnComplete()
 		return nil
 	}
 	proposal := lastAssistantText(c.History())
@@ -471,9 +497,11 @@ func (c *Controller) runTurnWithRaw(ctx context.Context, input, raw string) erro
 		return err
 	}
 	if !allow {
+		c.harnessPlanRejected()
 		return nil // keep planning; plan mode stays on
 	}
 	c.SetPlanMode(false)
+	c.harnessPlanApproved()
 	seededTodos := c.seedPlanTodos(proposal)
 	// The plan is the go-ahead: don't re-prompt for each write of the approved
 	// work. Auto-approve writers for the duration of this execution turn only.
@@ -486,9 +514,11 @@ func (c *Controller) runTurnWithRaw(ctx context.Context, input, raw string) erro
 		c.mu.Unlock()
 	}()
 	if err := c.runner.Run(ctx, planApprovedMessage); err != nil {
+		c.harnessAfterRun(err)
 		return err
 	}
 	c.completePlanTodos(seededTodos)
+	c.harnessTurnComplete()
 	return nil
 }
 
@@ -1633,6 +1663,7 @@ func (c *Controller) connectMCPSpec(s plugin.Spec) (int, error) {
 			c.reg.Add(t)
 		}
 	}
+	c.syncHarnessMCP()
 	return len(tools), nil
 }
 
@@ -1729,6 +1760,7 @@ func (c *Controller) RemoveMCPServer(name string) (disconnected bool, err error)
 			}
 		}
 	}
+	c.syncHarnessMCP()
 	cfg, lerr := config.Load()
 	if lerr != nil {
 		return disconnected, lerr
@@ -1766,6 +1798,7 @@ func (c *Controller) DisconnectMCPServer(name string) bool {
 	if !disconnected && c.reg != nil {
 		removedPlaceholder = c.reg.RemovePrefix(plugin.ToolPrefix(name))
 	}
+	c.syncHarnessMCP()
 	return disconnected || removedPlaceholder > 0
 }
 
@@ -1869,19 +1902,26 @@ func (c *Controller) Bypass() bool {
 // ARCDESK.md by default) — the write side of "#<note>". Returns the file written.
 func (c *Controller) QuickAdd(scope memory.Scope, note string) (string, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.mem == nil {
+		c.mu.Unlock()
 		return "", nil
 	}
 	path := c.mem.DocPath(scope)
 	if path == "" {
+		c.mu.Unlock()
 		return "", fmt.Errorf("no target file for memory scope %q", scope)
 	}
 	if err := memory.AppendDoc(path, note); err != nil {
+		c.mu.Unlock()
 		return "", err
 	}
-	c.pendingMemory = append(c.pendingMemory, note)
+	c.queueWorkingMemory(note)
 	c.refreshMemoryLocked()
+	plane := c.plane
+	c.mu.Unlock()
+	if plane != nil && plane.Memory != nil {
+		_, _ = plane.Memory.Consolidate(harness.ConsolidateSemanticRefresh)
+	}
 	return path, nil
 }
 
@@ -1889,21 +1929,26 @@ func (c *Controller) QuickAdd(scope memory.Scope, note string) (string, error) {
 // desktop panel's in-place editor. Returns the file written.
 func (c *Controller) SaveDoc(path, body string) (string, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.mem == nil {
+		c.mu.Unlock()
 		return "", nil
 	}
 	written, err := c.mem.WriteDoc(path, body)
 	if err != nil {
+		c.mu.Unlock()
 		return "", err
 	}
 	// Inject the new content once on the next turn: the cached prefix still holds
 	// the pre-edit version this session, so handing the model the current text
 	// avoids a stale-guidance gap until the next session re-folds it into the
 	// prefix. Trimmed to a single tail note (drained by Compose), not per-turn.
-	c.pendingMemory = append(c.pendingMemory,
-		"Memory file "+written+" was just edited. Its current contents:\n"+strings.TrimSpace(body))
+	c.queueWorkingMemory("Memory file " + written + " was just edited. Its current contents:\n" + strings.TrimSpace(body))
 	c.refreshMemoryLocked()
+	plane := c.plane
+	c.mu.Unlock()
+	if plane != nil && plane.Memory != nil {
+		_, _ = plane.Memory.Consolidate(harness.ConsolidateSemanticRefresh)
+	}
 	return written, nil
 }
 
@@ -1913,16 +1958,21 @@ func (c *Controller) SaveDoc(path, body string) (string, error) {
 // until the next session re-folds the index).
 func (c *Controller) ForgetMemory(name string) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.mem == nil {
+		c.mu.Unlock()
 		return nil
 	}
 	if err := c.mem.Store.Delete(name); err != nil {
+		c.mu.Unlock()
 		return err
 	}
-	c.pendingMemory = append(c.pendingMemory,
-		"Deleted memory \""+name+"\" — disregard its line still shown in the saved-memories index until next session.")
+	c.queueWorkingMemory("Deleted memory \"" + name + "\" — disregard its line still shown in the saved-memories index until next session.")
 	c.refreshMemoryLocked()
+	plane := c.plane
+	c.mu.Unlock()
+	if plane != nil && plane.Memory != nil {
+		_, _ = plane.Memory.Consolidate(harness.ConsolidateSemanticRefresh)
+	}
 	return nil
 }
 
@@ -1933,8 +1983,7 @@ func (c *Controller) ForgetMemory(name string) error {
 func (c *Controller) QueueMemory(note string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.pendingMemory = append(c.pendingMemory, note)
-	c.refreshMemoryLocked()
+	c.queueWorkingMemory(note)
 }
 
 // Memory returns the loaded memory snapshot (nil when memory is disabled), for
@@ -1953,6 +2002,7 @@ func (c *Controller) refreshMemoryLocked() {
 		return
 	}
 	c.mem = memory.Load(memory.Options{CWD: c.mem.CWD, UserDir: c.mem.UserDir})
+	c.syncHarnessSemanticLocked()
 }
 
 // --- approval bridge (agent gate → events) ---
@@ -1980,6 +2030,20 @@ type seedTodo struct {
 	Level   int    `json:"level,omitempty"`
 }
 
+// LatestTodoArgs returns the cached right-dock task list args JSON.
+func (c *Controller) LatestTodoArgs() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.latestTodoArgs
+}
+
+// UpdateLatestTodoArgs caches the right-dock task list for Compose injection.
+func (c *Controller) UpdateLatestTodoArgs(args string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.latestTodoArgs = strings.TrimSpace(args)
+}
+
 // seedPlanTodos turns an approved plan into a starter task list and emits it as a
 // synthetic todo_write event, so the live task panel populates the instant the
 // user approves — a structural guarantee, not a prompt the model might ignore.
@@ -1990,6 +2054,7 @@ func (c *Controller) seedPlanTodos(plan string) string {
 	if args == "" {
 		return ""
 	}
+	c.UpdateLatestTodoArgs(args)
 	t := event.Tool{ID: "plan-seed", Name: "todo_write", Args: args, ReadOnly: true}
 	c.sink.Emit(event.Event{Kind: event.ToolDispatch, Tool: t})
 	t.Output = "task list seeded from the approved plan"

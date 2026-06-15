@@ -20,11 +20,10 @@ import {
   resolveHubTab,
   saveDockTabSelection,
   savePreviewPanelState,
-  loadPreviewHubTab,
   type DockHub,
   type PreviewMode,
 } from "./dockHubs";
-import { loadLayoutSize, loadOptionalLayoutSize, saveLayoutSize } from "./layoutPreferences";
+import { loadOptionalLayoutSize, saveLayoutSize } from "./layoutPreferences";
 import { attachPointerResize } from "./panelResize";
 import type { ToolFileDiff } from "./tools";
 import type { ComposerInsertRequest } from "./types";
@@ -32,30 +31,33 @@ import { isPreviewablePagePath } from "./previewPage";
 import {
   commitDockResize,
   commitPreviewResize,
-  maxDockPanelWidth,
-  maxFilePreviewWidth,
-  PANEL_RESIZER_WIDTH,
-  workbenchRowWidth,
+  fitStudioRightPanels,
+  maxStudioDockWidth,
+  maxStudioPreviewWidth,
+  STUDIO_FILE_TREE_SPLIT,
+  studioDrawerWidth,
+  studioFileTreeSplitWidths,
+  studioSinglePanelTargetWidth,
   type WorkbenchRowChrome,
 } from "./workbenchPanelLayout";
 
 const STUDIO_RAIL_WIDTH = 76;
-const STUDIO_DRAWER_WIDTH = 280;
-const CHAT_MIN_WIDTH = 760;
 import { MOTION_DURATION_NORMAL_MS } from "./motion/constants";
 
 const RIGHT_DOCK_DEFAULT_WIDTH = 380;
-const RIGHT_DOCK_DEFAULT_RATIO = 0.28;
-const PREVIEW_DOCK_EXPANDED_RATIO = 0.5;
 const RIGHT_DOCK_MIN_WIDTH = 280;
 const RIGHT_DOCK_MAX_WIDTH = 800;
 const RIGHT_DOCK_MIN_RENDER_WIDTH = 200;
 const FILE_PREVIEW_MIN_WIDTH = RIGHT_DOCK_MIN_WIDTH;
 const FILE_PREVIEW_MAX_WIDTH = 960;
-/** Code preview default — ~40% of main row width (see red-line layout target in studio). */
 const FILE_PREVIEW_DEFAULT_WIDTH = 620;
-const FILE_PREVIEW_DEFAULT_RATIO = 0.4;
-const FILE_PREVIEW_EXPANDED_RATIO = 0.58;
+
+const STUDIO_PANEL_BOUNDS = {
+  previewMin: FILE_PREVIEW_MIN_WIDTH,
+  previewMax: FILE_PREVIEW_MAX_WIDTH,
+  dockMin: RIGHT_DOCK_MIN_WIDTH,
+  dockMax: RIGHT_DOCK_MAX_WIDTH,
+} as const;
 
 function clampRightDockWidth(width: number): number {
   return Math.min(RIGHT_DOCK_MAX_WIDTH, Math.max(RIGHT_DOCK_MIN_WIDTH, Math.round(width)));
@@ -65,18 +67,15 @@ function clampFilePreviewWidth(width: number): number {
   return Math.min(FILE_PREVIEW_MAX_WIDTH, Math.max(FILE_PREVIEW_MIN_WIDTH, Math.round(width)));
 }
 
-function defaultFilePreviewWidth(): number {
-  const width = viewportWidthFallback();
-  if (width <= 0) return FILE_PREVIEW_DEFAULT_WIDTH;
-  const main = Math.max(0, width - STUDIO_RAIL_WIDTH);
-  return clampFilePreviewWidth(Math.max(FILE_PREVIEW_DEFAULT_WIDTH, Math.round(main * FILE_PREVIEW_DEFAULT_RATIO)));
+function defaultFilePreviewWidth(layoutWidth = viewportWidthFallback()): number {
+  if (layoutWidth <= 0) return FILE_PREVIEW_DEFAULT_WIDTH;
+  return clampFilePreviewWidth(studioSinglePanelTargetWidth(layoutWidth, true));
 }
 
 function loadFilePreviewWidth(): number {
-  const width = loadLayoutSize("filePreviewPanelWidth", FILE_PREVIEW_DEFAULT_WIDTH, clampFilePreviewWidth);
-  // Bump legacy narrow saves so reopening preview matches the wider studio default.
-  if (width < 560) return defaultFilePreviewWidth();
-  return width;
+  const saved = loadOptionalLayoutSize("filePreviewPanelWidth", clampFilePreviewWidth);
+  if (saved !== null) return saved;
+  return defaultFilePreviewWidth();
 }
 
 function saveFilePreviewWidth(width: number): void {
@@ -89,10 +88,9 @@ function viewportWidthFallback(): number {
   return Number.isFinite(width) && width > 0 ? width : 0;
 }
 
-function defaultRightDockWidth(): number {
-  const width = viewportWidthFallback();
-  if (width <= 0) return RIGHT_DOCK_DEFAULT_WIDTH;
-  return clampRightDockWidth(width * RIGHT_DOCK_DEFAULT_RATIO);
+function defaultRightDockWidth(layoutWidth = viewportWidthFallback()): number {
+  if (layoutWidth <= 0) return RIGHT_DOCK_DEFAULT_WIDTH;
+  return clampRightDockWidth(studioSinglePanelTargetWidth(layoutWidth, true));
 }
 
 function loadRightDockWidth(): number {
@@ -114,36 +112,24 @@ function clampDockRenderWidth(desired: number, maxAllowed: number): number {
   );
 }
 
-/** Browser/page dock expanded width, capped by the workbench row budget. */
-function resolveExpandedPreviewDockWidth(
-  workbenchWidth: number,
-  rowWidth: number,
-  previewWidth: number,
-  rowChrome: WorkbenchRowChrome,
-): number {
-  const bench = Math.max(0, Math.round(workbenchWidth));
-  const target = Math.round(bench * PREVIEW_DOCK_EXPANDED_RATIO);
-  const maxAllowed = maxDockPanelWidth(rowWidth, previewWidth, rowChrome);
-  return clampDockRenderWidth(target, maxAllowed);
-}
-
+/** Browser/page dock expanded width, capped by the studio right budget. */
 function fitFilePreviewWidth(
   desired: number,
-  rowWidth: number,
+  layoutWidth: number,
   dockWidth: number,
   rowChrome: WorkbenchRowChrome,
 ): number {
-  const maxAllowed = maxFilePreviewWidth(rowWidth, dockWidth, rowChrome);
+  const maxAllowed = maxStudioPreviewWidth(layoutWidth, dockWidth, rowChrome);
   return clampFilePreviewWidth(Math.min(desired, maxAllowed));
 }
 
 function fitDockWidth(
   desired: number,
-  rowWidth: number,
+  layoutWidth: number,
   previewWidth: number,
   rowChrome: WorkbenchRowChrome,
 ): number {
-  const maxAllowed = maxDockPanelWidth(rowWidth, previewWidth, rowChrome);
+  const maxAllowed = maxStudioDockWidth(layoutWidth, previewWidth, rowChrome);
   return clampDockRenderWidth(desired, maxAllowed);
 }
 
@@ -170,7 +156,6 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
     browserActive,
     openBrowserTab,
     terminalHasSessions,
-    terminalPanelVisible,
     minimizeTerminalPanel,
     restoreTerminalPanel,
     openNewTerminal,
@@ -189,74 +174,96 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
   const targetDockWidthRef = useRef(0);
   /** Freeze the opposite panel while dragging so freed space goes to chat, not auto-stolen. */
   const resizePartnerRef = useRef({ preview: 0, dock: 0 });
+  const previewWidthUserSizedRef = useRef(false);
+  const dockWidthUserSizedRef = useRef(false);
+  const [fileTreeLayoutUserSized, setFileTreeLayoutUserSized] = useState(false);
+  const [fileTreePreviewExpanded, setFileTreePreviewExpanded] = useState(false);
+  const skipDockOpenAnimationRef = useRef(false);
   const [rightDockWidth, setRightDockWidth] = useState(loadRightDockWidth);
   const [dockResizing, setDockResizing] = useState(false);
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
   const [filePreviewDiff, setFilePreviewDiff] = useState<ToolFileDiff | null>(null);
   const [filePreviewWidth, setFilePreviewWidth] = useState(loadFilePreviewWidth);
-  const [filePreviewExpanded, setFilePreviewExpanded] = useState(false);
+  const [previewColumnExpanded, setPreviewColumnExpanded] = useState(false);
+  const [previewMode, setPreviewMode] = useState<PreviewMode>(() => {
+    const saved = loadPreviewPanelState();
+    if (saved.file) return "file";
+    if (saved.browser) return "browser";
+    if (saved.terminal) return "terminal";
+    return "page";
+  });
+  const [previewColumnOpen, setPreviewColumnOpen] = useState(false);
+  const [previewTerminalDocked, setPreviewTerminalDocked] = useState(false);
   const [filePreviewComposerOpen, setFilePreviewComposerOpen] = useState(false);
   const [filePreviewResizing, setFilePreviewResizing] = useState(false);
-  const [browserPreviewExpanded, setBrowserPreviewExpanded] = useState(false);
   const [pagePreviewPath, setPagePreviewPath] = useState<string | null>(null);
   const [rightDockMode, setRightDockMode] = useState<RightDockTab>(() => loadHubLastTab("context"));
 
   const chatMode = appMode === "code";
   const showRightDock = chatMode || appMode === "write";
+  const layoutWidthLive = layoutWidth > 0 ? layoutWidth : viewportWidthFallback();
+  const studioDrawerRenderWidth = studioDrawerWidth(layoutWidthLive, STUDIO_RAIL_WIDTH, projectDrawerOpen);
+  const sidebarRenderWidth = STUDIO_RAIL_WIDTH + studioDrawerRenderWidth;
+  const browserPreviewActive = browserActive;
+  const pagePreviewActive = pagePreviewPath !== null;
   const filePreviewOpen = filePreviewPath !== null;
-  const sidebarRenderWidth = projectDrawerOpen ? STUDIO_RAIL_WIDTH + STUDIO_DRAWER_WIDTH : STUDIO_RAIL_WIDTH;
-  const measuredMainWidth =
-    layoutWidth > 0
-      ? Math.max(0, layoutWidth - sidebarRenderWidth)
-      : CHAT_MIN_WIDTH + PANEL_RESIZER_WIDTH + rightDockWidth;
-  const workbenchWidth = layoutWidth > 0 ? layoutWidth : viewportWidthFallback();
-  const rowWidth = workbenchRowWidth(measuredMainWidth, { toolRail: chatMode });
-  const rowChrome: WorkbenchRowChrome = {
-    previewOpen: filePreviewOpen,
-    dockOpen: workspacePanelOpen,
+  const previewColumnActive =
+    previewColumnOpen &&
+    (filePreviewOpen || pagePreviewActive || browserPreviewActive || (previewTerminalDocked && terminalHasSessions));
+  const fileTreePreviewContext =
+    previewColumnActive &&
+    workspacePanelOpen &&
+    (filePreviewOpen || (pagePreviewActive && previewMode === "page"));
+  const fileTreeSplitActive = fileTreePreviewContext && !fileTreePreviewExpanded;
+  const studioRightChrome: WorkbenchRowChrome = {
+    previewOpen: previewColumnActive,
+    dockOpen: workspacePanelOpen && !fileTreePreviewExpanded,
     toolRail: chatMode,
   };
-  const previewDockTab = rightDockMode === "browser" || rightDockMode === "page";
-  const filePreviewRenderWidth = filePreviewOpen
-    ? filePreviewExpanded
-      ? fitFilePreviewWidth(
-          Math.min(
-            FILE_PREVIEW_MAX_WIDTH,
-            Math.max(filePreviewWidth, Math.round(rowWidth * FILE_PREVIEW_EXPANDED_RATIO)),
-          ),
-          rowWidth,
-          rightDockWidth,
-          rowChrome,
-        )
-      : clampFilePreviewWidth(filePreviewWidth)
-    : 0;
-  const expandedPreviewWidth = resolveExpandedPreviewDockWidth(
-    workbenchWidth,
-    rowWidth,
-    filePreviewRenderWidth,
-    rowChrome,
+  const fittedRightPanels = fitStudioRightPanels(
+    filePreviewWidth,
+    rightDockWidth,
+    layoutWidthLive,
+    studioRightChrome,
+    STUDIO_PANEL_BOUNDS,
+    {
+      previewUserSized: fileTreePreviewExpanded
+        ? false
+        : previewWidthUserSizedRef.current,
+      dockUserSized: fileTreePreviewExpanded ? false : dockWidthUserSizedRef.current,
+      splitRatio:
+        fileTreeSplitActive && !fileTreeLayoutUserSized
+          ? STUDIO_FILE_TREE_SPLIT
+          : undefined,
+    },
   );
+  const previewColumnRenderWidth = previewColumnActive
+    ? filePreviewResizing
+      ? clampFilePreviewWidth(filePreviewWidth)
+      : fittedRightPanels.preview
+    : 0;
+  const filePreviewRenderWidth = previewColumnRenderWidth;
+  const rowChrome: WorkbenchRowChrome = studioRightChrome;
   const workspacePanelRenderWidth =
-    workspacePanelOpen && browserPreviewExpanded && previewDockTab
-      ? expandedPreviewWidth
-      : workspacePanelOpen
+    workspacePanelOpen && !fileTreePreviewExpanded
+      ? dockResizing
         ? clampRightDockWidth(rightDockWidth)
-        : 0;
-  const dockPanelWidth = !workspacePanelOpen
+        : fittedRightPanels.dock
+      : 0;
+  const dockPanelWidth = !workspacePanelOpen || fileTreePreviewExpanded
     ? 0
     : dockClosing || dockOpening
       ? Math.max(0, dockAnimWidth)
       : workspacePanelRenderWidth;
   targetDockWidthRef.current = workspacePanelRenderWidth;
   const dockGridWidth = 0;
-  const browserPreviewActive = browserActive;
-  const browserPreviewVisible = workspacePanelOpen && rightDockMode === "browser";
-  const pagePreviewActive = pagePreviewPath !== null;
-  const pagePreviewVisible = workspacePanelOpen && rightDockMode === "page";
-  const previewPanelVisible = browserPreviewVisible || pagePreviewVisible;
-  const previewPanelActive = browserPreviewActive || pagePreviewActive;
-  const dockBackgroundSessions = browserPreviewActive || pagePreviewActive;
-  const dockMounted = workspacePanelOpen || dockBackgroundSessions;
+  const browserPreviewVisible = previewColumnActive && previewMode === "browser";
+  const pagePreviewVisible = previewColumnActive && previewMode === "page";
+  const previewPanelVisible = previewColumnActive;
+  const previewPanelActive =
+    browserPreviewActive || pagePreviewActive || filePreviewOpen || (previewTerminalDocked && terminalHasSessions);
+  const dockBackgroundSessions = previewPanelActive && !previewColumnOpen;
+  const dockMounted = workspacePanelOpen || dockBackgroundSessions || previewColumnActive;
 
   useEffect(() => {
     if (!workspacePanelOpen) {
@@ -268,6 +275,12 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
     }
     setDockClosing(false);
     setDockMotionKey((key) => key + 1);
+    if (skipDockOpenAnimationRef.current) {
+      skipDockOpenAnimationRef.current = false;
+      setDockOpening(false);
+      setDockAnimWidth(targetDockWidthRef.current);
+      return;
+    }
     setDockOpening(true);
     setDockAnimWidth(0);
     const id = window.requestAnimationFrame(() => {
@@ -284,11 +297,124 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
 
   useEffect(() => {
     savePreviewPanelState({
-      terminal: terminalHasSessions,
+      terminal: previewTerminalDocked && terminalHasSessions,
       browser: browserPreviewActive,
       page: pagePreviewActive,
+      file: filePreviewOpen,
     });
-  }, [browserPreviewActive, pagePreviewActive, terminalHasSessions]);
+  }, [browserPreviewActive, filePreviewOpen, pagePreviewActive, previewTerminalDocked, terminalHasSessions]);
+
+  const applyStudioRightPanelDefault = useCallback(
+    (kind: "preview" | "dock") => {
+      const target = studioSinglePanelTargetWidth(layoutWidthLive, chatMode);
+      if (kind === "preview") {
+        previewWidthUserSizedRef.current = false;
+        setFilePreviewWidth(target);
+        saveFilePreviewWidth(target);
+        return;
+      }
+      dockWidthUserSizedRef.current = false;
+      setRightDockWidth(target);
+      setDockAnimWidth(target);
+      saveLayoutSize("rightDockWidth", target, clampRightDockWidth);
+    },
+    [chatMode, layoutWidthLive],
+  );
+
+  useEffect(() => {
+    if (!layoutWidthLive) return;
+    if (fileTreePreviewExpanded) {
+      const target = studioSinglePanelTargetWidth(layoutWidthLive, chatMode);
+      if (filePreviewWidth !== target) {
+        setFilePreviewWidth(target);
+        saveFilePreviewWidth(target);
+      }
+      return;
+    }
+    if (fileTreeSplitActive && !fileTreeLayoutUserSized) {
+      const split = studioFileTreeSplitWidths(layoutWidthLive, chatMode);
+      if (filePreviewWidth !== split.preview) {
+        setFilePreviewWidth(split.preview);
+        saveFilePreviewWidth(split.preview);
+      }
+      if (rightDockWidth !== split.dock) {
+        setRightDockWidth(split.dock);
+        setDockAnimWidth(split.dock);
+        saveLayoutSize("rightDockWidth", split.dock, clampRightDockWidth);
+      }
+      return;
+    }
+    if (previewColumnActive && !workspacePanelOpen && !previewWidthUserSizedRef.current) {
+      const target = studioSinglePanelTargetWidth(layoutWidthLive, chatMode);
+      if (filePreviewWidth !== target) {
+        setFilePreviewWidth(target);
+        saveFilePreviewWidth(target);
+      }
+    }
+    if (workspacePanelOpen && !previewColumnActive && !dockWidthUserSizedRef.current) {
+      const target = studioSinglePanelTargetWidth(layoutWidthLive, chatMode);
+      if (rightDockWidth !== target) {
+        setRightDockWidth(target);
+        setDockAnimWidth(target);
+        saveLayoutSize("rightDockWidth", target, clampRightDockWidth);
+      }
+    }
+  }, [
+    chatMode,
+    filePreviewWidth,
+    fileTreeLayoutUserSized,
+    fileTreePreviewExpanded,
+    fileTreeSplitActive,
+    layoutWidthLive,
+    previewColumnActive,
+    rightDockWidth,
+    workspacePanelOpen,
+  ]);
+
+  const closeWorkspacePanelImmediate = useCallback(() => {
+    if (dockCloseTimerRef.current) {
+      clearTimeout(dockCloseTimerRef.current);
+      dockCloseTimerRef.current = null;
+    }
+    setDockClosing(false);
+    setDockAnimWidth(0);
+    setWorkspacePanelOpen(false);
+  }, []);
+
+  const openPreviewColumn = useCallback(
+    (mode: PreviewMode, options?: { keepWorkspace?: boolean }) => {
+      if (workspacePanelOpen && !options?.keepWorkspace) {
+        closeWorkspacePanelImmediate();
+      }
+      previewWidthUserSizedRef.current = false;
+      setPreviewMode(mode);
+      setPreviewColumnOpen(true);
+      if (mode === "terminal") {
+        setPreviewTerminalDocked(true);
+      }
+    },
+    [closeWorkspacePanelImmediate, workspacePanelOpen],
+  );
+
+  const closePreviewColumn = useCallback(() => {
+    setPreviewColumnOpen(false);
+    setPreviewColumnExpanded(false);
+    setFileTreePreviewExpanded(false);
+    setFilePreviewPath(null);
+    setFilePreviewDiff(null);
+    setFilePreviewComposerOpen(false);
+    if (previewTerminalDocked) {
+      minimizeTerminalPanel();
+      setPreviewTerminalDocked(false);
+    }
+  }, [minimizeTerminalPanel, previewTerminalDocked]);
+
+  const togglePreviewColumnExpanded = useCallback(() => {
+    setPreviewColumnExpanded((value) => {
+      if (value) setFilePreviewComposerOpen(false);
+      return !value;
+    });
+  }, []);
 
   useEffect(() => {
     setFilePreviewPath(null);
@@ -313,131 +439,188 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
     }
     setDockClosing(true);
     setDockAnimWidth(0);
-    setBrowserPreviewExpanded(false);
+    setPreviewColumnExpanded(false);
     if (dockCloseTimerRef.current) clearTimeout(dockCloseTimerRef.current);
     dockCloseTimerRef.current = setTimeout(() => {
       setWorkspacePanelOpen(false);
       setDockClosing(false);
-      setFilePreviewPath(null);
       dockCloseTimerRef.current = null;
     }, MOTION_DURATION_NORMAL_MS);
   }, [workspacePanelOpen]);
 
-  const toggleBrowserPreviewExpanded = useCallback(() => {
-    setBrowserPreviewExpanded((value) => !value);
+  const toggleBrowserPreviewExpanded = togglePreviewColumnExpanded;
+
+  const closeFilePreview = useCallback(() => {
+    setFilePreviewPath(null);
+    setFilePreviewDiff(null);
+    setPreviewColumnExpanded(false);
+    setFileTreePreviewExpanded(false);
+    setFilePreviewComposerOpen(false);
+    if (!pagePreviewActive && !browserPreviewActive && !(previewTerminalDocked && terminalHasSessions)) {
+      setPreviewColumnOpen(false);
+    } else if (previewMode === "file") {
+      setPreviewMode(pagePreviewActive ? "page" : browserPreviewActive ? "browser" : "terminal");
+    }
+  }, [browserPreviewActive, pagePreviewActive, previewMode, previewTerminalDocked, terminalHasSessions]);
+
+  const exitExpandedPreviewComposer = useCallback(() => {
+    setFilePreviewComposerOpen(false);
+    setPreviewColumnExpanded(false);
   }, []);
+
+  const toggleFilePreviewExpanded = togglePreviewColumnExpanded;
+
+  const applyFileTreeSplitWidths = useCallback(
+    (layout = layoutWidthLive) => {
+      const split = studioFileTreeSplitWidths(layout, chatMode);
+      setFilePreviewWidth(split.preview);
+      saveFilePreviewWidth(split.preview);
+      setRightDockWidth(split.dock);
+      setDockAnimWidth(split.dock);
+      saveLayoutSize("rightDockWidth", split.dock, clampRightDockWidth);
+      return split;
+    },
+    [chatMode, layoutWidthLive],
+  );
+
+  const expandFileTreePreview = useCallback(() => {
+    previewWidthUserSizedRef.current = false;
+    const target = studioSinglePanelTargetWidth(layoutWidthLive, chatMode);
+    setFileTreePreviewExpanded(true);
+    setFilePreviewWidth(target);
+    saveFilePreviewWidth(target);
+  }, [chatMode, layoutWidthLive]);
+
+  const collapseFileTreePreview = useCallback(() => {
+    setFileTreePreviewExpanded(false);
+    setFileTreeLayoutUserSized(false);
+    previewWidthUserSizedRef.current = false;
+    dockWidthUserSizedRef.current = false;
+    applyFileTreeSplitWidths();
+  }, [applyFileTreeSplitWidths]);
+
+  const backToFileTreeFromPreview = collapseFileTreePreview;
+
+  const togglePreviewTerminal = useCallback(() => {
+    if (previewColumnOpen && previewMode === "terminal") {
+      closePreviewColumn();
+      return;
+    }
+    openPreviewColumn("terminal");
+    if (terminalHasSessions) {
+      restoreTerminalPanel();
+      return;
+    }
+    void openNewTerminal();
+  }, [
+    closePreviewColumn,
+    openNewTerminal,
+    openPreviewColumn,
+    previewColumnOpen,
+    previewMode,
+    restoreTerminalPanel,
+    terminalHasSessions,
+  ]);
+
+  const openWebPreview = useCallback(
+    (url?: string) => {
+      openBrowserTab(url);
+      openPreviewColumn("browser");
+    },
+    [openBrowserTab, openPreviewColumn],
+  );
+
+  const openPagePreview = useCallback(
+    (path?: string) => {
+      if (path?.trim()) setPagePreviewPath(path.trim());
+      openPreviewColumn("page");
+    },
+    [openPreviewColumn],
+  );
 
   const openDockTab = useCallback(
     (tab: RightDockTab, options?: { toggle?: boolean }) => {
+      if (tab === "browser") {
+        openWebPreview();
+        return;
+      }
+      if (tab === "page") {
+        openPagePreview();
+        return;
+      }
+      closePreviewColumn();
       saveDockTabSelection(tab);
       const shouldToggle = options?.toggle !== false;
       if (shouldToggle && workspacePanelOpen && rightDockMode === tab) {
         closeWorkspacePanel();
         return;
       }
-      if (tab !== "browser" && tab !== "page") {
-        setBrowserPreviewExpanded(false);
-      }
       setRightDockMode(tab);
+      if (!workspacePanelOpen) {
+        dockWidthUserSizedRef.current = false;
+      }
       setWorkspacePanelOpen(true);
     },
-    [closeWorkspacePanel, rightDockMode, workspacePanelOpen],
+    [
+      closePreviewColumn,
+      closeWorkspacePanel,
+      openPagePreview,
+      openWebPreview,
+      rightDockMode,
+      workspacePanelOpen,
+    ],
   );
 
   const openFilePreview = useCallback(
     (path: string, dockTab: RightDockTab = "files") => {
+      previewWidthUserSizedRef.current = false;
+      dockWidthUserSizedRef.current = false;
+      setFileTreeLayoutUserSized(false);
+      setFileTreePreviewExpanded(false);
+      setPreviewColumnExpanded(false);
+      setFilePreviewComposerOpen(false);
+      skipDockOpenAnimationRef.current = true;
+      const layout =
+        layoutRef.current?.getBoundingClientRect().width &&
+        Number.isFinite(layoutRef.current.getBoundingClientRect().width)
+          ? Math.round(layoutRef.current.getBoundingClientRect().width)
+          : layoutWidthLive || viewportWidthFallback();
+      applyFileTreeSplitWidths(layout);
+
       if (isPreviewablePagePath(path) && dockTab === "files") {
         setPagePreviewPath(path);
-        openDockTab("page", { toggle: false });
+        setPreviewMode("page");
+        setPreviewColumnOpen(true);
+        saveDockTabSelection("files");
+        setRightDockMode("files");
+        setWorkspacePanelOpen(true);
         return;
       }
-      const openingPreview = filePreviewPath === null;
-      if (openingPreview) {
-        const width = fitFilePreviewWidth(
-          Math.max(defaultFilePreviewWidth(), filePreviewWidth),
-          rowWidth,
-          rightDockWidth,
-          { previewOpen: true, dockOpen: true, toolRail: chatMode },
-        );
-        setFilePreviewWidth(width);
-        saveFilePreviewWidth(width);
-      }
-      setFilePreviewExpanded(false);
-      setFilePreviewComposerOpen(false);
+
       setFilePreviewPath(path);
       setFilePreviewDiff(null);
-      openDockTab(dockTab, { toggle: false });
+      setPreviewMode("file");
+      setPreviewColumnOpen(true);
+      saveDockTabSelection(dockTab);
+      setRightDockMode(dockTab);
+      setWorkspacePanelOpen(true);
     },
-    [chatMode, filePreviewPath, filePreviewWidth, openDockTab, rightDockWidth, rowWidth],
+    [applyFileTreeSplitWidths, layoutWidthLive],
   );
 
   const openActionFilePreview = useCallback(
     (req: ActionFileOpenRequest) => {
       if (filePreviewPath === null) {
-        const width = fitFilePreviewWidth(
-          Math.max(defaultFilePreviewWidth(), filePreviewWidth),
-          rowWidth,
-          rightDockWidth,
-          { previewOpen: true, dockOpen: workspacePanelOpen, toolRail: chatMode },
-        );
-        setFilePreviewWidth(width);
-        saveFilePreviewWidth(width);
+        previewWidthUserSizedRef.current = false;
       }
-      setFilePreviewExpanded(false);
+      setPreviewColumnExpanded(false);
       setFilePreviewComposerOpen(false);
       setFilePreviewPath(req.path);
       setFilePreviewDiff(req.diff ?? null);
+      openPreviewColumn("file");
+      setPreviewColumnOpen(true);
     },
-    [chatMode, filePreviewPath, filePreviewWidth, rightDockWidth, rowWidth, workspacePanelOpen],
-  );
-
-  const closeFilePreview = useCallback(() => {
-    setFilePreviewPath(null);
-    setFilePreviewDiff(null);
-    setFilePreviewExpanded(false);
-    setFilePreviewComposerOpen(false);
-  }, []);
-
-  const exitExpandedPreviewComposer = useCallback(() => {
-    setFilePreviewComposerOpen(false);
-    setFilePreviewExpanded(false);
-  }, []);
-
-  const toggleFilePreviewExpanded = useCallback(() => {
-    setFilePreviewExpanded((value) => {
-      if (value) setFilePreviewComposerOpen(false);
-      return !value;
-    });
-  }, []);
-
-  const togglePreviewTerminal = useCallback(() => {
-    if (terminalPanelVisible) {
-      minimizeTerminalPanel();
-      return;
-    }
-    if (terminalHasSessions) {
-      restoreTerminalPanel();
-      return;
-    }
-    void openNewTerminal();
-  }, [minimizeTerminalPanel, openNewTerminal, restoreTerminalPanel, terminalHasSessions, terminalPanelVisible]);
-
-  const openWebPreview = useCallback(
-    (url?: string) => {
-      openBrowserTab(url);
-      openDockTab("browser", { toggle: false });
-      savePreviewPanelState({ terminal: terminalHasSessions, browser: true, page: pagePreviewActive });
-    },
-    [openBrowserTab, openDockTab, pagePreviewActive, terminalHasSessions],
-  );
-
-  const openPagePreview = useCallback(
-    (path?: string) => {
-      if (path?.trim()) setPagePreviewPath(path.trim());
-      openDockTab("page", { toggle: false });
-      savePreviewPanelState({ terminal: terminalHasSessions, browser: browserPreviewActive, page: true });
-    },
-    [browserPreviewActive, openDockTab, terminalHasSessions],
+    [filePreviewPath, openPreviewColumn],
   );
 
   const openPreviewBrowser = useCallback(() => {
@@ -445,40 +628,31 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
   }, [openWebPreview]);
 
   const togglePreviewBrowser = useCallback(() => {
-    if (browserPreviewVisible) {
-      closeWorkspacePanel();
-      return;
-    }
-    if (browserPreviewActive) {
-      openDockTab("browser", { toggle: false });
+    if (previewColumnOpen && previewMode === "browser") {
+      closePreviewColumn();
       return;
     }
     openWebPreview();
-  }, [browserPreviewActive, browserPreviewVisible, closeWorkspacePanel, openDockTab, openWebPreview]);
+  }, [closePreviewColumn, openWebPreview, previewColumnOpen, previewMode]);
 
   const togglePreviewPage = useCallback(() => {
-    if (pagePreviewVisible) {
-      closeWorkspacePanel();
-      return;
-    }
-    if (pagePreviewActive) {
-      openDockTab("page", { toggle: false });
+    if (previewColumnOpen && previewMode === "page") {
+      closePreviewColumn();
       return;
     }
     openPagePreview();
-  }, [closeWorkspacePanel, openDockTab, openPagePreview, pagePreviewActive, pagePreviewVisible]);
-
-  const deactivatePreview = useCallback(() => {
-    if (terminalPanelVisible) {
-      minimizeTerminalPanel();
-    }
-    if (previewPanelVisible) {
-      closeWorkspacePanel();
-    }
-  }, [closeWorkspacePanel, minimizeTerminalPanel, previewPanelVisible, terminalPanelVisible]);
+  }, [closePreviewColumn, openPagePreview, previewColumnOpen, previewMode]);
 
   const togglePreviewMode = useCallback(
     (mode: PreviewMode) => {
+      if (mode === "file") {
+        if (previewColumnOpen && previewMode === "file") {
+          closePreviewColumn();
+          return;
+        }
+        openPreviewColumn("file");
+        return;
+      }
       if (mode === "terminal") {
         togglePreviewTerminal();
         return;
@@ -489,27 +663,39 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
       }
       togglePreviewBrowser();
     },
-    [togglePreviewBrowser, togglePreviewPage, togglePreviewTerminal],
+    [
+      closePreviewColumn,
+      openPreviewColumn,
+      previewColumnOpen,
+      previewMode,
+      togglePreviewBrowser,
+      togglePreviewPage,
+      togglePreviewTerminal,
+    ],
   );
 
   const openDockHub = useCallback(
     (hub: DockHub) => {
       if (hub === "preview") {
-        if (previewPanelActive || terminalHasSessions) {
-          deactivatePreview();
+        if (previewColumnOpen) {
+          closePreviewColumn();
           return;
         }
-        const tab = loadPreviewHubTab();
-        if (tab === "browser") {
+        closeWorkspacePanelImmediate();
+        previewWidthUserSizedRef.current = false;
+        openPreviewColumn(previewMode);
+        if (previewMode === "terminal") {
+          if (terminalHasSessions) restoreTerminalPanel();
+          else void openNewTerminal();
+        } else if (previewMode === "browser" && !browserActive) {
           openWebPreview();
-        } else {
-          openPagePreview();
-        }
-        const saved = loadPreviewPanelState();
-        if (saved.terminal) {
-          void openNewTerminal();
         }
         return;
+      }
+
+      if (hub === "work") {
+        closePreviewColumn();
+        dockWidthUserSizedRef.current = false;
       }
 
       if (workspacePanelOpen && dockHubForTab(rightDockMode) === hub) {
@@ -520,13 +706,17 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
       openDockTab(tab, { toggle: false });
     },
     [
-      deactivatePreview,
+      browserActive,
+      closePreviewColumn,
       closeWorkspacePanel,
+      closeWorkspacePanelImmediate,
       openDockTab,
       openNewTerminal,
-      openPagePreview,
+      openPreviewColumn,
       openWebPreview,
-      previewPanelActive,
+      previewColumnOpen,
+      previewMode,
+      restoreTerminalPanel,
       rightDockMode,
       terminalHasSessions,
       workspacePanelOpen,
@@ -552,26 +742,23 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
     });
   }, []);
 
-  const measureRowWidth = useCallback(() => {
-    const layoutWidthLive = layoutRef.current?.getBoundingClientRect().width;
-    const mainWidth =
-      layoutWidthLive && Number.isFinite(layoutWidthLive)
-        ? Math.max(0, Math.round(layoutWidthLive) - sidebarRenderWidth)
-        : measuredMainWidth;
-    return workbenchRowWidth(mainWidth, { toolRail: chatMode });
-  }, [chatMode, measuredMainWidth, sidebarRenderWidth]);
+  const measureLayoutWidth = useCallback(() => {
+    const live = layoutRef.current?.getBoundingClientRect().width;
+    if (live && Number.isFinite(live)) return Math.round(live);
+    return layoutWidthLive;
+  }, [layoutWidthLive]);
 
   const startDockResize = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
       if (!workspacePanelOpen) return;
-      setBrowserPreviewExpanded(false);
+      setPreviewColumnExpanded(false);
       const startX = event.clientX;
       const startWidth = rightDockWidth;
-      resizePartnerRef.current.preview = filePreviewRenderWidth;
+      resizePartnerRef.current.preview = previewColumnActive ? filePreviewRenderWidth : 0;
       resizePartnerRef.current.dock = startWidth;
       let nextWidth = startWidth;
       const rowChromeLive: WorkbenchRowChrome = {
-        previewOpen: filePreviewOpen,
+        previewOpen: previewColumnActive,
         dockOpen: true,
         toolRail: chatMode,
       };
@@ -583,14 +770,15 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
           setRightDockWidth(startWidth);
         },
         onMove: (moveEvent) => {
-          const liveRow = measureRowWidth();
-          // Left edge of a right-side panel: drag left → wider, drag right → narrower.
+          const liveLayout = measureLayoutWidth();
           const delta = startX - moveEvent.clientX;
-          const maxAllowed = maxDockPanelWidth(liveRow, resizePartnerRef.current.preview, rowChromeLive);
+          const maxAllowed = maxStudioDockWidth(liveLayout, resizePartnerRef.current.preview, rowChromeLive);
           nextWidth = clampDockRenderWidth(startWidth + delta, maxAllowed);
           setRightDockWidth(nextWidth);
         },
         onCommit: () => {
+          if (fileTreeSplitActive) setFileTreeLayoutUserSized(true);
+          dockWidthUserSizedRef.current = true;
           const committed = commitDockResize(
             resizePartnerRef.current.preview,
             nextWidth,
@@ -606,9 +794,9 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
     [
       chatMode,
       endPanelResize,
-      filePreviewOpen,
       filePreviewRenderWidth,
-      measureRowWidth,
+      measureLayoutWidth,
+      previewColumnActive,
       rightDockWidth,
       setSavedDockWidth,
       setSavedFilePreviewWidth,
@@ -618,12 +806,11 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
 
   const startFilePreviewResize = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (!filePreviewOpen) return;
+      if (!previewColumnActive) return;
       const startX = event.clientX;
       const startWidth = filePreviewRenderWidth;
       resizePartnerRef.current.preview = startWidth;
-      resizePartnerRef.current.dock =
-        workspacePanelRenderWidth > 0 ? workspacePanelRenderWidth : rightDockWidth;
+      resizePartnerRef.current.dock = workspacePanelOpen ? rightDockWidth : 0;
       let nextWidth = startWidth;
       const rowChromeLive: WorkbenchRowChrome = {
         previewOpen: true,
@@ -634,23 +821,24 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
         event,
         cursor: "col-resize",
         onStart: () => {
-          setFilePreviewExpanded(false);
+          setPreviewColumnExpanded(false);
           setFilePreviewResizing(true);
           setFilePreviewWidth(startWidth);
         },
         onMove: (moveEvent) => {
-          const liveRow = measureRowWidth();
-          // Left edge of preview: drag left → wider, drag right → narrower.
+          const liveLayout = measureLayoutWidth();
           const delta = startX - moveEvent.clientX;
           nextWidth = fitFilePreviewWidth(
             startWidth + delta,
-            liveRow,
+            liveLayout,
             resizePartnerRef.current.dock,
             rowChromeLive,
           );
           setFilePreviewWidth(nextWidth);
         },
         onCommit: () => {
+          if (fileTreeSplitActive) setFileTreeLayoutUserSized(true);
+          previewWidthUserSizedRef.current = true;
           const committed = commitPreviewResize(
             nextWidth,
             resizePartnerRef.current.dock,
@@ -667,15 +855,14 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
     },
     [
       chatMode,
-      filePreviewOpen,
+      previewColumnActive,
       filePreviewRenderWidth,
-      measureRowWidth,
+      measureLayoutWidth,
       rightDockWidth,
       endPanelResize,
       setSavedDockWidth,
       setSavedFilePreviewWidth,
       workspacePanelOpen,
-      workspacePanelRenderWidth,
     ],
   );
 
@@ -683,65 +870,98 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
     (event: KeyboardEvent<HTMLButtonElement>) => {
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         event.preventDefault();
-        setFilePreviewExpanded(false);
+        setPreviewColumnExpanded(false);
         const delta = event.key === "ArrowRight" ? 16 : -16;
         setSavedFilePreviewWidth(
-          fitFilePreviewWidth(filePreviewWidth + delta, rowWidth, rightDockWidth, rowChrome),
+          fitFilePreviewWidth(filePreviewWidth + delta, layoutWidthLive, workspacePanelOpen ? rightDockWidth : 0, rowChrome),
         );
       } else if (event.key === "Home") {
         event.preventDefault();
-        setFilePreviewExpanded(false);
+        setPreviewColumnExpanded(false);
         setSavedFilePreviewWidth(FILE_PREVIEW_MIN_WIDTH);
       } else if (event.key === "End") {
         event.preventDefault();
-        setFilePreviewExpanded(false);
+        setPreviewColumnExpanded(false);
         setSavedFilePreviewWidth(
-          fitFilePreviewWidth(FILE_PREVIEW_MAX_WIDTH, rowWidth, rightDockWidth, rowChrome),
+          fitFilePreviewWidth(FILE_PREVIEW_MAX_WIDTH, layoutWidthLive, workspacePanelOpen ? rightDockWidth : 0, rowChrome),
         );
       }
     },
-    [filePreviewWidth, rightDockWidth, rowChrome, rowWidth, setSavedFilePreviewWidth],
+    [filePreviewWidth, layoutWidthLive, rightDockWidth, rowChrome, setSavedFilePreviewWidth, workspacePanelOpen],
   );
 
   const resizeDockWithKeyboard = useCallback(
     (event: KeyboardEvent<HTMLButtonElement>) => {
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         event.preventDefault();
-        setBrowserPreviewExpanded(false);
+        setPreviewColumnExpanded(false);
         const delta = event.key === "ArrowRight" ? 16 : -16;
-        const next = fitDockWidth(rightDockWidth + delta, rowWidth, filePreviewRenderWidth, rowChrome);
+        const next = fitDockWidth(
+          rightDockWidth + delta,
+          layoutWidthLive,
+          previewColumnActive ? filePreviewRenderWidth : 0,
+          rowChrome,
+        );
         setSavedDockWidth(next);
       } else if (event.key === "Home") {
         event.preventDefault();
-        setBrowserPreviewExpanded(false);
-        const next = fitDockWidth(RIGHT_DOCK_MIN_WIDTH, rowWidth, filePreviewRenderWidth, rowChrome);
+        setPreviewColumnExpanded(false);
+        const next = fitDockWidth(RIGHT_DOCK_MIN_WIDTH, layoutWidthLive, previewColumnActive ? filePreviewRenderWidth : 0, rowChrome);
         setSavedDockWidth(next);
       } else if (event.key === "End") {
         event.preventDefault();
-        setBrowserPreviewExpanded(false);
-        const next = fitDockWidth(RIGHT_DOCK_MAX_WIDTH, rowWidth, filePreviewRenderWidth, rowChrome);
+        setPreviewColumnExpanded(false);
+        const next = fitDockWidth(RIGHT_DOCK_MAX_WIDTH, layoutWidthLive, previewColumnActive ? filePreviewRenderWidth : 0, rowChrome);
         setSavedDockWidth(next);
       }
     },
     [
       filePreviewRenderWidth,
+      layoutWidthLive,
+      previewColumnActive,
       rightDockWidth,
       rowChrome,
-      rowWidth,
       setSavedDockWidth,
     ],
   );
 
+  const addPreviewTerminal = useCallback(() => {
+    openPreviewColumn("terminal");
+    if (terminalHasSessions) restoreTerminalPanel();
+    else void openNewTerminal();
+  }, [openNewTerminal, openPreviewColumn, restoreTerminalPanel, terminalHasSessions]);
+
+  const addPreviewBrowser = useCallback(() => {
+    openWebPreview();
+  }, [openWebPreview]);
+
   const resetFilePreviewWidthFromDock = useCallback(() => {
-    setSavedFilePreviewWidth(
-      fitFilePreviewWidth(defaultFilePreviewWidth(), rowWidth, rightDockWidth, rowChrome),
-    );
-  }, [rightDockWidth, rowChrome, rowWidth, setSavedFilePreviewWidth]);
+    if (fileTreeSplitActive) {
+      setFileTreeLayoutUserSized(false);
+      const split = studioFileTreeSplitWidths(layoutWidthLive, chatMode);
+      setFilePreviewWidth(split.preview);
+      saveFilePreviewWidth(split.preview);
+      setRightDockWidth(split.dock);
+      setDockAnimWidth(split.dock);
+      saveLayoutSize("rightDockWidth", split.dock, clampRightDockWidth);
+      return;
+    }
+    applyStudioRightPanelDefault("preview");
+  }, [applyStudioRightPanelDefault, chatMode, fileTreeSplitActive, layoutWidthLive]);
 
   const resetDockWidthFromDefault = useCallback(() => {
-    const next = fitDockWidth(defaultRightDockWidth(), rowWidth, filePreviewRenderWidth, rowChrome);
-    setSavedDockWidth(next);
-  }, [filePreviewRenderWidth, rowChrome, rowWidth, setSavedDockWidth]);
+    if (fileTreeSplitActive) {
+      setFileTreeLayoutUserSized(false);
+      const split = studioFileTreeSplitWidths(layoutWidthLive, chatMode);
+      setFilePreviewWidth(split.preview);
+      saveFilePreviewWidth(split.preview);
+      setRightDockWidth(split.dock);
+      setDockAnimWidth(split.dock);
+      saveLayoutSize("rightDockWidth", split.dock, clampRightDockWidth);
+      return;
+    }
+    applyStudioRightPanelDefault("dock");
+  }, [applyStudioRightPanelDefault, chatMode, fileTreeSplitActive, layoutWidthLive]);
 
   const clearFilePreviewComposerOpen = useCallback(() => {
     setFilePreviewComposerOpen(false);
@@ -751,22 +971,25 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
     () =>
       ({
         "--sidebar-render-width": `${sidebarRenderWidth}px`,
-        "--file-preview-render-width": `${filePreviewRenderWidth}px`,
+        "--studio-drawer-w": `${studioDrawerRenderWidth}px`,
+        "--studio-sidebar-w-open": `${sidebarRenderWidth}px`,
+        "--file-preview-render-width": `${previewColumnRenderWidth}px`,
+        "--preview-column-width": `${previewColumnRenderWidth}px`,
         "--dock-render-width": `${dockGridWidth}px`,
       }) as CSSProperties,
-    [dockGridWidth, filePreviewRenderWidth, sidebarRenderWidth, projectDrawerOpen],
+    [dockGridWidth, previewColumnRenderWidth, sidebarRenderWidth, studioDrawerRenderWidth],
   );
 
   const addWorkspaceTextToComposer = useCallback(
     (text: string, replace = false) => {
       setComposerInsertRequest({ id: Date.now(), text, replace: replace || undefined });
-      if (filePreviewExpanded) {
+      if (previewColumnExpanded) {
         setFilePreviewComposerOpen(true);
         return;
       }
       setFilePreviewComposerOpen(false);
     },
-    [filePreviewExpanded, setComposerInsertRequest],
+    [previewColumnExpanded, setComposerInsertRequest],
   );
 
   return {
@@ -780,18 +1003,29 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
     dockResizing,
     filePreviewPath,
     filePreviewDiff,
-    filePreviewExpanded,
+    previewColumnOpen,
+    previewColumnActive,
+    fileTreeSplitActive,
+    fileTreePreviewContext,
+    fileTreeLayoutUserSized,
+    fileTreePreviewExpanded,
+    expandFileTreePreview,
+    collapseFileTreePreview,
+    backToFileTreeFromPreview,
+    previewColumnExpanded,
+    previewMode,
+    setPreviewMode,
     filePreviewComposerOpen,
     filePreviewResizing,
     rightDockMode,
     rightDockWidth,
-    browserPreviewExpanded,
     browserPreviewActive,
     browserPreviewVisible,
     pagePreviewActive,
     pagePreviewVisible,
     previewPanelVisible,
     previewPanelActive,
+    previewTerminalDocked,
     dockMounted,
     dockBackgroundSessions,
     openWebPreview,
@@ -802,15 +1036,19 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
     setPagePreviewPath,
     showRightDock,
     closeWorkspacePanel,
+    closePreviewColumn,
     openDockTab,
     openFilePreview,
     openActionFilePreview,
     closeFilePreview,
     exitExpandedPreviewComposer,
     toggleFilePreviewExpanded,
+    togglePreviewColumnExpanded,
     toggleBrowserPreviewExpanded,
     togglePreviewTerminal,
     togglePreviewMode,
+    addPreviewTerminal,
+    addPreviewBrowser,
     openDockHub,
     startDockResize,
     startFilePreviewResize,

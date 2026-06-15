@@ -30,6 +30,7 @@ export type DesktopSendRouterDeps = {
   setSddOpen: (open: boolean) => void;
   syncModeToController: (mode: Mode) => void | Promise<void>;
   send: (displayText: string, submitText?: string) => void;
+  enterPlanMode: (options?: { prefill?: boolean }) => void;
   exitExpandedPreviewComposer: () => void;
 };
 
@@ -104,6 +105,17 @@ async function executeDesktopSendRoute(route: DesktopSendRoute, deps: DesktopSen
     }
     case "themeUnknown":
       deps.notice(deps.t("settings.themeUnknown", { name: route.name }), "warn");
+      return;
+    case "planEnter":
+      deps.setAppMode("code");
+      deps.enterPlanMode();
+      return;
+    case "planSend":
+      deps.setAppMode("code");
+      deps.enterPlanMode({ prefill: false });
+      await deps.syncModeToController("plan");
+      deps.send(route.displayText, route.text);
+      if (deps.filePreviewComposerOpen) deps.exitExpandedPreviewComposer();
       return;
     case "send":
       await deps.syncModeToController(deps.mode);

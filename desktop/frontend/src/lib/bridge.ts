@@ -109,6 +109,8 @@ export interface AppBindings {
   SubmitToTab(tabID: string, input: string): Promise<void>;
   SubmitDisplay(display: string, input: string): Promise<void>;
   SubmitDisplayToTab(tabID: string, display: string, input: string): Promise<void>;
+  SyncTodoProgressToTab(tabID: string): Promise<void>;
+  UpdateLatestTodoArgsForTab(tabID: string, args: string): Promise<void>;
   RunShell(command: string): Promise<void>;
   RunShellQuiet(command: string): Promise<ShellRunResult>;
   StartTerminal(): Promise<TerminalStartResult>;
@@ -1298,6 +1300,12 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
         },
         async SubmitDisplayToTab(_tabID, display, input) {
           await this.SubmitDisplay(display, input);
+        },
+        async SyncTodoProgressToTab(_tabID) {
+          await delay(50);
+        },
+        async UpdateLatestTodoArgsForTab(_tabID, _args) {
+          await delay(50);
         },
         async RunShell(command) {
           cancelled = false;

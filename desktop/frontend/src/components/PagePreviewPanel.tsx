@@ -8,6 +8,7 @@ import { basename, isPreviewablePagePath } from "../lib/previewPage";
 import { Tooltip } from "./Tooltip";
 
 export interface PagePreviewPanelProps {
+  embedded?: boolean;
   expanded?: boolean;
   onToggleExpanded?: () => void;
   pagePath?: string | null;
@@ -17,6 +18,7 @@ export interface PagePreviewPanelProps {
 }
 
 export function PagePreviewPanel({
+  embedded = false,
   expanded = false,
   onToggleExpanded,
   pagePath,
@@ -92,7 +94,7 @@ export function PagePreviewPanel({
   const title = pagePath ? basename(pagePath) : t("pagePreview.title");
 
   return (
-    <div className="right-dock__browser browser-panel page-preview-panel">
+    <div className={`right-dock__browser browser-panel page-preview-panel${embedded ? " page-preview-panel--embedded" : ""}`}>
       <header className="browser-panel__chrome wails-no-drag">
         <div className="browser-panel__row">
           <div className="browser-panel__tools" role="toolbar" aria-label={t("pagePreview.title")}>
@@ -107,7 +109,7 @@ export function PagePreviewPanel({
                 <RefreshCw size={15} strokeWidth={1.75} />
               </button>
             </Tooltip>
-            {onToggleExpanded ? (
+            {!embedded && onToggleExpanded ? (
               <Tooltip label={t(expanded ? "browser.collapse" : "browser.expand")}>
                 <button
                   type="button"

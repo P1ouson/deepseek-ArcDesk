@@ -1,19 +1,9 @@
 import type { ReactNode } from "react";
-import { useT, type Translator } from "../lib/i18n";
+import { useT } from "../lib/i18n";
 import { formatMoney } from "../lib/formatMoney";
 import { sessionCacheRate, stepCacheRate } from "../lib/cacheRate";
 import { Tooltip } from "./Tooltip";
-import type { BalanceInfo, ContextInfo, WireCacheDiagnostics, WireUsage } from "../lib/types";
-
-function prefixWarning(
-  diag: WireCacheDiagnostics | undefined,
-  t: Translator,
-): string | null {
-  if (!diag?.prefixChanged) return null;
-  const reasons = diag.prefixChangeReasons?.filter(Boolean) ?? [];
-  if (reasons.length === 0) return t("status.cachePrefixWarnUnknown");
-  return t("status.cachePrefixWarn", { reasons: reasons.join(", ") });
-}
+import type { BalanceInfo, ContextInfo, WireUsage } from "../lib/types";
 
 export interface ComposerDockFooterProps {
   context: ContextInfo;
@@ -40,7 +30,6 @@ export function ComposerDockFooter({
   const billingAvailable = balance?.available === true;
   const costLabel = billingAvailable ? formatMoney(sessionCost, sessionCurrency) : "--";
   const balanceLabel = billingAvailable && balance.display ? balance.display : "--";
-  const prefixWarn = prefixWarning(usage?.cacheDiagnostics, t);
 
   // Reasonix desktop order: 本次命中 (latest step) primary · 平均命中 secondary.
   const cachePrimary = (
@@ -78,7 +67,6 @@ export function ComposerDockFooter({
 
   return (
     <div className="composer-dock__footer" aria-label={t("composer.footer.aria")}>
-      {prefixWarn ? <div className="composer-dock__footer-prefix-warn">{prefixWarn}</div> : null}
       <div className="composer-dock__footer-row">
         {parts.map((part, index) => (
           <span key={index} className="composer-dock__footer-part">

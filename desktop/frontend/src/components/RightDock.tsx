@@ -6,9 +6,7 @@ import { dockHubForTab } from "../lib/dockHubs";
 
 import { dockHubLabel, dockTabLabel, dockTabsForHub } from "./DockHubButtons";
 
-import { BrowserPanel } from "./BrowserPanel";
 import type { BrowserTab } from "../lib/useBrowserPanel";
-import { PagePreviewPanel } from "./PagePreviewPanel";
 
 import { ChangesPanel } from "./ChangesPanel";
 
@@ -83,6 +81,10 @@ export interface RightDockProps {
   onDismissTodos?: () => void;
 
   onStartPlan?: () => void;
+
+  onSyncTodoProgress?: () => void;
+
+  todoSyncing?: boolean;
 
   codeReview?: CodeReviewState;
 
@@ -170,31 +172,15 @@ export function RightDock({
 
   onStartPlan,
 
+  onSyncTodoProgress,
+
+  todoSyncing,
+
   codeReview,
 
   onRunCodeReview,
 
   onClearCodeReview,
-
-  browserExpanded = false,
-
-  onToggleBrowserExpanded,
-
-  browserTabs = [],
-
-  activeBrowserTabId = null,
-
-  onBrowserTabChange,
-
-  onCloseBrowserTab,
-
-  onNewBrowserTab,
-
-  onBrowserTabUrlChange,
-
-  pagePreviewPath,
-
-  onPagePreviewPathChange,
 
   onPreviewPage,
 
@@ -222,8 +208,6 @@ export function RightDock({
       className={[
         "right-dock",
         background ? "right-dock--background" : "",
-        tab === "browser" && browserExpanded ? "right-dock--browser-expanded" : "",
-        tab === "page" && browserExpanded ? "right-dock--browser-expanded" : "",
         closing ? "motion-panel--closing" : "",
       ]
         .filter(Boolean)
@@ -362,31 +346,8 @@ export function RightDock({
             stale={todoStale}
             onDismiss={onDismissTodos ?? (() => {})}
             onStartPlan={onStartPlan}
-          />
-        )}
-
-        {tab === "page" && (
-          <PagePreviewPanel
-            expanded={browserExpanded}
-            onToggleExpanded={onToggleBrowserExpanded}
-            pagePath={pagePreviewPath}
-            onPagePathChange={onPagePreviewPathChange}
-            refreshKey={refreshKey}
-            workspaceRoot={cwd}
-          />
-        )}
-        {tab === "browser" && (
-          <BrowserPanel
-            expanded={browserExpanded}
-            onToggleExpanded={onToggleBrowserExpanded}
-            tabs={browserTabs}
-            activeId={activeBrowserTabId}
-            onActiveChange={(id) => onBrowserTabChange?.(id)}
-            onCloseTab={(id) => onCloseBrowserTab?.(id)}
-            onNewTab={() => onNewBrowserTab?.()}
-            onTabUrlChange={(id, url, title) => onBrowserTabUrlChange?.(id, url, title)}
-            refreshKey={refreshKey}
-            workspaceRoot={cwd}
+            onSyncProgress={onSyncTodoProgress}
+            syncing={todoSyncing}
           />
         )}
 

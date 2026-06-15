@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"arcdesk/internal/harness"
 	"arcdesk/internal/skill"
 )
 
@@ -18,31 +19,27 @@ const PlanModeMarker = "[Plan mode — read-only. Explore the codebase first (re
 func (c *Controller) Compose(text string) string {
 	c.mu.Lock()
 	plan := c.planMode
-	notes := c.pendingMemory
-	c.pendingMemory = nil
+	todoArgs := c.latestTodoArgs
 	c.mu.Unlock()
+
+	if !plan {
+		if block := FormatTodoContextBlock(todoArgs); block != "" {
+			text = block + "\n\n" + text
+		}
+	}
 
 	if plan {
 		text = PlanModeMarker + "\n\n" + text
 	}
 
-	// Memory added mid-session rides the turn (never the cached system prefix),
-	// so it takes effect now without invalidating the prompt cache. It folds into
-	// the system prefix on the next session, where it costs nothing per turn.
+	var notes []string
+	if c.plane != nil && c.plane.Memory != nil {
+		notes = c.plane.Memory.DrainWorking()
+	}
 	if len(notes) > 0 {
-		var b strings.Builder
-		b.WriteString("<memory-update>\n")
-		b.WriteString("The following project-memory changes were just made and apply from now on:\n")
-		for _, n := range notes {
-			b.WriteString("- " + n + "\n")
-		}
-		b.WriteString("</memory-update>\n\n")
-		text = b.String() + text
+		text = harness.FormatWorkingBlock(notes) + text
 	}
 
-	// Background jobs that finished since the last turn ride the turn too, so the
-	// model learns of completions even though the user-facing notices don't reach
-	// its context. Like memory, this never touches the cache-stable prefix.
 	if c.jobs != nil {
 		if note := c.jobs.DrainCompletedNote(); note != "" {
 			text = "<background-jobs>\n" + note + "\n</background-jobs>\n\n" + text

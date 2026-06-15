@@ -457,6 +457,34 @@ func (a *App) SubmitDisplayToTab(tabID, display, input string) error {
 	return nil
 }
 
+// UpdateLatestTodoArgsForTab caches the right-dock task list for Compose injection.
+func (a *App) UpdateLatestTodoArgsForTab(tabID, args string) error {
+	ctrl := a.ctrlByTabID(tabID)
+	if ctrl == nil {
+		return errControllerNotReady
+	}
+	ctrl.UpdateLatestTodoArgs(args)
+	return nil
+}
+
+// SyncTodoProgressToTab refreshes the cached right-dock task list for this tab.
+// It does not start an agent turn — the list is injected on the next user send.
+func (a *App) SyncTodoProgressToTab(tabID string) error {
+	ctrl := a.ctrlByTabID(tabID)
+	if ctrl == nil {
+		return errControllerNotReady
+	}
+	args := strings.TrimSpace(ctrl.LatestTodoArgs())
+	if args == "" {
+		return errors.New("no task list to sync")
+	}
+	if control.FormatTodoContextBlock(args) == "" {
+		return errors.New("no task list to sync")
+	}
+	ctrl.UpdateLatestTodoArgs(args)
+	return nil
+}
+
 // Cancel aborts the in-flight turn.
 func (a *App) Cancel() {
 	a.CancelTab("")

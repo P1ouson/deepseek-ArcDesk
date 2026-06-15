@@ -158,6 +158,7 @@ export type Action =
   | { type: "clearKnowledgeCapture" }
   | { type: "clearRecentCompletion" }
   | { type: "resolveAsk"; id: string; answers: QuestionAnswer[]; dismissed: boolean }
+  | { type: "cancelTurn" }
   | { type: "reset" };
 
 // ---- reducer helpers (unchanged logic) ----
@@ -431,8 +432,11 @@ function applyEvent(s: State, e: WireEvent): State {
       const base = rejected ? revertRejectedSend(s) : s;
       return { ...base, running: base.turnActive ? base.running : false, seq: base.seq + 1, items: [...base.items, { kind: "notice", id: `n${base.seq}`, level: e.level ?? "info", text }] };
     }
-    case "phase":
-      return { ...s, seq: s.seq + 1, items: [...s.items, { kind: "phase", id: `p${s.seq}`, text: e.text ?? "" }] };
+    case "phase": {
+      const text = e.text ?? "";
+      if (text.startsWith("harness/")) return s;
+      return { ...s, seq: s.seq + 1, items: [...s.items, { kind: "phase", id: `p${s.seq}`, text }] };
+    }
     case "compaction_started":
       return { ...s, seq: s.seq + 1, items: [...s.items, { kind: "compaction", id: `c${s.seq}`, pending: true, trigger: e.compaction?.trigger ?? "", messages: 0, summary: "", archive: "" }] };
     case "compaction_done": {
@@ -541,6 +545,32 @@ function reducer(s: State, a: Action): State {
           : it,
       );
       return { ...s, ask: undefined, items };
+    }
+    case "cancelTurn": {
+      const items = s.items.flatMap((it) => {
+        if (it.kind === "assistant" && (it.streaming || (s.live && it.id === s.live.id))) {
+          const text = s.live?.id === it.id ? s.live.text : it.text;
+          if (!text.trim() && !(s.live?.reasoning ?? it.reasoning)?.trim()) return [];
+          return [{
+            ...it,
+            text: text.trim() ? text : it.text,
+            reasoning: s.live?.id === it.id ? s.live.reasoning : it.reasoning,
+            streaming: false,
+          }];
+        }
+        if (it.kind === "tool" && it.status === "running") return [{ ...it, status: "stopped" as const }];
+        return [it];
+      });
+      return {
+        ...s,
+        items,
+        live: undefined,
+        running: false,
+        turnActive: false,
+        discardTurn: true,
+        currentAssistant: undefined,
+        retry: undefined,
+      };
     }
     case "reset": return { ...initialState, meta: s.meta, context: { ...s.context, used: 0 }, balance: s.balance, effort: s.effort, jobs: s.jobs };
     case "event": return applyEvent(s, a.e);
@@ -1031,7 +1061,12 @@ export function useController() {
       }
       return text;
     }
-    if (tabId) app.CancelTab(tabId).catch(reportFailure);
+    if (tabId) {
+      if (cur.running || cur.turnActive || cur.live) {
+        dispatchTo(tabId, { type: "cancelTurn" });
+      }
+      app.CancelTab(tabId).catch(reportFailure);
+    }
     return undefined;
   }, [activeTabId, dispatchTo, reportFailure]);
 

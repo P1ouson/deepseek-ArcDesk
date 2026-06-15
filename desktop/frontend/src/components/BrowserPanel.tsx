@@ -42,6 +42,7 @@ export interface BrowserPanelProps {
   onCloseTab: (id: string) => void;
   onNewTab: () => void;
   onTabUrlChange: (id: string, url: string, title?: string) => void;
+  embedded?: boolean;
   expanded?: boolean;
   onToggleExpanded?: () => void;
   refreshKey?: number;
@@ -435,6 +436,7 @@ export function BrowserPanel({
   onCloseTab,
   onNewTab,
   onTabUrlChange,
+  embedded = false,
   expanded = false,
   onToggleExpanded,
   refreshKey = 0,
@@ -451,7 +453,7 @@ export function BrowserPanel({
 
   if (tabs.length === 0) {
     return (
-      <div className="right-dock__browser browser-panel browser-panel--empty">
+      <div className={`right-dock__browser browser-panel browser-panel--empty${embedded ? " browser-panel--embedded" : ""}`}>
         <p>{t("browser.idleTitle")}</p>
         <button type="button" className="browser-panel__retry" onClick={onNewTab}>
           {t("browser.newTab")}
@@ -461,7 +463,7 @@ export function BrowserPanel({
   }
 
   return (
-    <div className="right-dock__browser browser-panel">
+    <div className={`right-dock__browser browser-panel${embedded ? " browser-panel--embedded" : ""}`}>
       <header className="browser-panel__tabbar wails-no-drag">
         <div className="browser-panel__tabs" ref={tabsRef} role="tablist" aria-label={t("browser.tabs")}>
           {tabs.map((tab) => (
@@ -499,7 +501,7 @@ export function BrowserPanel({
           <button type="button" className="browser-panel__action" onClick={onNewTab} aria-label={t("browser.newTab")}>
             <Plus size={14} />
           </button>
-          {onToggleExpanded ? (
+          {!embedded && onToggleExpanded ? (
             <Tooltip label={t(expanded ? "browser.collapse" : "browser.expand")}>
               <button
                 type="button"

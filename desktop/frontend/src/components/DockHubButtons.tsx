@@ -37,6 +37,7 @@ const TAB_META: Record<RightDockTab, { icon: ReactNode; labelKey: string; fallba
 };
 
 const PREVIEW_META: Record<PreviewMode, { icon: ReactNode; labelKey: string; fallback: string }> = {
+  file: { icon: <FileText size={14} />, labelKey: "previewHub.file", fallback: "File" },
   browser: { icon: <Monitor size={14} />, labelKey: "browser.title", fallback: "Browser" },
   page: { icon: <Globe size={14} />, labelKey: "pagePreview.title", fallback: "Preview" },
   terminal: { icon: <SquareTerminal size={14} />, labelKey: "terminal.title", fallback: "Terminal" },
@@ -50,6 +51,7 @@ const HUB_META: Record<DockHub, { icon: ReactNode; labelKey: "dockHub.context" |
 
 export interface DockHubButtonsProps {
   dockOpen: boolean;
+  previewOpen?: boolean;
   activeDockTab?: RightDockTab | null;
   onHubPress: (hub: DockHub) => void;
   onOpenDockTab: (tab: RightDockTab) => void;
@@ -58,6 +60,7 @@ export interface DockHubButtonsProps {
 
 export function DockHubButtons({
   dockOpen,
+  previewOpen = false,
   activeDockTab,
   onHubPress,
   onOpenDockTab,
@@ -85,7 +88,7 @@ export function DockHubButtons({
   };
 
   const hubIsActive = (hub: DockHub): boolean => {
-    if (hub === "preview") return false;
+    if (hub === "preview") return previewOpen;
     return dockOpen && activeHub === hub;
   };
 

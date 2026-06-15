@@ -20,28 +20,40 @@ export function useTerminalPanel(deps: TerminalPanelDeps) {
   const [terminalAnimHeight, setTerminalAnimHeight] = useState(0);
   const [terminalMotionKey, setTerminalMotionKey] = useState(0);
   const terminalTabKeyRef = useRef(0);
+  const terminalHeightRef = useRef(terminalHeight);
+  const slideWasOpenRef = useRef(false);
+
+  terminalHeightRef.current = terminalHeight;
 
   const terminalHasSessions = terminalTabs.length > 0;
   const terminalPanelVisible = terminalOpen;
   const slideOpen = terminalOpen && terminalTabs.length > 0;
   const { shown: terminalPanelShown } = usePanelSlide(slideOpen);
-  const measureSlide = usePanelSlideMeasure(() => setTerminalAnimHeight(terminalHeight));
+  const measureSlide = usePanelSlideMeasure(
+    useCallback(() => setTerminalAnimHeight(terminalHeightRef.current), []),
+  );
 
   useEffect(() => {
     if (!slideOpen) {
+      slideWasOpenRef.current = false;
       if (!terminalPanelShown) return;
       setTerminalAnimHeight(0);
       return;
     }
-    setTerminalMotionKey((key) => key + 1);
-    setTerminalAnimHeight(0);
-    return measureSlide();
+    const opening = !slideWasOpenRef.current;
+    slideWasOpenRef.current = true;
+    if (opening) {
+      setTerminalMotionKey((key) => key + 1);
+      setTerminalAnimHeight(0);
+      return measureSlide();
+    }
+    setTerminalAnimHeight(terminalHeightRef.current);
   }, [slideOpen, terminalPanelShown, measureSlide]);
 
   useEffect(() => {
-    if (!slideOpen || !terminalPanelShown || terminalAnimHeight <= 0) return;
+    if (!slideOpen || !terminalPanelShown) return;
     setTerminalAnimHeight(terminalHeight);
-  }, [terminalHeight, slideOpen, terminalPanelShown, terminalAnimHeight]);
+  }, [terminalHeight, slideOpen, terminalPanelShown]);
 
   const closeTerminalPanel = useCallback(() => {
     closeAllTerminals();

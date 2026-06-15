@@ -1,12 +1,13 @@
 import type { RightDockTab } from "../components/Topbar";
 
 export type DockHub = "context" | "work" | "preview";
-export type PreviewMode = "browser" | "page" | "terminal";
+export type PreviewMode = "file" | "browser" | "page" | "terminal";
 
 export interface PreviewPanelState {
   terminal: boolean;
   browser: boolean;
   page: boolean;
+  file: boolean;
 }
 
 export interface DockHubDef {
@@ -19,7 +20,7 @@ export interface DockHubDef {
 export const DOCK_HUBS: DockHubDef[] = [
   { id: "context", defaultTab: "context", tabs: ["context"] },
   { id: "work", defaultTab: "changes", tabs: ["changes", "files", "todo", "git"] },
-  { id: "preview", defaultTab: "page", tabs: ["page", "browser"], previewModes: ["page", "browser", "terminal"] },
+  { id: "preview", defaultTab: "page", tabs: ["page", "browser"], previewModes: ["terminal", "browser"] },
 ];
 
 const HUB_BY_TAB = new Map<RightDockTab, DockHub>(
@@ -99,7 +100,7 @@ export function savePreviewHubTab(tab: "browser" | "page"): void {
 }
 
 export function loadPreviewPanelState(): PreviewPanelState {
-  if (typeof window === "undefined") return { terminal: false, browser: false, page: true };
+  if (typeof window === "undefined") return { terminal: false, browser: false, page: true, file: false };
   try {
     const raw = window.localStorage.getItem(PREVIEW_PANEL_STORAGE_KEY);
     if (raw) {
@@ -108,15 +109,16 @@ export function loadPreviewPanelState(): PreviewPanelState {
         terminal: parsed.terminal === true,
         browser: parsed.browser === true,
         page: parsed.page !== false,
+        file: parsed.file === true,
       };
     }
     const legacy = window.localStorage.getItem(PREVIEW_MODE_STORAGE_KEY);
-    if (legacy === "terminal") return { terminal: true, browser: false, page: false };
-    if (legacy === "browser") return { terminal: false, browser: true, page: false };
+    if (legacy === "terminal") return { terminal: true, browser: false, page: false, file: false };
+    if (legacy === "browser") return { terminal: false, browser: true, page: false, file: false };
   } catch {
     /* ignore */
   }
-  return { terminal: false, browser: false, page: true };
+  return { terminal: false, browser: false, page: true, file: false };
 }
 
 export function savePreviewPanelState(state: PreviewPanelState): void {
@@ -164,6 +166,7 @@ export function getPreviewPanelState(
     terminal: terminalOpen,
     browser: dockOpen && activeTab === "browser",
     page: dockOpen && activeTab === "page",
+    file: false,
   };
 }
 
@@ -206,5 +209,6 @@ export function savePreviewMode(mode: PreviewMode): void {
     terminal: mode === "terminal",
     browser: mode === "browser",
     page: mode === "page",
+    file: mode === "file",
   });
 }

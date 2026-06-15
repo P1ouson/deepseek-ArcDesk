@@ -1631,6 +1631,7 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 				if receipt.Write {
 					a.noteCaptureFixPaths(receipt.Paths)
 				}
+				a.emitAutoTodoAdvance(call)
 			}
 		} else {
 			receipt := evidence.ReceiptFromToolCall(call.Name, json.RawMessage(call.Arguments), err == nil, t.ReadOnly())
@@ -1684,6 +1685,37 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 		}
 	}
 	return toolOutcome{output: body, truncated: truncMsg != "", truncMsg: truncMsg}
+}
+
+func (a *Agent) emitAutoTodoAdvance(call provider.ToolCall) {
+	if a.evidence == nil || a.sink == nil {
+		return
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(call.Arguments), &fields); err != nil {
+		return
+	}
+	raw, ok := fields["step"]
+	if !ok {
+		return
+	}
+	var step string
+	if err := json.Unmarshal(raw, &step); err != nil {
+		return
+	}
+	step = strings.TrimSpace(step)
+	if step == "" {
+		return
+	}
+	advancedArgs, ok := a.evidence.AdvanceTodoArgsAfterStep(step)
+	if !ok {
+		return
+	}
+	id := call.ID + "-todo-advance"
+	toolEv := event.Tool{ID: id, Name: "todo_write", Args: advancedArgs, ReadOnly: true}
+	a.sink.Emit(event.Event{Kind: event.ToolDispatch, Tool: toolEv})
+	toolEv.Output = "task list advanced after verified step"
+	a.sink.Emit(event.Event{Kind: event.ToolResult, Tool: toolEv})
 }
 
 func (a *Agent) repeatedSuccessBlock(call provider.ToolCall, t tool.Tool) (string, bool) {

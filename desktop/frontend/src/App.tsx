@@ -25,7 +25,7 @@ import { RightDock } from "./components/RightDock";
 import type { RightDockTab } from "./components/Topbar";
 import { SettingsDockModal } from "./components/SettingsDockModal";
 import { SettingsWorkspaceDataModal, type SettingsDataModalState } from "./components/SettingsWorkspaceDataModal";
-import { FilePreviewPanel } from "./components/FilePreviewPanel";
+import { UnifiedPreviewPanel } from "./components/UnifiedPreviewPanel";
 import { AgentDecisionLayer } from "./components/AgentDecisionLayer";
 import { clearAgentDecisionNotifications, notifyAgentDecision } from "./lib/agentNotifications";
 import { KNOWLEDGE_RECORDED_EVENT } from "./lib/events";
@@ -277,11 +277,21 @@ export default function App() {
     dockResizing,
     filePreviewPath,
     filePreviewDiff,
-    filePreviewExpanded,
+    previewColumnOpen,
+    previewColumnActive,
+    fileTreeSplitActive,
+    fileTreePreviewContext,
+    fileTreeLayoutUserSized,
+    fileTreePreviewExpanded,
+    expandFileTreePreview,
+    collapseFileTreePreview,
+    backToFileTreeFromPreview,
+    previewMode,
+    previewTerminalDocked,
+    closePreviewColumn,
     filePreviewComposerOpen,
     filePreviewResizing,
     rightDockMode,
-    browserPreviewExpanded,
     pagePreviewActive,
     dockMounted,
     dockBackgroundSessions,
@@ -289,7 +299,6 @@ export default function App() {
     setPagePreviewPath,
     openWebPreview,
     openPagePreview,
-    filePreviewOpen,
     showRightDock,
     closeWorkspacePanel,
     openDockTab,
@@ -297,10 +306,7 @@ export default function App() {
     openActionFilePreview,
     closeFilePreview,
     exitExpandedPreviewComposer,
-    toggleFilePreviewExpanded,
-    toggleBrowserPreviewExpanded,
     togglePreviewTerminal,
-    togglePreviewMode,
     openDockHub,
     startDockResize,
     startFilePreviewResize,
@@ -309,6 +315,8 @@ export default function App() {
     resetFilePreviewWidthFromDock,
     resetDockWidthFromDefault,
     clearFilePreviewComposerOpen,
+    addPreviewBrowser,
+    addPreviewTerminal,
     addWorkspaceTextToComposer,
   } = useWorkbenchDock({
     appMode,
@@ -335,10 +343,10 @@ export default function App() {
 
   useEffect(() => {
     if (browserActive) return;
-    if (rightDockMode !== "browser") return;
-    if (!workspacePanelOpen) return;
-    closeWorkspacePanel();
-  }, [browserActive, closeWorkspacePanel, rightDockMode, workspacePanelOpen]);
+    if (previewMode !== "browser") return;
+    if (!previewColumnOpen) return;
+    closePreviewColumn();
+  }, [browserActive, closePreviewColumn, previewColumnOpen, previewMode]);
 
   // Persist window geometry across launches.
   useWindowStatePersistence();
@@ -641,6 +649,36 @@ export default function App() {
     return completedToolsAfter >= 2 || finalAssistantAfter || readinessNoticeAfter || staleByTime;
   }, [showTodos, state.items, state.running, todoEntry, todoNow]);
 
+  const todoAutoOpenedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!showTodos || !todoItem?.id) return;
+    if (todoAutoOpenedRef.current === todoItem.id) return;
+    todoAutoOpenedRef.current = todoItem.id;
+    openDockTab("todo", { toggle: false });
+  }, [showTodos, todoItem?.id, openDockTab]);
+
+  useEffect(() => {
+    if (!activeTabId || !todoItem?.args || todos.length === 0) return;
+    void app.UpdateLatestTodoArgsForTab(activeTabId, todoItem.args).catch((err) =>
+      logBridgeError("UpdateLatestTodoArgsForTab", err),
+    );
+  }, [activeTabId, todoItem?.args, todos.length]);
+
+  const [todoSyncing, setTodoSyncing] = useState(false);
+  const syncTodoProgress = useCallback(async () => {
+    if (!activeTabId || state.running || todos.length === 0 || !todoItem?.args) return;
+    setTodoSyncing(true);
+    try {
+      await app.UpdateLatestTodoArgsForTab(activeTabId, todoItem.args);
+      await app.SyncTodoProgressToTab(activeTabId);
+      notice(t("todo.syncStarted"));
+    } catch (err) {
+      notice(t("todo.syncFailed", { msg: toErrorMessage(err) }), "warn");
+    } finally {
+      setTodoSyncing(false);
+    }
+  }, [activeTabId, notice, state.running, t, todoItem?.args, todos.length]);
+
   // useDeferredValue lets React prioritise Composer input (high-priority) over
   // Transcript re-renders (low-priority) during streaming. When a keystroke
   // and a transcript update collide, the keystroke is processed immediately
@@ -764,6 +802,17 @@ export default function App() {
     void openMemory();
   }, [openMemory]);
 
+  const enterPlanMode = useCallback(
+    (options?: { prefill?: boolean }) => {
+      setAppMode("code");
+      applyMode("plan");
+      if (options?.prefill !== false) {
+        setComposerInsertRequest({ id: Date.now(), text: "/plan ", replace: true });
+      }
+    },
+    [applyMode],
+  );
+
   const handleSend = useDesktopSendRouter({
     appMode,
     mode,
@@ -783,6 +832,7 @@ export default function App() {
     setSddOpen,
     syncModeToController,
     send,
+    enterPlanMode,
     exitExpandedPreviewComposer,
   });
 
@@ -842,7 +892,7 @@ export default function App() {
     const observer = new ResizeObserver(update);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [filePreviewComposerOpen, filePreviewExpanded, chatMode, appMode, terminalPanelVisible, state.approval, state.ask, showWorkbenchFooter]);
+  }, [filePreviewComposerOpen, chatMode, appMode, terminalPanelVisible, previewTerminalDocked, state.approval, state.ask, showWorkbenchFooter]);
 
   const toggleTerminal = useCallback(() => {
     togglePreviewTerminal();
@@ -1294,7 +1344,6 @@ export default function App() {
     document.querySelector(".workbench__composer-zone .arc-decision-layer")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, []);
 
-  const agentActive = state.running || state.turnActive || state.approval != null || state.ask != null;
   const composerAgentRunning = isCancellableAgentWork(state);
 
   useEffect(() => {
@@ -1474,7 +1523,6 @@ export default function App() {
                 onStartRename={startActiveTopicRename}
                 onCommitRename={() => void commitActiveTopicRename()}
                 onCancelRename={cancelActiveTopicRename}
-                running={agentActive}
                 goalLabel={goalLabel || undefined}
                 sideConversationCount={sideConversationCount}
                 onOpenSideConversation={() => {
@@ -1503,8 +1551,10 @@ export default function App() {
           <div
             className={[
               "workbench__body",
-              filePreviewOpen ? "workbench__body--preview-open" : "",
-              filePreviewExpanded ? "workbench__body--preview-expanded" : "",
+              previewColumnActive ? "workbench__body--preview-open" : "",
+              fileTreeSplitActive ? "workbench__body--file-tree-split" : "",
+              fileTreePreviewExpanded ? "workbench__body--file-tree-preview-expanded" : "",
+              fileTreeSplitActive && fileTreeLayoutUserSized ? "workbench__body--file-tree-split-sized" : "",
               filePreviewComposerOpen ? "workbench__body--preview-composer-open" : "",
               workspacePanelOpen ? "workbench__body--dock-open" : "",
             ]
@@ -1742,7 +1792,7 @@ export default function App() {
                         sessionCurrency={state.sessionCurrency}
                       />
                     </div>
-                    {terminalPanelShown && !filePreviewComposerOpen && terminalTabs.length > 0 && resolvedActiveTerminalId && (
+                    {terminalPanelShown && !previewTerminalDocked && !filePreviewComposerOpen && terminalTabs.length > 0 && resolvedActiveTerminalId && (
                       <BottomTerminalPanel
                         key={terminalMotionKey}
                         height={terminalAnimHeight}
@@ -1762,32 +1812,58 @@ export default function App() {
               ) : null}
             </div>
 
-            {filePreviewOpen && filePreviewPath && (
+            {previewColumnActive && (
               <>
-                <button
-                  className="workbench__resizer workbench__resizer--preview wails-no-drag"
-                  type="button"
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label={t("filePreview.resize")}
-                  onPointerDown={startFilePreviewResize}
-                  onKeyDown={resizeFilePreviewWithKeyboard}
-                  onDoubleClick={resetFilePreviewWidthFromDock}
-                />
-                <FilePreviewPanel
-                  path={filePreviewPath}
-                  diff={filePreviewDiff}
-                  expanded={filePreviewExpanded}
-                  onToggleExpanded={toggleFilePreviewExpanded}
-                  onClose={closeFilePreview}
-                  onAddToChat={addWorkspaceTextToComposer}
-                />
+                {!fileTreePreviewExpanded && (
+                  <button
+                    className="workbench__resizer workbench__resizer--preview wails-no-drag"
+                    type="button"
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label={t("filePreview.resize")}
+                    onPointerDown={startFilePreviewResize}
+                    onKeyDown={resizeFilePreviewWithKeyboard}
+                    onDoubleClick={resetFilePreviewWidthFromDock}
+                  />
+                )}
+                <div className="workbench__preview-slot">
+                  <UnifiedPreviewPanel
+                    mode={previewMode}
+                    onClose={closePreviewColumn}
+                    onAddTerminal={addPreviewTerminal}
+                    onAddBrowser={addPreviewBrowser}
+                    filePath={filePreviewPath}
+                    fileDiff={filePreviewDiff}
+                    onCloseFile={closeFilePreview}
+                    onAddFileToChat={addWorkspaceTextToComposer}
+                    pagePath={pagePreviewPath}
+                    onPagePathChange={setPagePreviewPath}
+                    refreshKey={projectRevision}
+                    workspaceRoot={composerCwd}
+                    browserTabs={browserTabs}
+                    activeBrowserTabId={activeBrowserTabId}
+                    onBrowserTabChange={setActiveBrowserTabId}
+                    onCloseBrowserTab={handleCloseBrowserTab}
+                    onNewBrowserTab={() => openWebPreview()}
+                    onBrowserTabUrlChange={(id, url, title) => updateBrowserTab(id, { url, title })}
+                    terminalTabs={terminalTabs}
+                    activeTerminalId={resolvedActiveTerminalId}
+                    onTerminalTabChange={setActiveTerminalId}
+                    onNewTerminal={() => void openNewTerminal()}
+                    onCloseTerminalTab={closeTerminalTab}
+                    fileTreePreviewContext={fileTreePreviewContext}
+                    fileTreePreviewExpanded={fileTreePreviewExpanded}
+                    onExpandFileTreePreview={expandFileTreePreview}
+                    onCollapseFileTreePreview={collapseFileTreePreview}
+                    onBackToFileTree={backToFileTreeFromPreview}
+                  />
+                </div>
               </>
             )}
 
             {showRightDock && dockMounted && (
               <>
-                {workspacePanelOpen ? (
+                {workspacePanelOpen && !fileTreePreviewExpanded ? (
                   <button
                     className="workbench__resizer workbench__resizer--dock wails-no-drag"
                     type="button"
@@ -1799,8 +1875,9 @@ export default function App() {
                     onDoubleClick={resetDockWidthFromDefault}
                   />
                 ) : null}
-                <div
-                  className={`workbench__dock-slot${dockBackgroundSessions && !workspacePanelOpen ? " workbench__dock-slot--background" : ""}`}
+                {workspacePanelOpen && !fileTreePreviewExpanded ? (
+                  <div
+                    className={`workbench__dock-slot${dockBackgroundSessions && !workspacePanelOpen ? " workbench__dock-slot--background" : ""}`}
                   style={
                     {
                       width: workspacePanelOpen ? dockPanelWidth : 0,
@@ -1833,32 +1910,28 @@ export default function App() {
                     onAddToChat={addWorkspaceTextToComposer}
                     filePreviewPath={filePreviewPath}
                     onOpenFile={(path, dockTab) => openFilePreview(path, dockTab ?? "files")}
-                    todos={showTodos ? todos : []}
+                    todos={todos}
                     todoStale={todoStale}
                     onDismissTodos={() => setDismissedTodo(todoItem!.id)}
-                    onStartPlan={() => handleSend("/plan")}
+                    onStartPlan={() => enterPlanMode()}
+                    onSyncTodoProgress={todos.length > 0 ? syncTodoProgress : undefined}
+                    todoSyncing={todoSyncing}
                     codeReview={codeReview}
                     onRunCodeReview={runCodeReview}
                     onClearCodeReview={clearCodeReview}
-                    browserExpanded={browserPreviewExpanded}
-                    onToggleBrowserExpanded={toggleBrowserPreviewExpanded}
-                    browserTabs={browserTabs}
-                    activeBrowserTabId={activeBrowserTabId}
-                    onBrowserTabChange={setActiveBrowserTabId}
-                    onCloseBrowserTab={handleCloseBrowserTab}
-                    onNewBrowserTab={() => openWebPreview()}
-                    onBrowserTabUrlChange={(id, url, title) => updateBrowserTab(id, { url, title })}
                     pagePreviewPath={pagePreviewPath}
                     onPagePreviewPathChange={setPagePreviewPath}
                     onPreviewPage={openPagePreview}
                   />
                 </div>
+                ) : null}
               </>
             )}
 
             {(chatMode || appMode === "write") && (
               <StudioToolRail
                 dockOpen={workspacePanelOpen}
+                previewOpen={previewColumnOpen}
                 activeDockTab={
                   workspacePanelOpen && rightDockMode !== "browser" && rightDockMode !== "page"
                     ? rightDockMode
@@ -1866,7 +1939,10 @@ export default function App() {
                 }
                 onHubPress={openDockHub}
                 onOpenDockTab={(tab) => openDockTab(tab, { toggle: false })}
-                onOpenPreviewMode={togglePreviewMode}
+                onOpenPreviewMode={(mode) => {
+      if (mode === "terminal") addPreviewTerminal();
+      else if (mode === "browser") addPreviewBrowser();
+    }}
               />
             )}
           </div>

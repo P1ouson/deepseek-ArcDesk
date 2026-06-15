@@ -99,6 +99,96 @@ function ComposerSessionChip({
   );
 }
 
+function ComposerSessionGroup({
+  kind,
+  icon,
+  sessions,
+  groupLabel,
+  activeFallback,
+  closeTabLabel,
+  onOpen,
+  onClose,
+}: {
+  kind: "terminal" | "browser";
+  icon: ReactNode;
+  sessions: ComposerSessionTag[];
+  groupLabel: (count: number) => string;
+  activeFallback: string;
+  closeTabLabel: (title: string) => string;
+  onOpen?: (id: string) => void;
+  onClose?: (id: string) => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useDismissOverlay(menuOpen, () => setMenuOpen(false), { excludeRefs: [rootRef], closeOnEscape: true });
+
+  if (sessions.length === 0) return null;
+
+  if (sessions.length === 1) {
+    const session = sessions[0]!;
+    return (
+      <ComposerSessionChip
+        kind={kind}
+        icon={icon}
+        label={session.label.trim() || activeFallback}
+        onOpen={onOpen ? () => onOpen(session.id) : undefined}
+        onClose={onClose ? () => onClose(session.id) : undefined}
+        closeLabel={closeTabLabel(session.label)}
+      />
+    );
+  }
+
+  return (
+    <div className={`composer-context__group composer-context__group--${kind}`} ref={rootRef}>
+      <button
+        type="button"
+        className={`composer-context__item composer-context__item--${kind} composer-context__group-toggle`}
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((open) => !open)}
+      >
+        {icon}
+        <span className="composer-context__text">
+          <span className="composer-context__name">{groupLabel(sessions.length)}</span>
+        </span>
+        <ChevronDown size={12} className={`composer-context__group-chevron${menuOpen ? " composer-context__group-chevron--open" : ""}`} />
+      </button>
+      {menuOpen ? (
+        <div className="composer-context__group-menu" role="menu">
+          {sessions.map((session) => (
+            <div key={session.id} className="composer-context__group-row" role="presentation">
+              <button
+                type="button"
+                className="composer-context__group-row-main"
+                role="menuitem"
+                onClick={() => {
+                  onOpen?.(session.id);
+                  setMenuOpen(false);
+                }}
+              >
+                {icon}
+                <span className="composer-context__name">{session.label.trim() || activeFallback}</span>
+              </button>
+              {onClose ? (
+                <button
+                  type="button"
+                  className="composer-context__group-row-close"
+                  aria-label={closeTabLabel(session.label)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onClose(session.id);
+                  }}
+                >
+                  <X size={12} />
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 interface Attachment {
   path: string;
   previewUrl?: string;
@@ -1302,28 +1392,26 @@ export function Composer({
         {hasContextTags ? (
           <div className="composer-context" aria-label={t("composer.contextItems")}>
             <div className="composer-context__tags">
-            {terminalSessions.map((session) => (
-              <ComposerSessionChip
-                key={`terminal-${session.id}`}
-                kind="terminal"
-                icon={<SquareTerminal size={14} />}
-                label={session.label.trim() || t("composer.terminalActive")}
-                onOpen={onTerminalSessionOpen ? () => onTerminalSessionOpen(session.id) : undefined}
-                onClose={onTerminalSessionClose ? () => onTerminalSessionClose(session.id) : undefined}
-                closeLabel={t("terminal.closeTab", { title: session.label })}
-              />
-            ))}
-            {browserSessions.map((session) => (
-              <ComposerSessionChip
-                key={`browser-${session.id}`}
-                kind="browser"
-                icon={<Monitor size={14} />}
-                label={session.label.trim() || t("composer.browserActive")}
-                onOpen={onBrowserSessionOpen ? () => onBrowserSessionOpen(session.id) : undefined}
-                onClose={onBrowserSessionClose ? () => onBrowserSessionClose(session.id) : undefined}
-                closeLabel={t("browser.closeTab", { title: session.label })}
-              />
-            ))}
+            <ComposerSessionGroup
+              kind="terminal"
+              icon={<SquareTerminal size={14} />}
+              sessions={showTerminalTags ? terminalSessions : []}
+              groupLabel={(n) => t("composer.terminalsGroup", { n: String(n) })}
+              activeFallback={t("composer.terminalActive")}
+              closeTabLabel={(title) => t("terminal.closeTab", { title })}
+              onOpen={onTerminalSessionOpen}
+              onClose={onTerminalSessionClose}
+            />
+            <ComposerSessionGroup
+              kind="browser"
+              icon={<Monitor size={14} />}
+              sessions={showBrowserTags ? browserSessions : []}
+              groupLabel={(n) => t("composer.browsersGroup", { n: String(n) })}
+              activeFallback={t("composer.browserActive")}
+              closeTabLabel={(title) => t("browser.closeTab", { title })}
+              onOpen={onBrowserSessionOpen}
+              onClose={onBrowserSessionClose}
+            />
             {showPageTag ? (
               <ComposerSessionChip
                 kind="page"

@@ -25,8 +25,9 @@ import { Tooltip } from "./Tooltip";
 export interface FilePreviewPanelProps {
   path: string;
   diff?: ToolFileDiff | null;
-  expanded: boolean;
-  onToggleExpanded: () => void;
+  expanded?: boolean;
+  embedded?: boolean;
+  onToggleExpanded?: () => void;
   onClose: () => void;
   onAddToChat?: (text: string) => void;
 }
@@ -37,7 +38,15 @@ function revealInFileManagerLabelKey(platform: string): DictKey {
   return "projectTree.revealInFileManager";
 }
 
-export function FilePreviewPanel({ path, diff, expanded, onToggleExpanded, onClose, onAddToChat }: FilePreviewPanelProps) {
+export function FilePreviewPanel({
+  path,
+  diff,
+  expanded = false,
+  embedded = false,
+  onToggleExpanded,
+  onClose,
+  onAddToChat,
+}: FilePreviewPanelProps) {
   const t = useT();
   const bodyRef = useRef<HTMLDivElement>(null);
   const [platform, setPlatform] = useState("");
@@ -139,54 +148,67 @@ export function FilePreviewPanel({ path, diff, expanded, onToggleExpanded, onClo
   const showSvg = !diff?.diff && isSvgPath(path) && preview && !preview.binary && !preview.err;
   const diffStat = diff ? toolDiffStat(diff) : "";
 
-  return (
-    <aside className={`file-preview-panel${expanded ? " file-preview-panel--expanded" : ""}`} aria-label={t("filePreview.title")}>
-      <header className="file-preview-panel__head wails-no-drag">
-        <div className="file-preview-panel__title">
-          <FileText size={14} />
-          <div className="file-preview-panel__title-text">
-            <Tooltip label={path}>
-              <span className="file-preview-panel__name">{basename(path)}</span>
-            </Tooltip>
-            {parentPath(path) && <span className="file-preview-panel__path">{parentPath(path)}</span>}
-            {diffStat ? <span className="file-preview-panel__diff-stat">{diffStat}</span> : null}
+  const body = (
+    <>
+      {!embedded && (
+        <header className="file-preview-panel__head wails-no-drag">
+          <div className="file-preview-panel__title">
+            <FileText size={14} />
+            <div className="file-preview-panel__title-text">
+              <Tooltip label={path}>
+                <span className="file-preview-panel__name">{basename(path)}</span>
+              </Tooltip>
+              {parentPath(path) && <span className="file-preview-panel__path">{parentPath(path)}</span>}
+              {diffStat ? <span className="file-preview-panel__diff-stat">{diffStat}</span> : null}
+            </div>
           </div>
+          <div className="file-preview-panel__actions wails-no-drag">
+            <Tooltip label={t("workspace.addFileReferenceToChat")}>
+              <button type="button" className="file-preview-panel__iconbtn" onClick={addReference} aria-label={t("workspace.addFileReferenceToChat")}>
+                <MessageSquarePlus size={14} />
+              </button>
+            </Tooltip>
+            {onToggleExpanded && (
+              <Tooltip label={t(expanded ? "filePreview.collapse" : "filePreview.expand")}>
+                <button
+                  type="button"
+                  className="file-preview-panel__iconbtn"
+                  onClick={onToggleExpanded}
+                  aria-label={t(expanded ? "filePreview.collapse" : "filePreview.expand")}
+                  aria-pressed={expanded}
+                >
+                  {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                </button>
+              </Tooltip>
+            )}
+            <Tooltip label={t(revealInFileManagerLabelKey(platform))}>
+              <button type="button" className="file-preview-panel__iconbtn" onClick={() => void app.RevealWorkspacePath(path)} aria-label={t(revealInFileManagerLabelKey(platform))}>
+                <FolderOpen size={14} />
+              </button>
+            </Tooltip>
+            <span className="file-preview-panel__actions-spacer" aria-hidden="true" />
+            <Tooltip label={t("projectTree.copyPath")}>
+              <button type="button" className="file-preview-panel__iconbtn" onClick={() => void copyPath()} aria-label={t("projectTree.copyPath")}>
+                <Copy size={14} />
+              </button>
+            </Tooltip>
+            <Tooltip label={t("filePreview.close")}>
+              <button type="button" className="file-preview-panel__iconbtn" onClick={onClose} aria-label={t("filePreview.close")}>
+                <X size={14} />
+              </button>
+            </Tooltip>
+          </div>
+        </header>
+      )}
+
+      {embedded && (
+        <div className="file-preview-panel__subhead wails-no-drag">
+          <Tooltip label={path}>
+            <span className="file-preview-panel__name">{basename(path)}</span>
+          </Tooltip>
+          {parentPath(path) && <span className="file-preview-panel__path">{parentPath(path)}</span>}
         </div>
-        <div className="file-preview-panel__actions wails-no-drag">
-          <Tooltip label={t("workspace.addFileReferenceToChat")}>
-            <button type="button" className="file-preview-panel__iconbtn" onClick={addReference} aria-label={t("workspace.addFileReferenceToChat")}>
-              <MessageSquarePlus size={14} />
-            </button>
-          </Tooltip>
-          <Tooltip label={t(expanded ? "filePreview.collapse" : "filePreview.expand")}>
-            <button
-              type="button"
-              className="file-preview-panel__iconbtn"
-              onClick={onToggleExpanded}
-              aria-label={t(expanded ? "filePreview.collapse" : "filePreview.expand")}
-              aria-pressed={expanded}
-            >
-              {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            </button>
-          </Tooltip>
-          <Tooltip label={t(revealInFileManagerLabelKey(platform))}>
-            <button type="button" className="file-preview-panel__iconbtn" onClick={() => void app.RevealWorkspacePath(path)} aria-label={t(revealInFileManagerLabelKey(platform))}>
-              <FolderOpen size={14} />
-            </button>
-          </Tooltip>
-          <span className="file-preview-panel__actions-spacer" aria-hidden="true" />
-          <Tooltip label={t("projectTree.copyPath")}>
-            <button type="button" className="file-preview-panel__iconbtn" onClick={() => void copyPath()} aria-label={t("projectTree.copyPath")}>
-              <Copy size={14} />
-            </button>
-          </Tooltip>
-          <Tooltip label={t("filePreview.close")}>
-            <button type="button" className="file-preview-panel__iconbtn" onClick={onClose} aria-label={t("filePreview.close")}>
-              <X size={14} />
-            </button>
-          </Tooltip>
-        </div>
-      </header>
+      )}
 
       <div className="file-preview-panel__body" ref={bodyRef} onContextMenu={openSelectionMenu}>
         {diff?.diff ? (
@@ -226,6 +248,16 @@ export function FilePreviewPanel({ path, diff, expanded, onToggleExpanded, onClo
           />
         </FloatingMenu>
       )}
+    </>
+  );
+
+  if (embedded) {
+    return <div className="file-preview-panel file-preview-panel--embedded">{body}</div>;
+  }
+
+  return (
+    <aside className={`file-preview-panel${expanded ? " file-preview-panel--expanded" : ""}`} aria-label={t("filePreview.title")}>
+      {body}
     </aside>
   );
 }
