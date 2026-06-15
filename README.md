@@ -9,21 +9,16 @@
   读文件 · 改代码 · 跑命令 · 接 MCP/Skills — 一个窗口配齐工具链，每一步你可审批
 </p>
 
-<!-- 荣誉勋章 · shields.io -->
+<!-- 荣誉勋章 · GitHub 原生（Actions 发布徽章 + Star/Issue 官方按钮） -->
 <p align="center">
   <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases">
-    <img src="https://img.shields.io/github/v/release/P1ouson/deepseek-ArcDesk?include_prereleases&style=for-the-badge&label=Release&color=0153e5" alt="release"/>
+    <img src="https://github.com/P1ouson/deepseek-ArcDesk/actions/workflows/release-desktop.yml/badge.svg" alt="release-desktop"/>
   </a>
-  <a href="./LICENSE">
-    <img src="https://img.shields.io/github/license/P1ouson/deepseek-ArcDesk?style=for-the-badge&color=8b949e" alt="MIT"/>
-  </a>
-  <a href="https://github.com/P1ouson/deepseek-ArcDesk/stargazers">
-    <img src="https://img.shields.io/github/stars/P1ouson/deepseek-ArcDesk?style=for-the-badge&color=ffd700" alt="stars"/>
-  </a>
-  <a href="https://github.com/P1ouson/deepseek-ArcDesk/issues">
-    <img src="https://img.shields.io/github/issues/P1ouson/deepseek-ArcDesk?style=for-the-badge&color=8b949e" alt="issues"/>
-  </a>
+  <a href="./LICENSE"><strong>MIT</strong></a>
+  <a class="github-button" href="https://github.com/P1ouson/deepseek-ArcDesk" data-show-count="true" data-size="large" aria-label="Star P1ouson/deepseek-ArcDesk on GitHub">Star</a>
+  <a class="github-button" href="https://github.com/P1ouson/deepseek-ArcDesk/issues" data-show-count="true" data-size="large" aria-label="Issue P1ouson/deepseek-ArcDesk on GitHub">Issue</a>
 </p>
+<script async defer src="https://buttons.github.io/buttons.js"></script>
 
 <p align="center">
   <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases"><strong>⬇ 下载桌面版</strong></a>

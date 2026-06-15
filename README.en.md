@@ -8,10 +8,14 @@
 </p>
 
 <p align="center">
-  <a href="./LICENSE"><img src="https://img.shields.io/github/license/P1ouson/deepseek-ArcDesk?style=flat-square&color=8b949e&labelColor=161b22" alt="MIT"/></a>
-  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases"><img src="https://img.shields.io/github/v/release/P1ouson/deepseek-ArcDesk?include_prereleases&style=flat-square&color=0153e5&labelColor=161b22" alt="release"/></a>
-  <a href="https://github.com/P1ouson/deepseek-ArcDesk/stargazers"><img src="https://img.shields.io/github/stars/P1ouson/deepseek-ArcDesk?style=flat-square&color=ffd700&labelColor=161b22" alt="stars"/></a>
+  <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases">
+    <img src="https://github.com/P1ouson/deepseek-ArcDesk/actions/workflows/release-desktop.yml/badge.svg" alt="release-desktop"/>
+  </a>
+  <a href="./LICENSE"><strong>MIT</strong></a>
+  <a class="github-button" href="https://github.com/P1ouson/deepseek-ArcDesk" data-show-count="true" aria-label="Star P1ouson/deepseek-ArcDesk on GitHub">Star</a>
+  <a class="github-button" href="https://github.com/P1ouson/deepseek-ArcDesk/issues" data-show-count="true" aria-label="Issue P1ouson/deepseek-ArcDesk on GitHub">Issue</a>
 </p>
+<script async defer src="https://buttons.github.io/buttons.js"></script>
 
 <p align="center">
   <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases"><strong>Download</strong></a>
