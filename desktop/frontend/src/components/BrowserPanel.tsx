@@ -43,6 +43,7 @@ export interface BrowserPanelProps {
   onNewTab: () => void;
   onTabUrlChange: (id: string, url: string, title?: string) => void;
   embedded?: boolean;
+  hideTabBar?: boolean;
   expanded?: boolean;
   onToggleExpanded?: () => void;
   refreshKey?: number;
@@ -437,6 +438,7 @@ export function BrowserPanel({
   onNewTab,
   onTabUrlChange,
   embedded = false,
+  hideTabBar = false,
   expanded = false,
   onToggleExpanded,
   refreshKey = 0,
@@ -464,6 +466,7 @@ export function BrowserPanel({
 
   return (
     <div className={`right-dock__browser browser-panel${embedded ? " browser-panel--embedded" : ""}`}>
+      {!hideTabBar ? (
       <header className="browser-panel__tabbar wails-no-drag">
         <div className="browser-panel__tabs" ref={tabsRef} role="tablist" aria-label={t("browser.tabs")}>
           {tabs.map((tab) => (
@@ -516,6 +519,7 @@ export function BrowserPanel({
           ) : null}
         </div>
       </header>
+      ) : null}
       <div className="browser-panel__stack">
         {tabs.map((tab) => (
           <BrowserTabPane

@@ -15,6 +15,7 @@ import (
 	"golang.org/x/text/transform"
 
 	fileenc "arcdesk/internal/fileutil/encoding"
+	"arcdesk/internal/fileutil/docx"
 	"arcdesk/internal/tool"
 )
 
@@ -71,6 +72,20 @@ func (r readFile) Execute(ctx context.Context, args json.RawMessage) (string, er
 	p.Path = resolveIn(r.workDir, p.Path)
 	if err := ConfineRead(r.roots, p.Path); err != nil {
 		return "", err
+	}
+	if docx.IsDocx(p.Path) {
+		if p.Offset < 0 {
+			p.Offset = 0
+		}
+		limit := p.Limit
+		if limit <= 0 {
+			limit = effectiveReadLimit(r.workDir, p.Path, p.Offset, 0)
+		}
+		body, err := docx.ReadPlainText(p.Path)
+		if err != nil {
+			return "", fmt.Errorf("read %s: %w", p.Path, err)
+		}
+		return r.scan(strings.NewReader(body), p.Offset, limit)
 	}
 	if p.Offset < 0 {
 		p.Offset = 0

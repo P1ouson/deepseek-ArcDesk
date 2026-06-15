@@ -1,4 +1,4 @@
-import { sameWorkspaceRoot } from "./composerWorkspace";
+import { getStoredCodeWorkspaceRoot, isUsableCodeWorkspaceRoot, sameWorkspaceRoot } from "./composerWorkspace";
 import { NO_WORKSPACE_VALUE, isNoWriteWorkspace, isUsableWriteWorkspaceRoot } from "./writeWorkspace";
 import type { TabMeta } from "./types";
 
@@ -9,12 +9,24 @@ export function isWriteModeTopicId(topicId: string | undefined | null): boolean 
   return (topicId ?? "").trim() === WRITE_MODE_TOPIC_ID;
 }
 
-export function isWriteTabForWorkspace(tab: TabMeta | undefined, writeWorkspaceRoot: string): boolean {
+/** Agent workspace for 写作 mode: only the code-area project, never the document save folder. */
+export function writeAgentWorkspaceRoot(_writeWorkspaceRoot?: string, codeWorkspaceRoot?: string): string {
+  const code = (codeWorkspaceRoot ?? getStoredCodeWorkspaceRoot()).trim();
+  if (isUsableCodeWorkspaceRoot(code)) return code;
+  return NO_WORKSPACE_VALUE;
+}
+
+export function isWriteTabForWorkspace(
+  tab: TabMeta | undefined,
+  writeWorkspaceRoot: string,
+  codeWorkspaceRoot?: string,
+): boolean {
   if (!tab || !isWriteModeTopicId(tab.topicId)) return false;
-  if (isNoWriteWorkspace(writeWorkspaceRoot) || !isUsableWriteWorkspaceRoot(writeWorkspaceRoot)) {
+  const agentRoot = writeAgentWorkspaceRoot(writeWorkspaceRoot, codeWorkspaceRoot);
+  if (agentRoot === NO_WORKSPACE_VALUE || !isUsableCodeWorkspaceRoot(agentRoot)) {
     return tab.scope === "global";
   }
-  return tab.scope === "project" && sameWorkspaceRoot(tab.workspaceRoot, writeWorkspaceRoot);
+  return tab.scope === "project" && sameWorkspaceRoot(tab.workspaceRoot, agentRoot);
 }
 
 export function writeTabScope(writeWorkspaceRoot: string): "global" | "project" {

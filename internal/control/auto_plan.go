@@ -49,6 +49,12 @@ func (c *Controller) shouldAutoPlan(ctx context.Context, input string) bool {
 	if mode == autoPlanOff || plan || bypass {
 		return false
 	}
+	trimmed := strings.TrimSpace(input)
+	lower := strings.ToLower(trimmed)
+	// Write-mode copywriting turns are conversational drafting, not multi-file refactors.
+	if strings.HasPrefix(lower, "/copywriting") || strings.HasPrefix(lower, "/write") {
+		return false
+	}
 	score := autoPlanScore(input)
 	if score <= 0 {
 		return false

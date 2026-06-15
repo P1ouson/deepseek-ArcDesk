@@ -31,3 +31,11 @@ export function isUsableWriteWorkspaceRoot(path: string | undefined | null): boo
   const normalized = (path ?? "").trim();
   return normalized !== "" && normalized !== "." && !isNoWriteWorkspace(normalized);
 }
+
+/** Parent directory of a document path for binding the write workspace folder. */
+export function writeDocumentParentDir(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/").replace(/\/+$/, "");
+  const slash = normalized.lastIndexOf("/");
+  if (slash <= 0) return normalized;
+  return normalized.slice(0, slash);
+}

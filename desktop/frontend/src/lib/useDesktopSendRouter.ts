@@ -10,6 +10,7 @@ import { applyThemeFromSettings } from "./applyThemeFromSettings";
 import { getTheme, getThemeStyle, normalizeThemeStyleForTheme, themeForStyle } from "./theme";
 import { toErrorMessage } from "./errors";
 import { applyWriteModeSkill } from "./writeSkill";
+import { enrichWriteModeSubmit } from "./writeAgentContext";
 
 export type DesktopSendRouterDeps = {
   appMode: AppMode;
@@ -32,6 +33,8 @@ export type DesktopSendRouterDeps = {
   send: (displayText: string, submitText?: string) => void;
   enterPlanMode: (options?: { prefill?: boolean }) => void;
   exitExpandedPreviewComposer: () => void;
+  writeSelectedFile?: string;
+  writeWorkspaceRoot?: string;
 };
 
 async function executeDesktopSendRoute(route: DesktopSendRoute, deps: DesktopSendRouterDeps): Promise<void> {
@@ -120,11 +123,20 @@ async function executeDesktopSendRoute(route: DesktopSendRoute, deps: DesktopSen
     case "send":
       await deps.syncModeToController(deps.mode);
       {
-        const outbound =
-          deps.appMode === "write"
-            ? applyWriteModeSkill(route.displayText, route.submitText)
-            : { displayText: route.displayText, submitText: route.submitText };
-        deps.send(outbound.displayText, outbound.submitText);
+        let displayText = route.displayText;
+        let submitText = route.submitText;
+        if (deps.appMode === "write") {
+          const enriched = await enrichWriteModeSubmit(displayText, submitText, {
+            writeFilePath: deps.writeSelectedFile,
+            writeWorkspaceRoot: deps.writeWorkspaceRoot,
+          });
+          displayText = enriched.displayText;
+          submitText = enriched.submitText;
+          const outbound = applyWriteModeSkill(displayText, submitText);
+          deps.send(outbound.displayText, outbound.submitText);
+        } else {
+          deps.send(displayText, submitText);
+        }
       }
       if (deps.filePreviewComposerOpen) deps.exitExpandedPreviewComposer();
       return;

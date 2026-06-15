@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import type { AppMode } from "../lib/appMode";
 import type { ComposerWriteContext, KnowledgeView } from "../lib/types";
 import type { WriteTurn } from "../lib/writeConversation";
@@ -31,14 +31,19 @@ export interface ModeWorkspaceCenterProps {
   activeTabLabel?: string;
   activeWorkspaceName?: string;
   writeWorkspaceRoot?: string;
+  writeSelectedFile?: string;
+  onWriteSelectedFileChange?: (path: string) => void;
   onWriteWorkspaceChange?: (root: string) => void;
   onPrompt?: (text: string) => void;
   onComposerPrompt?: (text: string) => void;
   onDraftComposer?: (context: ComposerWriteContext) => void;
   onPickWriteWorkspace?: () => Promise<string | undefined>;
+  onPickWriteFile?: () => Promise<string | undefined>;
   onFilesChanged?: () => void;
   writeConversation?: WriteTurn[];
   writeAgentRunning?: boolean;
+  rightPanelOpen?: boolean;
+  onToggleRightPanel?: () => void;
   onSettingsChanged?: () => void;
   onOpenHistory?: () => void;
   onOpenMemory?: () => void;
@@ -56,28 +61,52 @@ export interface ModeWorkspaceCenterProps {
 
 function WriteModeWorkspace({
   writeWorkspaceRoot,
+  writeSelectedFile,
+  onWriteSelectedFileChange,
   onWriteWorkspaceChange,
   onDraftComposer,
   onPickWriteWorkspace,
+  onPickWriteFile,
   onFilesChanged,
   writeConversation,
   writeAgentRunning,
+  rightPanelOpen,
+  onToggleRightPanel,
 }: {
   writeWorkspaceRoot: string;
+  writeSelectedFile?: string;
+  onWriteSelectedFileChange?: (path: string) => void;
   onWriteWorkspaceChange?: (root: string) => void;
   onDraftComposer?: (context: ComposerWriteContext) => void;
   onPickWriteWorkspace?: () => Promise<string | undefined>;
+  onPickWriteFile?: () => Promise<string | undefined>;
   onFilesChanged?: () => void;
   writeConversation?: WriteTurn[];
   writeAgentRunning?: boolean;
+  rightPanelOpen?: boolean;
+  onToggleRightPanel?: () => void;
 }) {
-  const [selectedPath, setSelectedPath] = useState<string | undefined>();
+  const [selectedPath, setSelectedPath] = useState<string | undefined>(writeSelectedFile);
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
-    setSelectedPath(undefined);
-    setDirty(false);
-  }, [writeWorkspaceRoot]);
+    setSelectedPath(writeSelectedFile);
+  }, [writeSelectedFile]);
+
+  useEffect(() => {
+    if (!writeSelectedFile) {
+      setSelectedPath(undefined);
+      setDirty(false);
+    }
+  }, [writeWorkspaceRoot, writeSelectedFile]);
+
+  const handleSelectFile = useCallback(
+    (path: string) => {
+      setSelectedPath(path || undefined);
+      onWriteSelectedFileChange?.(path);
+    },
+    [onWriteSelectedFileChange],
+  );
 
   return (
     <div className="mode-center mode-center--write write-studio-shell">
@@ -85,19 +114,22 @@ function WriteModeWorkspace({
         workspaceRoot={writeWorkspaceRoot}
         selectedPath={selectedPath}
         dirty={dirty}
-        onSelectFile={setSelectedPath}
+        onSelectFile={handleSelectFile}
         onPickWorkspace={onPickWriteWorkspace}
+        onPickFile={onPickWriteFile}
         onWorkspaceChange={onWriteWorkspaceChange}
         onFilesChanged={onFilesChanged}
       />
       <WriteWorkspaceView
         filePath={selectedPath}
         onSaved={onFilesChanged}
-        onFilePathChange={setSelectedPath}
+        onFilePathChange={handleSelectFile}
         onDraftComposer={onDraftComposer}
         onDirtyChange={setDirty}
         conversationTurns={writeConversation}
         agentRunning={writeAgentRunning}
+        rightPanelOpen={rightPanelOpen}
+        onToggleRightPanel={onToggleRightPanel}
       />
     </div>
   );
@@ -110,12 +142,17 @@ export function ModeWorkspaceCenter({
   activeTabLabel,
   activeWorkspaceName,
   writeWorkspaceRoot = "",
+  writeSelectedFile,
+  onWriteSelectedFileChange,
   onWriteWorkspaceChange,
   onDraftComposer,
   onPickWriteWorkspace,
+  onPickWriteFile,
   onFilesChanged,
   writeConversation,
   writeAgentRunning,
+  rightPanelOpen,
+  onToggleRightPanel,
   onComposerPrompt,
   onSettingsChanged,
   onOpenHistory,
@@ -136,12 +173,17 @@ export function ModeWorkspaceCenter({
       return (
         <WriteModeWorkspace
           writeWorkspaceRoot={writeWorkspaceRoot}
+          writeSelectedFile={writeSelectedFile}
+          onWriteSelectedFileChange={onWriteSelectedFileChange}
           onWriteWorkspaceChange={onWriteWorkspaceChange}
           onDraftComposer={onDraftComposer}
           onPickWriteWorkspace={onPickWriteWorkspace}
+          onPickWriteFile={onPickWriteFile}
           onFilesChanged={onFilesChanged}
           writeConversation={writeConversation}
           writeAgentRunning={writeAgentRunning}
+          rightPanelOpen={rightPanelOpen}
+          onToggleRightPanel={onToggleRightPanel}
         />
       );
     case "phone":

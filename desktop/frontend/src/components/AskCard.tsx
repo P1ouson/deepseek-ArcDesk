@@ -1,13 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../lib/i18n";
-import { truncateOneLine } from "../lib/textTruncate";
 import type { QuestionAnswer, WireAsk, WireAskQuestion } from "../lib/types";
 import { MotionUnfold } from "./MotionUnfold";
-import { PromptAction, PromptBadge, PromptDetailToggle, PromptShelf } from "./PromptShelf";
+import { PromptBadge, PromptDetailToggle, PromptShelf } from "./PromptShelf";
 
-// AskCard renders the `ask` tool as a compact prompt shelf near the composer. It
-// walks multi-question asks one at a time; single-select answers advance
-// immediately, while multi-select and typed answers wait for explicit confirmation.
+// AskCard renders the `ask` tool as a compact prompt shelf near the composer.
 export function AskCard({
   ask,
   onAnswer,
@@ -18,7 +15,6 @@ export function AskCard({
   onDismiss: () => void;
 }) {
   const t = useT();
-  // Per-question state: selected option labels, and an optional typed answer.
   const [sel, setSel] = useState<Record<string, string[]>>({});
   const [custom, setCustom] = useState<Record<string, string>>({});
   const [active, setActive] = useState(0);
@@ -31,6 +27,7 @@ export function AskCard({
   const isLast = active >= questions.length - 1;
   const progress = `${Math.min(active + 1, questions.length)}/${questions.length}`;
   const hasMultipleQuestions = questions.length > 1;
+  const hasOptionDescriptions = q?.options.some((option) => option.description?.trim()) ?? false;
 
   useEffect(() => {
     shelfRef.current?.focus();
@@ -155,97 +152,114 @@ export function AskCard({
       actionsWrap
       badges={
         <>
-          {q.header && <PromptBadge>{q.header}</PromptBadge>}
-          {hasMultipleQuestions && <PromptBadge>{t("ask.questionProgress", { progress })}</PromptBadge>}
+          {q.header ? <PromptBadge>{q.header}</PromptBadge> : null}
+          {hasMultipleQuestions ? <PromptBadge>{t("ask.questionProgress", { progress })}</PromptBadge> : null}
         </>
       }
-      meta={truncateOneLine(q.prompt)}
+      meta={hasMultipleQuestions ? t("ask.questionProgress", { progress }) : undefined}
       actions={
         <>
-          {active > 0 && (
+          {active > 0 ? (
             <button type="button" className="arc-decision__btn arc-decision__btn--ghost" onClick={goBack}>
               {t("ask.back")}
             </button>
-          )}
-          {q.options.map((o, index) => {
-            const on = (sel[q.id] ?? []).includes(o.label);
-            return (
-              <PromptAction
-                key={o.label}
-                keyLabel={String(index + 1)}
-                label={o.label}
-                onClick={() => toggle(q, o.label)}
-                selected={on}
-              />
-            );
-          })}
-          {q.multi && (
-            <button className="prompt-action prompt-action--selected" onClick={() => finishOrAdvance()} disabled={!currentAnswered}>
-              <span className="prompt-action__label">{isLast ? t("common.submit") : t("ask.next")}</span>
+          ) : null}
+          {q.multi ? (
+            <button
+              type="button"
+              className="arc-decision__btn arc-decision__btn--primary"
+              onClick={() => finishOrAdvance()}
+              disabled={!currentAnswered}
+            >
+              {isLast ? t("common.submit") : t("ask.next")}
             </button>
-          )}
-          <PromptDetailToggle
-            open={detailsOpen}
-            label={t("ask.details")}
-            openLabel={t("ask.hideDetails")}
-            onClick={() => setDetailsOpen((open) => !open)}
-          />
-          <button className="prompt-action prompt-action--quiet" onClick={onDismiss}>
-            <span className="prompt-action__label">{t("ask.justChat")}</span>
+          ) : null}
+          {hasOptionDescriptions ? (
+            <PromptDetailToggle
+              open={detailsOpen}
+              label={t("ask.details")}
+              openLabel={t("ask.hideDetails")}
+              onClick={() => setDetailsOpen((open) => !open)}
+            />
+          ) : null}
+          <button type="button" className="arc-decision__btn arc-decision__btn--ghost" onClick={onDismiss}>
+            {t("ask.justChat")}
           </button>
         </>
       }
       crumbs={
-        answeredSummary.length > 0 && (
-        <div className="ask-shelf__crumbs">
-          {answeredSummary.map((answer, index) => (
-            <span className="ask-shelf__crumb" key={`${index}-${answer}`}>
-              {index + 1}. {answer}
-            </span>
-          ))}
-        </div>
-        )
-      }
-    >
-      <MotionUnfold open={detailsOpen}>
-        <>
-          <div className="ask-shelf__detail-list">
-            {q.options.map((o) => (
-              <div className="ask-shelf__detail" key={o.label}>
-                <span className="ask-shelf__detail-label">{o.label}</span>
-                {o.description && <span className="ask-shelf__detail-desc">{o.description}</span>}
-              </div>
+        answeredSummary.length > 0 ? (
+          <div className="ask-card__crumbs">
+            {answeredSummary.map((answer, index) => (
+              <span className="ask-card__crumb" key={`${index}-${answer}`}>
+                {index + 1}. {answer}
+              </span>
             ))}
           </div>
-          <div className="ask-shelf__custom-row">
-            <input
-              className="ask-shelf__custom"
-              placeholder={t("ask.customPlaceholder")}
-              value={custom[q.id] ?? ""}
-              onChange={(e) => setTyped(q, e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && currentAnswered) finishOrAdvance();
-                e.stopPropagation();
-              }}
-            />
-            <div className="ask-shelf__panel-actions">
-              {active > 0 && (
-                <button className="btn" onClick={goBack}>
-                  {t("ask.back")}
-                </button>
-              )}
-              <button className="btn" onClick={onDismiss}>
-                {t("ask.justChat")}
+        ) : null
+      }
+    >
+      <div className="ask-card">
+        <p className="ask-card__prompt">{q.prompt}</p>
+        <div className="ask-card__options" role="listbox" aria-label={q.prompt}>
+          {q.options.map((option, index) => {
+            const selected = (sel[q.id] ?? []).includes(option.label);
+            return (
+              <button
+                key={option.label}
+                type="button"
+                className={`ask-card__option${selected ? " ask-card__option--selected" : ""}`}
+                aria-pressed={selected}
+                onClick={() => toggle(q, option.label)}
+              >
+                <kbd className="ask-card__option-key">{index + 1}</kbd>
+                <span className="ask-card__option-copy">
+                  <span className="ask-card__option-label">{option.label}</span>
+                  {option.description ? (
+                    <span className="ask-card__option-desc">{option.description}</span>
+                  ) : null}
+                </span>
               </button>
-              {(q.multi || custom[q.id]?.trim()) && (
-                <button className="btn btn--primary" onClick={() => finishOrAdvance()} disabled={!currentAnswered}>
-                  {isLast ? t("common.submit") : t("ask.next")}
-                </button>
-              )}
+            );
+          })}
+        </div>
+        <div className="ask-card__custom-row">
+          <input
+            className="ask-card__custom"
+            placeholder={t("ask.customPlaceholder")}
+            value={custom[q.id] ?? ""}
+            onChange={(e) => setTyped(q, e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && currentAnswered) finishOrAdvance();
+              e.stopPropagation();
+            }}
+          />
+          {(q.multi || custom[q.id]?.trim()) && (
+            <button
+              type="button"
+              className="arc-decision__btn arc-decision__btn--primary"
+              onClick={() => finishOrAdvance()}
+              disabled={!currentAnswered}
+            >
+              {isLast ? t("common.submit") : t("ask.next")}
+            </button>
+          )}
+        </div>
+        {hasOptionDescriptions ? (
+          <MotionUnfold open={detailsOpen}>
+            <div className="ask-card__detail-list">
+              {q.options.map((option) => (
+                <div className="ask-card__detail" key={option.label}>
+                  <span className="ask-card__detail-label">{option.label}</span>
+                  {option.description ? (
+                    <span className="ask-card__detail-desc">{option.description}</span>
+                  ) : null}
+                </div>
+              ))}
             </div>
-          </div>
-        </>
-      </MotionUnfold>
+          </MotionUnfold>
+        ) : null}
+      </div>
     </PromptShelf>
   );
 }

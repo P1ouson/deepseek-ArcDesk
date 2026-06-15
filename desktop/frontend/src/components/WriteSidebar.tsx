@@ -20,10 +20,12 @@ import { getRecentWorkspacePaths, recordRecentWorkspace } from "../lib/workspace
 import { isNoWriteWorkspace, NO_WORKSPACE_VALUE } from "../lib/writeWorkspace";
 import { closeStudioSelect, openStudioSelect } from "../lib/studioSelectRegistry";
 import { AnchoredPopover } from "./AnchoredPopover";
+import { FileTypeIcon } from "./FileTypeIcon";
 import { MotionUnfold } from "./MotionUnfold";
 import { Tooltip } from "./Tooltip";
 
 const PICK_WORKSPACE_VALUE = "__pick_workspace__";
+const PICK_FILE_VALUE = "__pick_file__";
 
 function WriteFileListPane({ browsePath, children }: { browsePath: string; children: ReactNode }) {
   const [open, setOpen] = useState(true);
@@ -48,6 +50,7 @@ export interface WriteSidebarProps {
   onSelectFile: (path: string) => void;
   onWorkspaceChange?: (root: string) => void;
   onPickWorkspace?: () => Promise<string | undefined>;
+  onPickFile?: () => Promise<string | undefined>;
   onFilesChanged?: () => void;
 }
 
@@ -65,6 +68,14 @@ function isDirectChild(entryPath: string, parentPath: string): boolean {
   if (entry === parent || !entry.startsWith(`${parent}/`)) return false;
   const rel = entry.slice(parent.length + 1);
   return rel.length > 0 && !rel.includes("/");
+}
+
+function isWriteListHiddenFile(name: string): boolean {
+  const base = name.trim();
+  if (!base) return true;
+  if (base.startsWith("~$")) return true;
+  if (base.startsWith("~WRL") || base.startsWith("~WRD")) return true;
+  return false;
 }
 
 function formatModTime(ms?: number): string {
@@ -89,6 +100,7 @@ export function WriteSidebar({
   onSelectFile,
   onWorkspaceChange,
   onPickWorkspace,
+  onPickFile,
   onFilesChanged,
 }: WriteSidebarProps) {
   const t = useT();
@@ -110,6 +122,16 @@ export function WriteSidebar({
   useEffect(() => {
     setBrowsePath(workspaceRoot);
   }, [workspaceRoot]);
+
+  useEffect(() => {
+    if (!selectedPath || noWorkspace) return;
+    const file = normalizePath(selectedPath);
+    const root = normalizePath(workspaceRoot);
+    if (file === root || file.startsWith(`${root}/`)) {
+      const parent = file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : root;
+      setBrowsePath(parent || root);
+    }
+  }, [noWorkspace, selectedPath, workspaceRoot]);
 
   useEffect(() => {
     if (!workspaceMenuOpen) return;
@@ -137,7 +159,9 @@ export function WriteSidebar({
 
   const visibleEntries = useMemo(() => {
     const dirs = entries.filter((entry) => entry.isDir && isDirectChild(entry.path, browsePath));
-    const files = entries.filter((entry) => !entry.isDir && isDirectChild(entry.path, browsePath));
+    const files = entries.filter(
+      (entry) => !entry.isDir && isDirectChild(entry.path, browsePath) && !isWriteListHiddenFile(entry.name),
+    );
     dirs.sort((a, b) => a.name.localeCompare(b.name));
     files.sort((a, b) => (b.modTime ?? 0) - (a.modTime ?? 0) || a.name.localeCompare(b.name));
     return [...dirs, ...files];
@@ -146,9 +170,9 @@ export function WriteSidebar({
   const breadcrumbParts = useMemo(() => {
     const root = normalizePath(workspaceRoot);
     const current = normalizePath(browsePath);
-    if (current === root) return [{ path: root, label: baseName(root) || t("write.sidebar.root") }];
+    if (current === root) return [{ path: root, label: baseName(root) || t("write.sidebar.currentFolder") }];
     const rel = current.slice(root.length + 1);
-    const parts = [{ path: root, label: baseName(root) || t("write.sidebar.root") }];
+    const parts = [{ path: root, label: baseName(root) || t("write.sidebar.currentFolder") }];
     let acc = root;
     for (const segment of rel.split("/").filter(Boolean)) {
       acc = `${acc}/${segment}`;
@@ -227,6 +251,12 @@ export function WriteSidebar({
 
   const handleWorkspaceSelect = async (value: string) => {
     setWorkspaceMenuOpen(false);
+    if (value === PICK_FILE_VALUE) {
+      const picked = await onPickFile?.();
+      if (!picked) return;
+      onSelectFile(picked);
+      return;
+    }
     if (value === PICK_WORKSPACE_VALUE) {
       const picked = await onPickWorkspace?.();
       if (!picked) return;
@@ -244,7 +274,7 @@ export function WriteSidebar({
     setBrowsePath(parent || root);
   };
 
-  const currentWorkspaceName = noWorkspace ? t("composer.noWorkspace") : baseName(workspaceRoot) || workspaceRoot;
+  const currentFolderName = noWorkspace ? t("write.sidebar.noFolder") : baseName(workspaceRoot) || workspaceRoot;
 
   return (
     <aside className="write-sidebar write-studio__sidebar">
@@ -263,7 +293,7 @@ export function WriteSidebar({
       <p className="write-studio__skill-hint">{t("write.skillHint")}</p>
 
       <div className="studio-select">
-        <span className="studio-select__label">{t("write.sidebar.workspace")}</span>
+        <span className="studio-select__label">{t("write.sidebar.location")}</span>
         <button
           ref={workspaceAnchorRef}
           type="button"
@@ -271,7 +301,7 @@ export function WriteSidebar({
           onClick={() => setWorkspaceMenuOpen((open) => !open)}
         >
           <Folder size={14} className="studio-select__trigger-icon" />
-          <span className="studio-select__trigger-value">{currentWorkspaceName}</span>
+          <span className="studio-select__trigger-value">{currentFolderName}</span>
           <ChevronDown size={13} className="studio-select__trigger-caret" />
         </button>
         <AnchoredPopover
@@ -283,14 +313,14 @@ export function WriteSidebar({
           placement="bottom"
         >
           <div className="studio-select__menu">
-            <div className="studio-select__menu-label">{t("write.sidebar.workspace")}</div>
+            <div className="studio-select__menu-label">{t("write.sidebar.location")}</div>
             <button
               type="button"
               className={`studio-select__item${noWorkspace ? " studio-select__item--active" : ""}`}
               onClick={() => void handleWorkspaceSelect(NO_WORKSPACE_VALUE)}
             >
               <FolderX size={14} />
-              <span>{t("composer.useNoWorkspace")}</span>
+              <span>{t("write.sidebar.noFolderBind")}</span>
               {noWorkspace ? <Check size={14} /> : null}
             </button>
             {!noWorkspace ? (
@@ -300,7 +330,7 @@ export function WriteSidebar({
                 onClick={() => setWorkspaceMenuOpen(false)}
               >
                 <Folder size={14} />
-                <span>{currentWorkspaceName}</span>
+                <span>{currentFolderName}</span>
               </button>
             ) : null}
             <button
@@ -309,13 +339,21 @@ export function WriteSidebar({
               onClick={() => void handleWorkspaceSelect(PICK_WORKSPACE_VALUE)}
             >
               <FolderOpen size={14} />
-              <span>{t("write.sidebar.chooseWorkspace")}</span>
+              <span>{t("write.sidebar.chooseFolder")}</span>
+            </button>
+            <button
+              type="button"
+              className="studio-select__item"
+              onClick={() => void handleWorkspaceSelect(PICK_FILE_VALUE)}
+            >
+              <FileText size={14} />
+              <span>{t("write.sidebar.chooseFile")}</span>
             </button>
 
             {recentWorkspaces.length > 0 ? (
               <>
                 <div className="studio-select__menu-divider" />
-                <div className="studio-select__menu-label">{t("write.sidebar.recentWorkspaces")}</div>
+                <div className="studio-select__menu-label">{t("write.sidebar.recentFolders")}</div>
                 {recentWorkspaces.map((root) => (
                   <button
                     key={root}
@@ -334,7 +372,7 @@ export function WriteSidebar({
       </div>
 
       {!noWorkspace ? (
-      <nav className="write-studio__breadcrumb" aria-label={t("write.sidebar.root")}>
+      <nav className="write-studio__breadcrumb" aria-label={t("write.sidebar.currentFolder")}>
         {breadcrumbParts.map((part, index) => (
           <span key={part.path} className="write-studio__breadcrumb-part">
             {index > 0 ? <span className="write-studio__breadcrumb-sep">/</span> : null}
@@ -366,7 +404,7 @@ export function WriteSidebar({
               className="write-sidebar__file write-studio__file-btn write-studio__file-btn--dir"
               onClick={() => requestSelect(entry.path, true)}
             >
-              <Folder size={14} />
+              <Folder size={14} className="write-studio__file-ico" />
               <span className="write-studio__file-name">{entry.name}</span>
             </button>
           ) : (
@@ -379,7 +417,7 @@ export function WriteSidebar({
                 className="write-sidebar__file write-studio__file-btn"
                 onClick={() => requestSelect(entry.path, false)}
               >
-                <FileText size={14} />
+                <FileTypeIcon name={entry.name} isDir={false} className="write-studio__file-ico" />
                 <span className="write-studio__file-name">{entry.name}</span>
                 {entry.modTime ? <span className="write-studio__file-time">{formatModTime(entry.modTime)}</span> : null}
               </button>
@@ -409,15 +447,24 @@ export function WriteSidebar({
         {!visibleEntries.length ? (
           <div className="write-sidebar__empty">
             <Folder size={16} />
-            <span>{noWorkspace ? t("write.sidebar.noWorkspaceEmpty") : t("write.sidebar.empty")}</span>
+            <span>{noWorkspace ? t("write.sidebar.noFolderEmpty") : t("write.sidebar.empty")}</span>
             {noWorkspace ? (
               <button type="button" className="btn btn--primary btn--small write-sidebar__empty-btn" onClick={() => void createDraft()}>
                 {t("write.sidebar.newDraft")}
               </button>
-            ) : onPickWorkspace ? (
-              <button type="button" className="btn btn--primary btn--small write-sidebar__empty-btn" onClick={() => void onPickWorkspace()}>
-                {t("write.sidebar.chooseWorkspace")}
-              </button>
+            ) : onPickWorkspace || onPickFile ? (
+              <div className="write-sidebar__empty-actions">
+                {onPickFile ? (
+                  <button type="button" className="btn btn--primary btn--small write-sidebar__empty-btn" onClick={() => void onPickFile()}>
+                    {t("write.sidebar.chooseFile")}
+                  </button>
+                ) : null}
+                {onPickWorkspace ? (
+                  <button type="button" className="btn btn--ghost btn--small write-sidebar__empty-btn" onClick={() => void onPickWorkspace()}>
+                    {t("write.sidebar.chooseFolder")}
+                  </button>
+                ) : null}
+              </div>
             ) : null}
           </div>
         ) : null}

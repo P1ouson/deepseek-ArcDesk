@@ -31,6 +31,9 @@ export interface SidebarProps {
   onOpenTopic: (scope: string, workspaceRoot: string, topicId: string, freshSession?: boolean) => void;
   onOpenWorkspace: () => void;
   onNewSession: () => void;
+  onPickWriteFolder?: () => void;
+  onPickWriteFile?: () => void;
+  onNewWriteChat?: () => void;
   onModeChange: (mode: AppMode) => void;
   onOpenSdd: () => void;
   onAddProject: () => Promise<void>;
@@ -94,6 +97,9 @@ export function Sidebar({
   onOpenTopic,
   onOpenWorkspace,
   onNewSession,
+  onPickWriteFolder,
+  onPickWriteFile,
+  onNewWriteChat,
   onModeChange,
   onOpenSdd,
   onAddProject,
@@ -131,11 +137,13 @@ export function Sidebar({
           active={drawerOpen}
           onClick={onToggleDrawer}
         />
-        <LabeledRailButton
-          icon={<FolderOpen size={17} />}
-          label={t("sidebar.importWorkspace")}
-          onClick={onOpenWorkspace}
-        />
+        {!writeMode ? (
+          <LabeledRailButton
+            icon={<FolderOpen size={17} />}
+            label={t("sidebar.importWorkspace")}
+            onClick={onOpenWorkspace}
+          />
+        ) : null}
         <LabeledRailButton
           icon={<BookOpen size={17} />}
           label={t("sidebar.rail.knowledge")}
@@ -182,11 +190,19 @@ export function Sidebar({
           </div>
 
           <div className="studio-drawer__actions">
-            <DrawerAction icon={<FolderOpen size={15} />} label={t("sidebar.importWorkspace")} onClick={onOpenWorkspace} />
-            <DrawerAction icon={<Plus size={15} />} label={t("sidebar.newFreshSession")} onClick={onNewSession} />
-            {!writeMode ? (
-              <DrawerAction icon={<Sparkles size={15} />} label={t("sidebar.newRequirement")} onClick={onOpenSdd} />
-            ) : null}
+            {writeMode ? (
+              <>
+                <DrawerAction icon={<FolderOpen size={15} />} label={t("write.drawer.openFolder")} onClick={() => onPickWriteFolder?.()} />
+                <DrawerAction icon={<FileText size={15} />} label={t("write.drawer.openFile")} onClick={() => onPickWriteFile?.()} />
+                <DrawerAction icon={<Plus size={15} />} label={t("write.drawer.newChat")} onClick={() => onNewWriteChat?.()} />
+              </>
+            ) : (
+              <>
+                <DrawerAction icon={<FolderOpen size={15} />} label={t("sidebar.importWorkspace")} onClick={onOpenWorkspace} />
+                <DrawerAction icon={<Plus size={15} />} label={t("sidebar.newFreshSession")} onClick={onNewSession} />
+                <DrawerAction icon={<Sparkles size={15} />} label={t("sidebar.newRequirement")} onClick={onOpenSdd} />
+              </>
+            )}
           </div>
 
           {writeMode ? (

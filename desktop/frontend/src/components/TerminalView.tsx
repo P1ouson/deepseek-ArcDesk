@@ -3,7 +3,6 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { useT } from "../lib/i18n";
 import {
-  closeTerminal,
   onTerminalExit,
   onTerminalOutput,
   resizeTerminal,
@@ -78,7 +77,6 @@ export function TerminalView({ sessionId, active, shell }: TerminalViewProps) {
       onData.dispose();
       offOutput();
       offExit();
-      closeTerminal(sessionId);
       term.dispose();
       termRef.current = null;
       fitRef.current = null;

@@ -7,6 +7,7 @@
 
 import { t } from "./i18n";
 import { hasGoBinding, isRuntimeReady } from "./runtime";
+import type { GitHubCLIInstallResult } from "./gitHubCli";
 
 import type {
   BalanceInfo,
@@ -113,6 +114,7 @@ export interface AppBindings {
   UpdateLatestTodoArgsForTab(tabID: string, args: string): Promise<void>;
   RunShell(command: string): Promise<void>;
   RunShellQuiet(command: string): Promise<ShellRunResult>;
+  InstallGitHubCLI(): Promise<GitHubCLIInstallResult>;
   StartTerminal(): Promise<TerminalStartResult>;
   WriteTerminal(sessionID: string, data: string): Promise<void>;
   ResizeTerminal(sessionID: string, cols: number, rows: number): Promise<void>;
@@ -156,6 +158,7 @@ export interface AppBindings {
   ListWorkspaces(): Promise<WorkspaceView[]>;
   PickWorkspace(): Promise<string>;
   PickFilePath(): Promise<string>;
+  PickWriteFilePath(): Promise<string>;
   PickSaveFilePath(defaultName: string): Promise<string>;
   SwitchWorkspace(path: string): Promise<string>;
   RemoveWorkspace(path: string): Promise<void>;
@@ -285,6 +288,7 @@ export interface AppBindings {
   ContextPanel(tabID: string): Promise<ContextPanelInfo>;
   ListWriteFiles(workspaceRoot: string): Promise<FileEntry[]>;
   ReadWriteFile(path: string): Promise<string>;
+  ReadWriteFilePreview(path: string): Promise<string>;
   WriteWriteFile(path: string, content: string): Promise<void>;
   DeleteWriteFile(path: string): Promise<void>;
   RenameWriteFile(oldPath: string, newPath: string): Promise<void>;
@@ -1324,8 +1328,38 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
         },
         async RunShellQuiet(command) {
           await delay(120);
+          if (command.trim() === "git remote" || command.includes("git remote\n")) {
+            return { output: "origin\n" };
+          }
+          if (command.includes("for-each-ref") && command.includes("refs/remotes")) {
+            return { output: "origin/main\norigin/ui-redesign\norigin/feature/mock\n" };
+          }
+          if (command.includes("for-each-ref") && command.includes("refs/heads")) {
+            return { output: "main\nui-redesign\nfeature/mock\n" };
+          }
           if (command.includes("branch --show-current")) {
             return { output: "ui-redesign\n" };
+          }
+          if (command.includes("git switch --track")) {
+            const match = command.match(/git switch --track\s+(.+)$/);
+            const ref = match?.[1]?.replace(/^['"]|['"]$/g, "").trim() ?? "origin/main";
+            const name = ref.includes("/") ? ref.split("/").slice(1).join("/") : ref;
+            return { output: `branch '${name}' set up to track '${ref}'.\n` };
+          }
+          if (command.includes("git switch -c") || command.includes("git checkout -b")) {
+            const match = command.match(/(?:git switch -c|git checkout -b)\s+(.+)$/);
+            const name = match?.[1]?.replace(/^['"]|['"]$/g, "").trim() ?? "main";
+            return { output: `Switched to a new branch '${name}'\n` };
+          }
+          if (command.includes("git switch")) {
+            const match = command.match(/git switch\s+(.+)$/);
+            const name = match?.[1]?.replace(/^['"]|['"]$/g, "").trim() ?? "main";
+            return { output: `Switched to branch '${name}'\n` };
+          }
+          if (command.includes("git checkout")) {
+            const match = command.match(/git checkout\s+(.+)$/);
+            const name = match?.[1]?.replace(/^['"]|['"]$/g, "").trim() ?? "main";
+            return { output: `Switched to branch '${name}'\n` };
           }
           if (command.startsWith("gh --version") || command.includes("gh --version")) {
             return { output: "gh version 2.40.0 (mock)\n" };
@@ -1353,6 +1387,10 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
             return { output: "{}\n" };
           }
           return { output: "Already up to date.\n" };
+        },
+        async InstallGitHubCLI() {
+          await delay(800);
+          return { ok: true, detail: "gh version 2.40.0 (mock)", method: "mock" };
         },
         async StartTerminal() {
           mockTerminalSeq += 1;
@@ -1566,6 +1604,9 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
       return mockSwitchWorkspace(cwd.endsWith("another-project") ? "~/projects/arcdesk" : "~/projects/another-project");
     },
     async PickFilePath() {
+      return `${cwd}/README.md`;
+    },
+    async PickWriteFilePath() {
       return `${cwd}/README.md`;
     },
     async PickSaveFilePath(defaultName: string) {
@@ -2405,6 +2446,15 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
     async ReadWriteFile(path: string) {
       if (!(path in mockWriteFiles)) throw new Error(`file not found: ${path}`);
       return mockWriteFiles[path]!;
+    },
+    async ReadWriteFilePreview(path: string) {
+      const body = mockWriteFiles[path] ?? "";
+      if (!path.toLowerCase().endsWith(".docx")) return "";
+      const escaped = body
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      return `<div class="write-word-preview"><p>${escaped.replace(/\n\n/g, "</p><p>").replace(/\n/g, "<br/>")}</p></div>`;
     },
     async WriteWriteFile(path: string, content: string) {
       mockWriteFiles[path] = content;

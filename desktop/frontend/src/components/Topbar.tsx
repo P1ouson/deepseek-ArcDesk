@@ -1,4 +1,4 @@
-import { Pencil } from "lucide-react";
+import { PanelRightClose, PanelRightOpen, Pencil } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { useT } from "../lib/i18n";
 import { Tooltip } from "./Tooltip";
@@ -21,6 +21,9 @@ export interface TopbarProps {
   onFocusPendingDecision?: () => void;
   backgroundAttentionCount?: number;
   onFocusBackgroundSession?: () => void;
+  showRightPanelToggle?: boolean;
+  rightPanelOpen?: boolean;
+  onToggleRightPanel?: () => void;
   dockOpen?: boolean;
   activeDockTab?: RightDockTab | null;
   terminalOpen?: boolean;
@@ -45,6 +48,9 @@ export function Topbar({
   onFocusPendingDecision,
   backgroundAttentionCount = 0,
   onFocusBackgroundSession,
+  showRightPanelToggle = false,
+  rightPanelOpen = false,
+  onToggleRightPanel,
 }: TopbarProps) {
   const t = useT();
 
@@ -85,20 +91,40 @@ export function Topbar({
           )}
         </div>
         <div className="studio-header__meta">
-          {workspacePath ? (
-            <span className="studio-header__workspace" title={workspacePath}>
-              {workspacePath}
-            </span>
-          ) : null}
-          {goalLabel ? (
-            <span className="studio-header__pill" title={goalLabel}>
-              {goalLabel.length > 28 ? `${goalLabel.slice(0, 28)}…` : goalLabel}
-            </span>
-          ) : null}
+          <div className="studio-header__meta-main">
+            {workspacePath ? (
+              <span className="studio-header__workspace" title={workspacePath}>
+                {workspacePath}
+              </span>
+            ) : null}
+            {goalLabel ? (
+              <span className="studio-header__pill" title={goalLabel}>
+                {goalLabel.length > 28 ? `${goalLabel.slice(0, 28)}…` : goalLabel}
+              </span>
+            ) : null}
+          </div>
         </div>
       </div>
 
       <div className="studio-header__aside wails-no-drag">
+        {showRightPanelToggle ? (
+          <Tooltip
+            label={rightPanelOpen ? t("sidebar.collapsePanel") : t("sidebar.openPanel")}
+            side="bottom"
+            block
+          >
+            <button
+              type="button"
+              className={`studio-header__right-panel-btn${rightPanelOpen ? " studio-header__right-panel-btn--open" : ""}`}
+              onClick={() => onToggleRightPanel?.()}
+              aria-label={rightPanelOpen ? t("sidebar.collapsePanel") : t("sidebar.openPanel")}
+              aria-pressed={rightPanelOpen}
+            >
+              {rightPanelOpen ? <PanelRightClose size={16} strokeWidth={1.75} /> : <PanelRightOpen size={16} strokeWidth={1.75} />}
+              <span>{rightPanelOpen ? t("sidebar.collapsePanel") : t("sidebar.expandPanel")}</span>
+            </button>
+          </Tooltip>
+        ) : null}
         {backgroundAttentionCount > 0 && onFocusBackgroundSession ? (
           <button type="button" className="studio-header__decision-pill studio-header__decision-pill--muted" onClick={onFocusBackgroundSession}>
             {t("openTabs.backgroundBadge", { count: backgroundAttentionCount })}

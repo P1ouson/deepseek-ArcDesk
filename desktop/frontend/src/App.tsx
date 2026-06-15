@@ -20,12 +20,10 @@ import { Sidebar } from "./components/Sidebar";
 import { OpenTabsBar } from "./components/OpenTabsBar";
 import { Topbar } from "./components/Topbar";
 import { countBackgroundAttention, listTabAttention, openTabsBarItems } from "./lib/tabSessionActivity";
-import { StudioToolRail } from "./components/StudioToolRail";
-import { RightDock } from "./components/RightDock";
+import { UnifiedRightSidebar } from "./components/UnifiedRightSidebar";
 import type { RightDockTab } from "./components/Topbar";
 import { SettingsDockModal } from "./components/SettingsDockModal";
 import { SettingsWorkspaceDataModal, type SettingsDataModalState } from "./components/SettingsWorkspaceDataModal";
-import { UnifiedPreviewPanel } from "./components/UnifiedPreviewPanel";
 import { AgentDecisionLayer } from "./components/AgentDecisionLayer";
 import { clearAgentDecisionNotifications, notifyAgentDecision } from "./lib/agentNotifications";
 import { KNOWLEDGE_RECORDED_EVENT } from "./lib/events";
@@ -39,6 +37,7 @@ import { SideConversation, type SideMessage } from "./components/SideConversatio
 import { RequirementDraft } from "./components/RequirementDraft";
 import { ModeWorkspaceCenter } from "./components/ModeWorkspaceCenter";
 import { DevMockBanner } from "./components/DevMockBanner";
+import { WRITE_MODE_TOPIC_ID, normalizedWriteWorkspaceRoot, writeAgentWorkspaceRoot } from "./lib/writeTab";
 import { buildWriteConversation } from "./lib/writeConversation";
 import { useWriteModeTab } from "./lib/useWriteModeTab";
 import type { AppMode } from "./lib/appMode";
@@ -64,6 +63,7 @@ import {
   isUsableWriteWorkspaceRoot,
   NO_WORKSPACE_VALUE,
   setStoredWriteWorkspaceRoot,
+  writeDocumentParentDir,
 } from "./lib/writeWorkspace";
 import { applyThemeFromSettings } from "./lib/applyThemeFromSettings";
 import {
@@ -227,6 +227,7 @@ export default function App() {
   const [composerInsertRequest, setComposerInsertRequest] = useState<ComposerInsertRequest | null>(null);
   const [appMode, setAppMode] = useState<AppMode>(() => getDefaultAppMode());
   const [writeWorkspaceRoot, setWriteWorkspaceRoot] = useState(() => getInitialWriteWorkspaceRoot());
+  const [writeSelectedFile, setWriteSelectedFile] = useState<string | undefined>();
   const [composerNoWorkspace, setComposerNoWorkspace] = useState(() => getStoredComposerNoWorkspace());
   const [sddOpen, setSddOpen] = useState(false);
   const [goalLabel, setGoalLabel] = useState<string>("");
@@ -278,17 +279,9 @@ export default function App() {
     filePreviewPath,
     filePreviewDiff,
     previewColumnOpen,
-    previewColumnActive,
-    fileTreeSplitActive,
-    fileTreePreviewContext,
-    fileTreeLayoutUserSized,
     fileTreePreviewExpanded,
-    expandFileTreePreview,
-    collapseFileTreePreview,
-    backToFileTreeFromPreview,
     previewMode,
     previewTerminalDocked,
-    closePreviewColumn,
     filePreviewComposerOpen,
     filePreviewResizing,
     rightDockMode,
@@ -307,16 +300,18 @@ export default function App() {
     closeFilePreview,
     exitExpandedPreviewComposer,
     togglePreviewTerminal,
-    openDockHub,
+    selectSidebarTab,
+    selectSidebarSession,
+    sidebarBodyTab,
+    toggleSidebarExpanded,
+    openSidebarPanel,
+    openSidebarNewTerminal,
+    sidebarOpen,
     startDockResize,
-    startFilePreviewResize,
-    resizeFilePreviewWithKeyboard,
     resizeDockWithKeyboard,
-    resetFilePreviewWidthFromDock,
     resetDockWidthFromDefault,
     clearFilePreviewComposerOpen,
     addPreviewBrowser,
-    addPreviewTerminal,
     addWorkspaceTextToComposer,
   } = useWorkbenchDock({
     appMode,
@@ -330,6 +325,8 @@ export default function App() {
     restoreTerminalPanel,
     closeTerminalPanel,
     openNewTerminal,
+    setActiveBrowserTabId,
+    setActiveTerminalId,
     cwd: state.meta?.cwd,
     setComposerInsertRequest,
   });
@@ -343,10 +340,20 @@ export default function App() {
 
   useEffect(() => {
     if (browserActive) return;
-    if (previewMode !== "browser") return;
-    if (!previewColumnOpen) return;
-    closePreviewColumn();
-  }, [browserActive, closePreviewColumn, previewColumnOpen, previewMode]);
+    if (sidebarBodyTab !== "browser") return;
+    if (terminalHasSessions && resolvedActiveTerminalId) {
+      selectSidebarSession("terminal", resolvedActiveTerminalId);
+      return;
+    }
+    selectSidebarTab("changes");
+  }, [
+    browserActive,
+    resolvedActiveTerminalId,
+    selectSidebarSession,
+    selectSidebarTab,
+    sidebarBodyTab,
+    terminalHasSessions,
+  ]);
 
   // Persist window geometry across launches.
   useWindowStatePersistence();
@@ -834,6 +841,8 @@ export default function App() {
     send,
     enterPlanMode,
     exitExpandedPreviewComposer,
+    writeSelectedFile,
+    writeWorkspaceRoot,
   });
 
   useEffect(() => {
@@ -928,30 +937,56 @@ export default function App() {
     clearFilePreviewComposerOpen();
   }, [appMode, clearFilePreviewComposerOpen]);
 
+  const bindWriteWorkspace = useCallback(
+    async (root: string) => {
+      setComposerNoWorkspace(false);
+      setStoredComposerNoWorkspace(false);
+      setStoredWriteWorkspaceRoot(root);
+      recordRecentWorkspace(root);
+      setWriteWorkspaceRoot(root);
+      await app.AddWriteWorkspace(root).catch(() => undefined);
+      if (appMode === "write") await activateWriteTab(root);
+    },
+    [appMode, activateWriteTab],
+  );
+
   const pickWriteWorkspace = useCallback(async () => {
     const picked = await pickWorkspace();
     if (picked) {
-      setComposerNoWorkspace(false);
-      setStoredComposerNoWorkspace(false);
-      setStoredWriteWorkspaceRoot(picked);
-      recordRecentWorkspace(picked);
-      setWriteWorkspaceRoot(picked);
-      await app.AddWriteWorkspace(picked).catch(() => undefined);
-      if (appMode === "write") await activateWriteTab(picked);
+      setWriteSelectedFile(undefined);
+      await bindWriteWorkspace(picked);
     }
     return picked || undefined;
-  }, [appMode, activateWriteTab, pickWorkspace]);
+  }, [bindWriteWorkspace, pickWorkspace]);
+
+  const pickWriteFile = useCallback(async () => {
+    const picked = await app.PickWriteFilePath().catch(() => "");
+    const filePath = picked?.trim();
+    if (!filePath) return undefined;
+    const parent = writeDocumentParentDir(filePath);
+    if (!isUsableWriteWorkspaceRoot(parent)) return undefined;
+    setWriteSelectedFile(filePath);
+    await bindWriteWorkspace(parent);
+    return filePath;
+  }, [bindWriteWorkspace]);
+
+  const handleWriteSelectedFileChange = useCallback((path: string) => {
+    const normalized = path.trim();
+    setWriteSelectedFile(normalized || undefined);
+  }, []);
 
   const handleWriteWorkspaceChange = useCallback((root: string) => {
     if (isNoWriteWorkspace(root)) {
       setStoredWriteWorkspaceRoot(NO_WORKSPACE_VALUE);
       setWriteWorkspaceRoot(NO_WORKSPACE_VALUE);
+      setWriteSelectedFile(undefined);
       setComposerNoWorkspace(true);
       setStoredComposerNoWorkspace(true);
       if (appMode === "write") void ensureWriteTabMatchesWorkspace(NO_WORKSPACE_VALUE);
       return;
     }
     if (!isUsableWriteWorkspaceRoot(root)) return;
+    setWriteSelectedFile(undefined);
     setComposerNoWorkspace(false);
     setStoredComposerNoWorkspace(false);
     setStoredWriteWorkspaceRoot(root);
@@ -1152,6 +1187,7 @@ export default function App() {
       setSettingsDataModal(null);
     }
     if (appMode === "write" && prev !== "write") {
+      if (mode === "plan") applyMode("normal");
       const stored = getStoredWriteWorkspaceRoot();
       let nextRoot = writeWorkspaceRoot;
       if (isNoWriteWorkspace(stored)) {
@@ -1174,7 +1210,7 @@ export default function App() {
         void switchFolder(stored);
       }
     }
-  }, [appMode, composerNoWorkspace, switchFolder, activeTab?.workspaceRoot, activateWriteTab, restoreCodeTab, writeWorkspaceRoot]);
+  }, [appMode, applyMode, composerNoWorkspace, mode, switchFolder, activeTab?.workspaceRoot, activateWriteTab, restoreCodeTab, writeWorkspaceRoot]);
 
   useEffect(() => {
     if (appMode !== "write" || state.meta?.ready !== true) return;
@@ -1238,6 +1274,29 @@ export default function App() {
   ]);
 
   const startFreshSession = useCallback(() => startNewTopic(true), [startNewTopic]);
+
+  const startNewWriteChat = useCallback(async () => {
+    if (state.meta?.ready !== true) {
+      notice(t("sidebar.newSessionNotReady"), "warn");
+      return;
+    }
+    const normalized = normalizedWriteWorkspaceRoot(writeWorkspaceRoot);
+    const agentRoot = writeAgentWorkspaceRoot(normalized);
+    if (isUsableCodeWorkspaceRoot(agentRoot)) {
+      await openProjectTab(agentRoot, WRITE_MODE_TOPIC_ID, true, true);
+    } else {
+      await openGlobalTab(WRITE_MODE_TOPIC_ID, true, true);
+    }
+    await refreshTabMetas();
+  }, [
+    notice,
+    openGlobalTab,
+    openProjectTab,
+    refreshTabMetas,
+    state.meta?.ready,
+    t,
+    writeWorkspaceRoot,
+  ]);
 
   const handleCloseOpenTab = useCallback(
     async (tabId: string) => {
@@ -1467,6 +1526,7 @@ export default function App() {
           "workbench--studio",
           projectDrawerOpen ? "workbench--drawer-open" : "workbench--drawer-closed",
           workspacePanelOpen && showRightDock ? "workbench--dock-open" : "",
+          sidebarOpen && showRightDock ? "workbench--sidebar-open" : "",
           !showRightDock ? "workbench--dock-hidden" : "",
           filePreviewResizing || dockResizing ? "workbench--resizing" : "",
           appMode === "write" ? "workbench--write-mode" : "",
@@ -1491,6 +1551,15 @@ export default function App() {
           }}
           onNewSession={() => {
             void startFreshSession();
+          }}
+          onPickWriteFolder={() => {
+            void pickWriteWorkspace();
+          }}
+          onPickWriteFile={() => {
+            void pickWriteFile();
+          }}
+          onNewWriteChat={() => {
+            void startNewWriteChat();
           }}
           onModeChange={setAppMode}
           onOpenSdd={() => {
@@ -1532,6 +1601,12 @@ export default function App() {
                 onFocusPendingDecision={decisionPending ? focusPendingDecision : undefined}
                 backgroundAttentionCount={backgroundAttentionCount}
                 onFocusBackgroundSession={backgroundAttentionCount > 0 ? focusBackgroundSession : undefined}
+                showRightPanelToggle={showRightDock}
+                rightPanelOpen={sidebarOpen}
+                onToggleRightPanel={() => {
+                  if (sidebarOpen) closeWorkspacePanel();
+                  else openSidebarPanel();
+                }}
               />
               <OpenTabsBar
                 tabs={openTabs}
@@ -1551,12 +1626,9 @@ export default function App() {
           <div
             className={[
               "workbench__body",
-              previewColumnActive ? "workbench__body--preview-open" : "",
-              fileTreeSplitActive ? "workbench__body--file-tree-split" : "",
-              fileTreePreviewExpanded ? "workbench__body--file-tree-preview-expanded" : "",
-              fileTreeSplitActive && fileTreeLayoutUserSized ? "workbench__body--file-tree-split-sized" : "",
+              sidebarOpen ? "workbench__body--sidebar-open" : "",
+              fileTreePreviewExpanded ? "workbench__body--sidebar-expanded" : "",
               filePreviewComposerOpen ? "workbench__body--preview-composer-open" : "",
-              workspacePanelOpen ? "workbench__body--dock-open" : "",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -1610,6 +1682,8 @@ export default function App() {
                     activeTabLabel={activeTab?.topicTitle?.trim() || topicTitle(activeTab)}
                     activeWorkspaceName={activeTab?.workspaceName}
                     writeWorkspaceRoot={writeWorkspaceRoot}
+                    writeSelectedFile={writeSelectedFile}
+                    onWriteSelectedFileChange={handleWriteSelectedFileChange}
                     onWriteWorkspaceChange={handleWriteWorkspaceChange}
                     onPrompt={handleSend}
                     onComposerPrompt={(text) => {
@@ -1618,9 +1692,15 @@ export default function App() {
                     }}
                     onDraftComposer={addWriteContextToComposer}
                     onPickWriteWorkspace={pickWriteWorkspace}
+                    onPickWriteFile={pickWriteFile}
                     onFilesChanged={() => setProjectRevision((value) => value + 1)}
                     writeConversation={writeConversationTurns}
                     writeAgentRunning={state.running}
+                    rightPanelOpen={sidebarOpen}
+                    onToggleRightPanel={() => {
+                      if (sidebarOpen) closeWorkspacePanel();
+                      else openSidebarPanel();
+                    }}
                     onSettingsChanged={() => void refreshMeta()}
                     onOpenHistory={() => {
                       if (appMode === "settings") {
@@ -1812,88 +1892,43 @@ export default function App() {
               ) : null}
             </div>
 
-            {previewColumnActive && (
+            {showRightDock && dockMounted && sidebarOpen ? (
               <>
-                {!fileTreePreviewExpanded && (
-                  <button
-                    className="workbench__resizer workbench__resizer--preview wails-no-drag"
-                    type="button"
-                    role="separator"
-                    aria-orientation="vertical"
-                    aria-label={t("filePreview.resize")}
-                    onPointerDown={startFilePreviewResize}
-                    onKeyDown={resizeFilePreviewWithKeyboard}
-                    onDoubleClick={resetFilePreviewWidthFromDock}
-                  />
-                )}
-                <div className="workbench__preview-slot">
-                  <UnifiedPreviewPanel
-                    mode={previewMode}
-                    onClose={closePreviewColumn}
-                    onAddTerminal={addPreviewTerminal}
-                    onAddBrowser={addPreviewBrowser}
-                    filePath={filePreviewPath}
-                    fileDiff={filePreviewDiff}
-                    onCloseFile={closeFilePreview}
-                    onAddFileToChat={addWorkspaceTextToComposer}
-                    pagePath={pagePreviewPath}
-                    onPagePathChange={setPagePreviewPath}
-                    refreshKey={projectRevision}
-                    workspaceRoot={composerCwd}
-                    browserTabs={browserTabs}
-                    activeBrowserTabId={activeBrowserTabId}
-                    onBrowserTabChange={setActiveBrowserTabId}
-                    onCloseBrowserTab={handleCloseBrowserTab}
-                    onNewBrowserTab={() => openWebPreview()}
-                    onBrowserTabUrlChange={(id, url, title) => updateBrowserTab(id, { url, title })}
-                    terminalTabs={terminalTabs}
-                    activeTerminalId={resolvedActiveTerminalId}
-                    onTerminalTabChange={setActiveTerminalId}
-                    onNewTerminal={() => void openNewTerminal()}
-                    onCloseTerminalTab={closeTerminalTab}
-                    fileTreePreviewContext={fileTreePreviewContext}
-                    fileTreePreviewExpanded={fileTreePreviewExpanded}
-                    onExpandFileTreePreview={expandFileTreePreview}
-                    onCollapseFileTreePreview={collapseFileTreePreview}
-                    onBackToFileTree={backToFileTreeFromPreview}
-                  />
-                </div>
-              </>
-            )}
-
-            {showRightDock && dockMounted && (
-              <>
-                {workspacePanelOpen && !fileTreePreviewExpanded ? (
-                  <button
-                    className="workbench__resizer workbench__resizer--dock wails-no-drag"
-                    type="button"
-                    role="separator"
-                    aria-orientation="vertical"
-                    aria-label={t("rightDock.resize")}
-                    onPointerDown={startDockResize}
-                    onKeyDown={resizeDockWithKeyboard}
-                    onDoubleClick={resetDockWidthFromDefault}
-                  />
-                ) : null}
-                {workspacePanelOpen && !fileTreePreviewExpanded ? (
-                  <div
-                    className={`workbench__dock-slot${dockBackgroundSessions && !workspacePanelOpen ? " workbench__dock-slot--background" : ""}`}
+                <button
+                  className="workbench__resizer workbench__resizer--dock wails-no-drag"
+                  type="button"
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label={t("rightDock.resize")}
+                  onPointerDown={startDockResize}
+                  onKeyDown={resizeDockWithKeyboard}
+                  onDoubleClick={resetDockWidthFromDefault}
+                />
+                <div
+                  className={`workbench__sidebar-slot${dockBackgroundSessions && !workspacePanelOpen ? " workbench__sidebar-slot--background" : ""}`}
                   style={
                     {
-                      width: workspacePanelOpen ? dockPanelWidth : 0,
-                      minWidth: workspacePanelOpen ? undefined : 0,
-                      flex: workspacePanelOpen ? undefined : "0 0 0px",
+                      width: dockPanelWidth,
+                      minWidth: dockPanelWidth > 0 ? undefined : 0,
+                      flex: dockPanelWidth > 0 ? undefined : "0 0 0px",
                     } as CSSProperties
                   }
                 >
-                  <RightDock
+                  <UnifiedRightSidebar
                     key={dockMotionKey}
-                    open={workspacePanelOpen}
+                    open={sidebarOpen}
                     background={dockBackgroundSessions && !workspacePanelOpen}
                     closing={dockClosing}
                     tab={rightDockMode}
-                    onTabChange={(tab) => openDockTab(tab, { toggle: false })}
                     onClose={closeWorkspacePanel}
+                    previewColumnOpen={previewColumnOpen}
+                    previewMode={previewMode}
+                    sidebarExpanded={fileTreePreviewExpanded}
+                    onSelectSidebarTab={selectSidebarTab}
+                    onSelectSidebarSession={selectSidebarSession}
+                    sidebarBodyTab={sidebarBodyTab}
+                    onToggleSidebarExpanded={toggleSidebarExpanded}
+                    onAddBrowser={addPreviewBrowser}
                     tabId={activeTabId}
                     context={state.context}
                     usage={state.usage}
@@ -1909,6 +1944,8 @@ export default function App() {
                     cwd={composerCwd}
                     onAddToChat={addWorkspaceTextToComposer}
                     filePreviewPath={filePreviewPath}
+                    fileDiff={filePreviewDiff}
+                    onCloseFile={closeFilePreview}
                     onOpenFile={(path, dockTab) => openFilePreview(path, dockTab ?? "files")}
                     todos={todos}
                     todoStale={todoStale}
@@ -1919,32 +1956,26 @@ export default function App() {
                     codeReview={codeReview}
                     onRunCodeReview={runCodeReview}
                     onClearCodeReview={clearCodeReview}
-                    pagePreviewPath={pagePreviewPath}
-                    onPagePreviewPathChange={setPagePreviewPath}
+                    pagePath={pagePreviewPath}
+                    onPagePathChange={setPagePreviewPath}
                     onPreviewPage={openPagePreview}
+                    workspaceRoot={composerCwd}
+                    browserTabs={browserTabs}
+                    activeBrowserTabId={activeBrowserTabId}
+                    onBrowserTabChange={setActiveBrowserTabId}
+                    onCloseBrowserTab={handleCloseBrowserTab}
+                    onNewBrowserTab={() => openWebPreview()}
+                    onBrowserTabUrlChange={(id, url, title) => updateBrowserTab(id, { url, title })}
+                    terminalTabs={terminalTabs}
+                    activeTerminalId={resolvedActiveTerminalId}
+                    onTerminalTabChange={setActiveTerminalId}
+                    onNewTerminal={openSidebarNewTerminal}
+                    onCloseTerminalTab={closeTerminalTab}
+                    sidebarProfile={appMode === "write" ? "write" : "code"}
                   />
                 </div>
-                ) : null}
               </>
-            )}
-
-            {(chatMode || appMode === "write") && (
-              <StudioToolRail
-                dockOpen={workspacePanelOpen}
-                previewOpen={previewColumnOpen}
-                activeDockTab={
-                  workspacePanelOpen && rightDockMode !== "browser" && rightDockMode !== "page"
-                    ? rightDockMode
-                    : null
-                }
-                onHubPress={openDockHub}
-                onOpenDockTab={(tab) => openDockTab(tab, { toggle: false })}
-                onOpenPreviewMode={(mode) => {
-      if (mode === "terminal") addPreviewTerminal();
-      else if (mode === "browser") addPreviewBrowser();
-    }}
-              />
-            )}
+            ) : null}
           </div>
         </div>
       </div>

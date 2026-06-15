@@ -398,6 +398,19 @@ func (a *App) RunShellQuiet(command string) ShellRunResult {
 		r := ctrl.RunShellQuiet(command)
 		return ShellRunResult{Output: r.Output, Err: r.Err}
 	}
+	if isDetachedGhShellCommand(command) {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		out, err := runDetachedShell(ctx, command, a.activeWorkspaceRoot())
+		if err != nil {
+			msg := err.Error()
+			if strings.TrimSpace(out) != "" {
+				msg = strings.TrimSpace(out)
+			}
+			return ShellRunResult{Output: out, Err: msg}
+		}
+		return ShellRunResult{Output: out}
+	}
 	return ShellRunResult{Err: "no active session"}
 }
 
@@ -1925,6 +1938,28 @@ func (a *App) PickFilePath() (string, error) {
 	})
 }
 
+// PickWriteFilePath opens a native file picker for write mode. Returns "" if cancelled.
+func (a *App) PickWriteFilePath() (string, error) {
+	if a.ctx == nil {
+		return "", nil
+	}
+	cur, _ := os.Getwd()
+	a.mu.RLock()
+	if tab := a.activeTabLocked(); tab != nil && tab.WorkspaceRoot != "" {
+		cur = tab.WorkspaceRoot
+	}
+	a.mu.RUnlock()
+	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:            "Open document",
+		DefaultDirectory: cur,
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Word (*.docx)", Pattern: "*.docx"},
+			{DisplayName: "Text documents (*.md; *.txt)", Pattern: "*.md;*.markdown;*.mdx;*.txt;*.rst;*.adoc;*.org"},
+			{DisplayName: "All files", Pattern: "*.*"},
+		},
+	})
+}
+
 // PickSaveFilePath opens a native save dialog (write mode, no workspace folder).
 // Returns "" if cancelled.
 func (a *App) PickSaveFilePath(defaultName string) (string, error) {
@@ -1941,6 +1976,7 @@ func (a *App) PickSaveFilePath(defaultName string) (string, error) {
 		DefaultDirectory: cur,
 		DefaultFilename:  name,
 		Filters: []runtime.FileFilter{
+			{DisplayName: "Word (*.docx)", Pattern: "*.docx"},
 			{DisplayName: "Markdown (*.md)", Pattern: "*.md"},
 			{DisplayName: "Text (*.txt)", Pattern: "*.txt"},
 			{DisplayName: "All files", Pattern: "*.*"},
@@ -3820,6 +3856,20 @@ type ScheduledTask struct {
 }
 
 // ListWriteFiles returns a text-file oriented tree for the write workspace UI.
+func isWriteListHiddenFile(name string) bool {
+	base := strings.TrimSpace(name)
+	if base == "" {
+		return true
+	}
+	if strings.HasPrefix(base, "~$") {
+		return true
+	}
+	if strings.HasPrefix(base, "~WRL") || strings.HasPrefix(base, "~WRD") {
+		return true
+	}
+	return false
+}
+
 func (a *App) ListWriteFiles(workspaceRoot string) []FileEntry {
 	root := strings.TrimSpace(workspaceRoot)
 	if root == "" {
@@ -3844,6 +3894,7 @@ func (a *App) ListWriteFiles(workspaceRoot string) []FileEntry {
 	}
 	keepExt := map[string]struct{}{
 		".md": {}, ".markdown": {}, ".mdx": {}, ".txt": {}, ".rst": {}, ".adoc": {}, ".org": {},
+		".docx": {},
 	}
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -3862,6 +3913,9 @@ func (a *App) ListWriteFiles(workspaceRoot string) []FileEntry {
 				return filepath.SkipDir
 			}
 			out[rel] = FileEntry{Path: path, Name: base, IsDir: true, ModTime: now}
+			return nil
+		}
+		if isWriteListHiddenFile(base) {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(base))
@@ -3902,22 +3956,17 @@ func (a *App) ListWriteFiles(workspaceRoot string) []FileEntry {
 
 // ReadWriteFile reads a document from disk for the write workspace UI.
 func (a *App) ReadWriteFile(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
+	return readWriteDocument(path)
+}
+
+// ReadWriteFilePreview returns HTML preview for rich documents such as Word files.
+func (a *App) ReadWriteFilePreview(path string) (string, error) {
+	return readWriteDocumentPreview(path)
 }
 
 // WriteWriteFile writes a document to disk for the write workspace UI.
 func (a *App) WriteWriteFile(path string, content string) error {
-	if strings.TrimSpace(path) == "" {
-		return fmt.Errorf("path is required")
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, []byte(content), 0o644)
+	return writeWriteDocument(path, content)
 }
 
 // DeleteWriteFile removes a document from disk for the write workspace UI.

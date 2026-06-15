@@ -1,12 +1,13 @@
 import { useCallback, useRef } from "react";
 import type { AppMode } from "./appMode";
+import { getStoredCodeWorkspaceRoot, isUsableCodeWorkspaceRoot } from "./composerWorkspace";
 import type { TabMeta } from "./types";
 import {
   WRITE_MODE_TOPIC_ID,
   isWriteModeTopicId,
   isWriteTabForWorkspace,
   normalizedWriteWorkspaceRoot,
-  writeTabScope,
+  writeAgentWorkspaceRoot,
 } from "./writeTab";
 
 type Params = {
@@ -47,11 +48,12 @@ export function useWriteModeTab({
       try {
         rememberCodeTab();
         const normalized = normalizedWriteWorkspaceRoot(writeRoot);
-        if (writeTabScope(normalized) === "project") {
-          await openProjectTab(normalized, WRITE_MODE_TOPIC_ID);
-        } else {
-          await openGlobalTab(WRITE_MODE_TOPIC_ID);
+        const agentRoot = writeAgentWorkspaceRoot(normalized);
+        if (isUsableCodeWorkspaceRoot(agentRoot)) {
+          await openProjectTab(agentRoot, WRITE_MODE_TOPIC_ID);
+          return;
         }
+        await openGlobalTab(WRITE_MODE_TOPIC_ID);
       } finally {
         activatingRef.current = false;
       }
@@ -71,7 +73,8 @@ export function useWriteModeTab({
 
   const ensureWriteTabMatchesWorkspace = useCallback(
     async (writeRoot: string) => {
-      if (isWriteTabForWorkspace(activeTab, writeRoot)) return;
+      const codeRoot = getStoredCodeWorkspaceRoot();
+      if (isWriteTabForWorkspace(activeTab, writeRoot, codeRoot)) return;
       await activateWriteTab(writeRoot);
     },
     [activateWriteTab, activeTab],

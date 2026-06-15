@@ -3,7 +3,14 @@ import type { GitHubCliSettingsNavDetail } from "../../lib/gitHubCliSettingsNav"
 import { app, openExternal } from "../../lib/bridge";
 import { useT } from "../../lib/i18n";
 import { normalizeDesktopGit, syncDesktopGitSettings } from "../../lib/desktopGitPrefs";
-import { probeGitHubCli, probeReasonKey, syncGitHubRepoMergeMethod, type GitHubCliProbe } from "../../lib/gitHubCli";
+import {
+  GITHUB_CLI_INSTALL_URL,
+  installGitHubCliViaApp,
+  probeGitHubCli,
+  probeReasonKey,
+  syncGitHubRepoMergeMethod,
+  type GitHubCliProbe,
+} from "../../lib/gitHubCli";
 import type { DesktopGitView, GitPRMergeMethod } from "../../lib/types";
 import type { RightDockTab } from "../Topbar";
 import {
@@ -15,7 +22,6 @@ import {
 import { SettingsShortcutRow } from "./SettingsShortcutRow";
 
 const GIT_PR_MERGE_METHODS: GitPRMergeMethod[] = ["merge", "squash", "rebase"];
-const GITHUB_CLI_INSTALL_URL = "https://cli.github.com";
 
 function GitHubCliStatusRow({
   label,
@@ -65,12 +71,15 @@ function GitHubCliSettingsBlock({
   const t = useT();
   const [probe, setProbe] = useState<GitHubCliProbe | null>(null);
   const [probing, setProbing] = useState(false);
+  const [ghInstalling, setGhInstalling] = useState(false);
+  const [ghInstallNotice, setGhInstallNotice] = useState<string | null>(null);
 
-  const runProbe = useCallback(async () => {
+  const runProbe = useCallback(async (): Promise<GitHubCliProbe | null> => {
     setProbing(true);
     try {
       const result = await probeGitHubCli((command) => app.RunShellQuiet(command));
       setProbe(result);
+      return result;
     } finally {
       setProbing(false);
     }
@@ -105,6 +114,29 @@ function GitHubCliSettingsBlock({
     void navigator.clipboard?.writeText("gh auth login");
   };
 
+  const handleInstallGh = useCallback(async () => {
+    setGhInstalling(true);
+    setGhInstallNotice(null);
+    try {
+      const result = await installGitHubCliViaApp(() => app.InstallGitHubCLI());
+      const nextProbe = await runProbe();
+      if (result.ok) {
+        if (nextProbe?.ghInstalled) {
+          return;
+        }
+        setGhInstallNotice(t("git.ghInstallNeedRestart"));
+        return;
+      }
+      setGhInstallNotice(t("git.ghInstallFailed"));
+      openExternal(GITHUB_CLI_INSTALL_URL);
+    } catch {
+      setGhInstallNotice(t("git.ghInstallFailed"));
+      openExternal(GITHUB_CLI_INSTALL_URL);
+    } finally {
+      setGhInstalling(false);
+    }
+  }, [runProbe, t]);
+
   return (
     <SettingsBlock title={t("settings.git.githubCliTitle")} compact>
       <div className="settings-block__form settings-gh-block" id="settings-github-cli">
@@ -138,8 +170,13 @@ function GitHubCliSettingsBlock({
                 }
                 action={
                   probe && !probe.ghInstalled ? (
-                    <button type="button" className="settings-gh-status__link" onClick={() => openExternal(GITHUB_CLI_INSTALL_URL)}>
-                      {t("settings.git.ghInstallLink")}
+                    <button
+                      type="button"
+                      className="settings-gh-status__link"
+                      onClick={() => void handleInstallGh()}
+                      disabled={ghInstalling || probing}
+                    >
+                      {ghInstalling ? t("git.ghInstalling") : t("settings.git.ghInstallLink")}
                     </button>
                   ) : null
                 }
@@ -194,6 +231,7 @@ function GitHubCliSettingsBlock({
                 }
               />
             </div>
+            {ghInstallNotice ? <p className="settings-gh-status__notice">{ghInstallNotice}</p> : null}
             <div className="settings-block__footer settings-gh-block__footer">
               <SettingsActionButton primary={false} disabled={busy || probing} onClick={() => void runProbe()}>
                 {probing ? t("settings.git.ghProbing") : t("settings.git.ghRunCheck")}

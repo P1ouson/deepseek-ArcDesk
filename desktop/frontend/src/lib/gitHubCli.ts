@@ -3,6 +3,36 @@ import type { GitPRMergeMethod } from "./types";
 import type { ShellRunResult } from "./types";
 import type { DictKey } from "./i18n";
 
+export type GitHubCLIInstallResult = {
+  ok: boolean;
+  detail: string;
+  method?: string;
+  needRestart?: boolean;
+};
+
+export function normalizeGitHubCLIInstallResult(raw: unknown): GitHubCLIInstallResult {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  return {
+    ok: Boolean(r.ok ?? r.OK),
+    detail: String(r.detail ?? r.Detail ?? ""),
+    method: typeof (r.method ?? r.Method) === "string" ? String(r.method ?? r.Method) : undefined,
+    needRestart: Boolean(r.needRestart ?? r.NeedRestart),
+  };
+}
+
+export async function installGitHubCliViaApp(
+  install: () => Promise<unknown>,
+): Promise<GitHubCLIInstallResult> {
+  try {
+    return normalizeGitHubCLIInstallResult(await install());
+  } catch (e) {
+    return { ok: false, detail: toErrorMessage(e) };
+  }
+}
+
+/** Official GitHub CLI install page — used when winget/choco is unavailable. */
+export const GITHUB_CLI_INSTALL_URL = "https://cli.github.com";
+
 export type GitHubCliProbeReason = "missing_gh" | "auth_required" | "no_pr" | "no_open_pr" | null;
 
 export type GitHubCliProbe = {
@@ -41,6 +71,12 @@ export async function probeGitHubCli(run: RunQuiet): Promise<GitHubCliProbe> {
   };
 
   const version = await runQuiet(run, "gh --version");
+  if (version.err && !version.output.trim()) {
+    const fallback = await runQuiet(run, `"C:\\Program Files\\GitHub CLI\\gh.exe" --version`);
+    if (!fallback.err || fallback.output.trim()) {
+      Object.assign(version, fallback);
+    }
+  }
   if (version.err && !version.output.trim()) {
     return { ...empty, reason: "missing_gh" };
   }
@@ -143,6 +179,23 @@ export async function syncGitHubRepoMergeMethod(
     return { ok: false, message: result.err };
   }
   return { ok: true, message: slug };
+}
+
+/** Best-effort silent install on Windows via winget. */
+/** @deprecated Prefer app.InstallGitHubCLI() on desktop — kept for tests. */
+export async function installGitHubCli(run: RunQuiet): Promise<{ ok: boolean; detail: string }> {
+  const winget = await runQuiet(
+    run,
+    "winget install --id GitHub.cli -e --accept-package-agreements --accept-source-agreements",
+  );
+  if (!winget.err) {
+    return { ok: true, detail: winget.output.trim() || "installed" };
+  }
+  const choco = await runQuiet(run, "choco install gh -y");
+  if (!choco.err) {
+    return { ok: true, detail: choco.output.trim() || "installed" };
+  }
+  return { ok: false, detail: winget.err || choco.err || "install_failed" };
 }
 
 export function probeReasonKey(reason: GitHubCliProbeReason): DictKey | null {

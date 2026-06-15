@@ -13,7 +13,7 @@ import {
   Undo2,
   X,
 } from "lucide-react";
-import { app } from "../lib/bridge";
+import { app, openExternal } from "../lib/bridge";
 import { isGitHubCliCheckEnabled } from "../lib/desktopGitPrefs";
 import { openGitHubCliSettings } from "../lib/gitHubCliSettingsNav";
 import { GitHubCliSetupModal, type GitHubCliSetupReason } from "./GitHubCliSetupModal";
@@ -23,7 +23,8 @@ import { useDismissOverlay } from "../lib/useDismissOverlay";
 import { useWorkspaceChanges } from "../lib/useWorkspaceChanges";
 import type { WorkspaceChangeView } from "../lib/types";
 import { buildCommitMessagePrompt, buildPRPrompt, ghPRMergeCommand } from "../lib/gitPrompts";
-import { probeGitHubCli, probeReasonKey, type GitHubCliProbe } from "../lib/gitHubCli";
+import { probeGitHubCli, probeReasonKey, installGitHubCliViaApp, GITHUB_CLI_INSTALL_URL, type GitHubCliProbe } from "../lib/gitHubCli";
+import { gitStatusTooltip } from "../lib/gitStatusLabel";
 import { basename, shortCwd } from "../lib/workspaceFilePreview";
 import { DESKTOP_GIT_SETTINGS_EVENT } from "../lib/events";
 import { hasGitChange, isDeletedGitChange } from "../lib/workspaceChangeHelpers";
@@ -89,6 +90,8 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
   const [rowMenu, setRowMenu] = useState<{ x: number; y: number; row: WorkspaceChangeView } | null>(null);
   const [ghProbe, setGhProbe] = useState<GitHubCliProbe | null>(null);
   const [ghProbing, setGhProbing] = useState(false);
+  const [ghInstalling, setGhInstalling] = useState(false);
+  const [ghInstallNotice, setGhInstallNotice] = useState<string | null>(null);
   const [ghSetupModal, setGhSetupModal] = useState<{ reason: GitHubCliSetupReason } | null>(null);
 
   const gitAvailable = Boolean(changes?.gitAvailable);
@@ -99,15 +102,16 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
     setGhProbe(null);
   }, [cwd]);
 
-  const refreshGhProbe = useCallback(async () => {
+  const refreshGhProbe = useCallback(async (): Promise<GitHubCliProbe | null> => {
     if (!gitAvailable) {
       setGhProbe(null);
-      return;
+      return null;
     }
     setGhProbing(true);
     try {
       const probe = await probeGitHubCli((command) => app.RunShellQuiet(command));
       setGhProbe(probe);
+      return probe;
     } finally {
       setGhProbing(false);
     }
@@ -215,6 +219,29 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
 
   const ghBannerKey = useMemo(() => probeReasonKey(ghProbe?.reason ?? null), [ghProbe?.reason]);
 
+  const handleInstallGh = useCallback(async () => {
+    setGhInstalling(true);
+    setGhInstallNotice(null);
+    try {
+      const result = await installGitHubCliViaApp(() => app.InstallGitHubCLI());
+      const probe = await refreshGhProbe();
+      if (result.ok) {
+        if (probe?.ghInstalled) {
+          return;
+        }
+        setGhInstallNotice(t("git.ghInstallNeedRestart"));
+        return;
+      }
+      setGhInstallNotice(t("git.ghInstallFailed"));
+      openExternal(GITHUB_CLI_INSTALL_URL);
+    } catch {
+      setGhInstallNotice(t("git.ghInstallFailed"));
+      openExternal(GITHUB_CLI_INSTALL_URL);
+    } finally {
+      setGhInstalling(false);
+    }
+  }, [refreshGhProbe, t]);
+
   const openRowMenu = (event: ReactMouseEvent<HTMLElement>, row: WorkspaceChangeView) => {
     openWorkspaceRowMenu<{ x: number; y: number; row: WorkspaceChangeView }>(event, { row }, (menu) => setRowMenu(menu));
   };
@@ -249,8 +276,27 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
       )}
 
       {gitAvailable && ghBannerKey && (
-        <p className="dock-panel__banner dock-panel__banner--warn">{t(ghBannerKey)}</p>
+        <div className="dock-panel__banner dock-panel__banner--warn dock-panel__banner--actions">
+          <div className="dock-panel__banner-copy">
+            <p className="dock-panel__banner-text">{t(ghBannerKey)}</p>
+            {ghInstalling ? <p className="dock-panel__banner-sub">{t("git.ghInstallProgress")}</p> : null}
+          </div>
+          {ghProbe?.reason === "missing_gh" ? (
+            <button
+              type="button"
+              className="dock-panel__banner-btn"
+              onClick={() => void handleInstallGh()}
+              disabled={ghInstalling || ghProbing}
+            >
+              {ghInstalling ? t("git.ghInstalling") : t("git.ghInstall")}
+            </button>
+          ) : null}
+        </div>
       )}
+
+      {ghInstallNotice ? (
+        <p className="dock-panel__banner dock-panel__banner--info">{ghInstallNotice}</p>
+      ) : null}
 
       {gitAvailable && (
         <section className="git-panel__workflow" aria-label={t("rightDock.tab.git")}>
@@ -398,7 +444,14 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
                     }}
                   >
                     {row.gitStatus && (
-                      <span className={`dock-panel__pill dock-panel__pill--git-${tone}`}>{row.gitStatus.trim()}</span>
+                      <Tooltip label={gitStatusTooltip(row.gitStatus, t)} side="left">
+                        <span
+                          className={`dock-panel__pill dock-panel__pill--git-${tone}`}
+                          aria-label={gitStatusTooltip(row.gitStatus, t)}
+                        >
+                          {row.gitStatus.trim()}
+                        </span>
+                      </Tooltip>
                     )}
                     <span className="dock-panel__row-copy">
                       <span className="dock-panel__row-name">{basename(row.path)}</span>

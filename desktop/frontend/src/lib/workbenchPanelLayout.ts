@@ -6,26 +6,44 @@ export const STUDIO_TOOL_RAIL_WIDTH = 52;
 /** Minimum chat column width when preview and/or dock are open. */
 export const WORKBENCH_ROW_CHAT_MIN = 420;
 
-/** Studio three-column target when left drawer + right panel are open: 2 : 4 : 4. */
+/** Studio three-column target when left drawer + right panel are open: 2 : 4 : 4 (code). */
 export const STUDIO_LAYOUT_RATIOS = { left: 0.2, center: 0.4, right: 0.4 } as const;
+
+/** Write mode keeps more room for the editor — right workbench budget is 30%. */
+export const STUDIO_WRITE_LAYOUT_RATIOS = { left: 0.2, center: 0.5, right: 0.3 } as const;
+
+export type StudioLayoutProfile = "code" | "write";
 
 const STUDIO_DRAWER_MIN_WIDTH = 200;
 
-export function studioDrawerWidth(layoutWidth: number, railWidth: number, drawerOpen: boolean): number {
+function studioRatios(profile: StudioLayoutProfile) {
+  return profile === "write" ? STUDIO_WRITE_LAYOUT_RATIOS : STUDIO_LAYOUT_RATIOS;
+}
+
+export function studioDrawerWidth(
+  layoutWidth: number,
+  railWidth: number,
+  drawerOpen: boolean,
+  profile: StudioLayoutProfile = "code",
+): number {
   if (!drawerOpen || layoutWidth <= 0) return 0;
-  const leftBudget = Math.round(layoutWidth * STUDIO_LAYOUT_RATIOS.left);
+  const leftBudget = Math.round(layoutWidth * studioRatios(profile).left);
   return Math.max(STUDIO_DRAWER_MIN_WIDTH, leftBudget - railWidth);
 }
 
-export function studioRightPanelWidth(layoutWidth: number): number {
+export function studioRightPanelWidth(layoutWidth: number, profile: StudioLayoutProfile = "code"): number {
   if (layoutWidth <= 0) return 0;
-  return Math.round(layoutWidth * STUDIO_LAYOUT_RATIOS.right);
+  return Math.round(layoutWidth * studioRatios(profile).right);
 }
 
 /** Right-side panel area (preview + dock + resizers), excluding the tool rail. */
-export function studioRightPanelsBudget(layoutWidth: number, toolRail = true): number {
+export function studioRightPanelsBudget(
+  layoutWidth: number,
+  toolRail = true,
+  profile: StudioLayoutProfile = "code",
+): number {
   const rail = toolRail ? STUDIO_TOOL_RAIL_WIDTH : 0;
-  return Math.max(0, studioRightPanelWidth(layoutWidth) - rail);
+  return Math.max(0, studioRightPanelWidth(layoutWidth, profile) - rail);
 }
 
 export function studioPanelResizerCount(previewOpen: boolean, dockOpen: boolean): number {
@@ -45,28 +63,34 @@ export const STUDIO_FILE_TREE_SPLIT = { dock: 1.5, preview: 2.5 } as const;
 export function studioFileTreeSplitWidths(
   layoutWidth: number,
   toolRail = true,
+  profile: StudioLayoutProfile = "code",
 ): { dock: number; preview: number } {
   const resizerWidth = studioPanelResizerWidth(true, true);
-  const available = Math.max(0, studioRightPanelsBudget(layoutWidth, toolRail) - resizerWidth);
+  const available = Math.max(0, studioRightPanelsBudget(layoutWidth, toolRail, profile) - resizerWidth);
   const total = STUDIO_FILE_TREE_SPLIT.dock + STUDIO_FILE_TREE_SPLIT.preview;
   const dock = Math.round((available * STUDIO_FILE_TREE_SPLIT.dock) / total);
   return { dock, preview: available - dock };
 }
 
 /** Default width for a single open right panel (preview or dock). */
-export function studioSinglePanelTargetWidth(layoutWidth: number, toolRail = true): number {
-  return Math.max(0, studioRightPanelsBudget(layoutWidth, toolRail) - PANEL_RESIZER_WIDTH);
+export function studioSinglePanelTargetWidth(
+  layoutWidth: number,
+  toolRail = true,
+  profile: StudioLayoutProfile = "code",
+): number {
+  return Math.max(0, studioRightPanelsBudget(layoutWidth, toolRail, profile) - PANEL_RESIZER_WIDTH);
 }
 
 export function maxStudioPreviewWidth(
   layoutWidth: number,
   dockWidth: number,
   chrome: WorkbenchRowChrome,
+  profile: StudioLayoutProfile = "code",
 ): number {
   const dock = chrome.dockOpen ? Math.max(0, Math.round(dockWidth)) : 0;
   return Math.max(
     0,
-    studioRightPanelsBudget(layoutWidth, chrome.toolRail) -
+    studioRightPanelsBudget(layoutWidth, chrome.toolRail, profile) -
       studioPanelResizerWidth(chrome.previewOpen, chrome.dockOpen) -
       dock,
   );
@@ -76,11 +100,12 @@ export function maxStudioDockWidth(
   layoutWidth: number,
   previewWidth: number,
   chrome: WorkbenchRowChrome,
+  profile: StudioLayoutProfile = "code",
 ): number {
   const preview = chrome.previewOpen ? Math.max(0, Math.round(previewWidth)) : 0;
   return Math.max(
     0,
-    studioRightPanelsBudget(layoutWidth, chrome.toolRail) -
+    studioRightPanelsBudget(layoutWidth, chrome.toolRail, profile) -
       studioPanelResizerWidth(chrome.previewOpen, chrome.dockOpen) -
       preview,
   );
@@ -117,9 +142,10 @@ export function fitStudioRightPanels(
   chrome: WorkbenchRowChrome,
   bounds: StudioPanelBounds,
   options: StudioPanelFitOptions = {},
+  profile: StudioLayoutProfile = "code",
 ): { preview: number; dock: number } {
   const resizerWidth = studioPanelResizerWidth(chrome.previewOpen, chrome.dockOpen);
-  const available = Math.max(0, studioRightPanelsBudget(layoutWidth, chrome.toolRail) - resizerWidth);
+  const available = Math.max(0, studioRightPanelsBudget(layoutWidth, chrome.toolRail, profile) - resizerWidth);
 
   if (!chrome.previewOpen && !chrome.dockOpen) {
     return { preview: 0, dock: 0 };

@@ -15,6 +15,7 @@ import "./appearance-scale.css";
 import "./cold-studio-complete.css";
 import "./studio-layout.css";
 import "./unified-preview.css";
+import "./unified-sidebar.css";
 
 // Apply the saved appearance before the first paint so the webview does not
 // flash the wrong theme while React boots.

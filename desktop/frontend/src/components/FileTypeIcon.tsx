@@ -27,6 +27,7 @@ export type FileIconTone =
   | "rust"
   | "shell"
   | "yaml"
+  | "word"
   | "generic";
 
 function fileIconTone(name: string, isDir: boolean, isOpen?: boolean): FileIconTone {
@@ -40,6 +41,7 @@ function fileIconTone(name: string, isDir: boolean, isOpen?: boolean): FileIconT
   if (["js", "jsx", "mjs", "cjs"].includes(ext)) return "javascript";
   if (ext === "json" || ext === "jsonc") return "json";
   if (["md", "mdx", "txt", "rst"].includes(ext)) return "markdown";
+  if (["doc", "docx"].includes(ext)) return "word";
   if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg"].includes(ext)) return "image";
   if (["css", "scss", "sass", "less"].includes(ext)) return "css";
   if (["html", "htm", "vue", "svelte"].includes(ext)) return "html";
@@ -66,6 +68,7 @@ const ICONS: Record<FileIconTone, LucideIcon> = {
   rust: FileCode,
   shell: Terminal,
   yaml: Braces,
+  word: FileType,
   generic: File,
 };
 

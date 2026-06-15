@@ -7,6 +7,8 @@ import {
   FileText,
   ListTree,
   Minimize2,
+  PanelRightClose,
+  PanelRightOpen,
   PenLine,
   Save,
   Sparkles,
@@ -20,6 +22,7 @@ import type { ComposerWriteContext } from "../lib/types";
 import type { WriteTurn } from "../lib/writeConversation";
 import { latestWriteAssistant } from "../lib/writeConversation";
 import { exportDocxFile, exportHtmlFile, exportMarkdownFile, exportPdfFile } from "../lib/writeExport";
+import { isWordDocumentPath } from "../lib/writeDocument";
 import { writeActionPromptKey } from "../lib/writePrompts";
 import { basename, parentPath } from "../lib/workspaceFilePreview";
 import { closeStudioSelect, openStudioSelect } from "../lib/studioSelectRegistry";
@@ -27,7 +30,7 @@ import { AnchoredPopover } from "./AnchoredPopover";
 import { Tooltip } from "./Tooltip";
 import { WriteConversationThread } from "./WriteConversationThread";
 
-export type WriteViewMode = "source" | "split" | "preview";
+export type WriteViewMode = "source" | "preview";
 export type WriteApplyMode = "selection" | "append" | "replace";
 
 export interface WriteWorkspaceViewProps {
@@ -38,6 +41,8 @@ export interface WriteWorkspaceViewProps {
   onDirtyChange?: (dirty: boolean) => void;
   conversationTurns?: WriteTurn[];
   agentRunning?: boolean;
+  rightPanelOpen?: boolean;
+  onToggleRightPanel?: () => void;
 }
 
 const QUICK_ACTION_KEYS = [
@@ -49,7 +54,7 @@ const QUICK_ACTION_KEYS = [
   { key: "write.action.proofread", icon: Sparkles },
 ] as const;
 
-const VIEW_MODES: WriteViewMode[] = ["source", "split", "preview"];
+const VIEW_MODES: WriteViewMode[] = ["source", "preview"];
 const APPLY_MODES: WriteApplyMode[] = ["selection", "append", "replace"];
 const AUTO_SAVE_MS = 2500;
 
@@ -72,12 +77,15 @@ export function WriteWorkspaceView({
   onDirtyChange,
   conversationTurns = [],
   agentRunning = false,
+  rightPanelOpen = false,
+  onToggleRightPanel,
 }: WriteWorkspaceViewProps) {
   const t = useT();
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const exportAnchorRef = useRef<HTMLButtonElement>(null);
   const [viewMode, setViewMode] = useState<WriteViewMode>("source");
   const [content, setContent] = useState("");
+  const [previewHtml, setPreviewHtml] = useState("");
   const [dirty, setDirty] = useState(false);
   const [autoSaved, setAutoSaved] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -93,6 +101,7 @@ export function WriteWorkspaceView({
   const latestAssistant = useMemo(() => latestWriteAssistant(conversationTurns), [conversationTurns]);
   const agentReply = latestAssistant?.text ?? "";
   const agentReplyStreaming = latestAssistant?.streaming ?? false;
+  const wordDocument = isWordDocumentPath(filePath);
 
   const setDirtyState = useCallback(
     (next: boolean) => {
@@ -106,6 +115,7 @@ export function WriteWorkspaceView({
   const load = useCallback(async () => {
     if (!filePath) {
       setContent("");
+      setPreviewHtml("");
       setDirtyState(false);
       setSelectionText("");
       setStagedAction(null);
@@ -121,12 +131,26 @@ export function WriteWorkspaceView({
       setSelectionText("");
       setStagedAction(null);
       setFimSuggestion("");
+      if (wordDocument) {
+        try {
+          const preview = await app.ReadWriteFilePreview(filePath);
+          setPreviewHtml(preview);
+        } catch {
+          setPreviewHtml("");
+        }
+      } else {
+        setPreviewHtml("");
+      }
     } catch (e) {
       setErr(toErrorMessage(e));
     } finally {
       setBusy(false);
     }
-  }, [filePath, setDirtyState]);
+  }, [filePath, setDirtyState, wordDocument]);
+
+  useEffect(() => {
+    if (wordDocument) setViewMode("preview");
+  }, [filePath, wordDocument]);
 
   useEffect(() => {
     void load();
@@ -284,8 +308,8 @@ export function WriteWorkspaceView({
     }
   };
 
-  const showEditor = viewMode === "source" || viewMode === "split";
-  const showPreview = viewMode === "preview" || viewMode === "split";
+  const showEditor = viewMode === "source";
+  const showPreview = viewMode === "preview";
 
   return (
     <div className="write-workspace write-studio write-studio--split">
@@ -327,6 +351,19 @@ export function WriteWorkspaceView({
               </div>
 
               <div className="write-studio__toolbar-actions">
+                {onToggleRightPanel ? (
+                  <Tooltip label={rightPanelOpen ? t("sidebar.collapsePanel") : t("sidebar.openPanel")}>
+                    <button
+                      type="button"
+                      className={`write-studio__icon-btn${rightPanelOpen ? " write-studio__icon-btn--active" : ""}`}
+                      onClick={() => onToggleRightPanel()}
+                      aria-label={rightPanelOpen ? t("sidebar.collapsePanel") : t("sidebar.openPanel")}
+                      aria-pressed={rightPanelOpen}
+                    >
+                      {rightPanelOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
+                    </button>
+                  </Tooltip>
+                ) : null}
                 <button
                   ref={exportAnchorRef}
                   type="button"
@@ -403,8 +440,12 @@ export function WriteWorkspaceView({
                 </div>
               ) : null}
               {showPreview ? (
-                <div className={`write-workspace__preview write-studio__preview${viewMode === "preview" ? " write-studio__preview--live" : ""}`}>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || t("write.previewEmpty")}</ReactMarkdown>
+                <div className={`write-workspace__preview write-studio__preview${viewMode === "preview" ? " write-studio__preview--live" : ""}${wordDocument && previewHtml ? " write-studio__preview--word" : ""}`}>
+                  {wordDocument && previewHtml ? (
+                    <div className="write-studio__word-preview" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+                  ) : (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || t("write.previewEmpty")}</ReactMarkdown>
+                  )}
                 </div>
               ) : null}
             </div>

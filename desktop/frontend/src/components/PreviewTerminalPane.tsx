@@ -9,9 +9,20 @@ export interface PreviewTerminalPaneProps {
   onActiveChange: (id: string) => void;
   onNewTerminal: () => void;
   onCloseTab: (id: string, index: number) => void;
+  /** When false, pane stays mounted but xterm pauses layout/focus until shown again. */
+  visible?: boolean;
+  hideTabBar?: boolean;
 }
 
-export function PreviewTerminalPane({ tabs, activeId, onActiveChange, onNewTerminal, onCloseTab }: PreviewTerminalPaneProps) {
+export function PreviewTerminalPane({
+  tabs,
+  activeId,
+  onActiveChange,
+  onNewTerminal,
+  onCloseTab,
+  visible = true,
+  hideTabBar = false,
+}: PreviewTerminalPaneProps) {
   const t = useT();
 
   if (tabs.length === 0) {
@@ -28,6 +39,7 @@ export function PreviewTerminalPane({ tabs, activeId, onActiveChange, onNewTermi
 
   return (
     <div className="preview-terminal-pane">
+      {!hideTabBar ? (
       <div className="preview-terminal-pane__tabs" role="tablist" aria-label={t("terminal.tabs")}>
         {tabs.map((tab, index) => (
           <div
@@ -45,26 +57,29 @@ export function PreviewTerminalPane({ tabs, activeId, onActiveChange, onNewTermi
               <SquareTerminal size={12} />
               <span>{tab.title}</span>
             </button>
-            {tabs.length > 1 && (
-              <button
-                type="button"
-                className="preview-terminal-pane__tab-close"
-                aria-label={t("terminal.closeTab", { title: tab.title })}
-                onClick={() => onCloseTab(tab.id, index)}
-              >
-                <X size={12} />
-              </button>
-            )}
+            <button
+              type="button"
+              className="preview-terminal-pane__tab-close"
+              aria-label={t("terminal.closeTab", { title: tab.title })}
+              onClick={() => onCloseTab(tab.id, index)}
+            >
+              <X size={12} />
+            </button>
           </div>
         ))}
         <button type="button" className="preview-terminal-pane__new" onClick={onNewTerminal} aria-label={t("terminal.new")}>
           <Plus size={14} />
         </button>
       </div>
+      ) : null}
       <div className="preview-terminal-pane__viewport">
         {tabs.map((tab) => (
           <div key={tab.clientKey} className="preview-terminal-pane__session" hidden={tab.id !== activeId}>
-            <TerminalView sessionId={tab.id} active={tab.id === activeId} />
+            <TerminalView
+              sessionId={tab.id}
+              active={visible && tab.id === activeId}
+              shell={tab.shell}
+            />
           </div>
         ))}
       </div>
