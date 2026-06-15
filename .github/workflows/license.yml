@@ -1,0 +1,16 @@
+name: license
+
+on:
+  push:
+    branches: [main]
+    paths: [LICENSE, .github/workflows/license.yml]
+  pull_request:
+    paths: [LICENSE]
+
+jobs:
+  mit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify MIT LICENSE
+        run: grep -qi "MIT License" LICENSE

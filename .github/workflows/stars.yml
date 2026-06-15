@@ -1,0 +1,12 @@
+name: stars
+
+on:
+  push:
+    branches: [main]
+    paths: [README.md, README.en.md, .github/workflows/stars.yml]
+
+jobs:
+  badge:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Star https://github.com/P1ouson/deepseek-ArcDesk if ArcDesk helps you."
