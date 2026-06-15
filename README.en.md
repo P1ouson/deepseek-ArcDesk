@@ -9,16 +9,16 @@
 
 <p align="center">
   <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases">
-    <img src="https://github.com/P1ouson/deepseek-ArcDesk/actions/workflows/release-desktop.yml/badge.svg" alt="release-desktop"/>
+    <img src="https://img.shields.io/github/v/release/P1ouson/deepseek-ArcDesk?include_prereleases&style=flat-square&label=release&labelColor=161b22&logo=github&logoColor=white&color=0153e5" alt="release"/>
   </a>
   <a href="./LICENSE">
-    <img src="https://github.com/P1ouson/deepseek-ArcDesk/actions/workflows/license.yml/badge.svg" alt="license"/>
+    <img src="https://img.shields.io/github/license/P1ouson/deepseek-ArcDesk?style=flat-square&color=8b949e&labelColor=161b22" alt="license"/>
   </a>
   <a href="https://github.com/P1ouson/deepseek-ArcDesk/stargazers">
-    <img src="https://github.com/P1ouson/deepseek-ArcDesk/actions/workflows/stars.yml/badge.svg" alt="stars"/>
+    <img src="https://img.shields.io/github/stars/P1ouson/deepseek-ArcDesk?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="stars"/>
   </a>
   <a href="https://github.com/P1ouson/deepseek-ArcDesk/issues">
-    <img src="https://github.com/P1ouson/deepseek-ArcDesk/actions/workflows/issues.yml/badge.svg" alt="issues"/>
+    <img src="https://img.shields.io/github/issues-open/P1ouson/deepseek-ArcDesk?style=flat-square&color=58a6ff&labelColor=161b22&logo=github&logoColor=white" alt="issues"/>
   </a>
 </p>
 
