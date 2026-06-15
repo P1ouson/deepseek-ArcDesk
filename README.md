@@ -21,7 +21,7 @@
     <img src="https://img.shields.io/github/stars/P1ouson/deepseek-ArcDesk?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="stars"/>
   </a>
   <a href="https://github.com/P1ouson/deepseek-ArcDesk/issues">
-    <img src="https://img.shields.io/github/issues-open/P1ouson/deepseek-ArcDesk?style=flat-square&color=58a6ff&labelColor=161b22&logo=github&logoColor=white" alt="issues"/>
+    <img src="https://img.shields.io/github/issues/P1ouson/deepseek-ArcDesk?style=flat-square&color=58a6ff&labelColor=161b22&logo=github&logoColor=white" alt="issues"/>
   </a>
 </p>
 
