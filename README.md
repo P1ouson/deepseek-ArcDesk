@@ -30,6 +30,8 @@
   &nbsp;·&nbsp;
   <a href="#demo">预览</a>
   &nbsp;·&nbsp;
+  <a href="#描述">描述</a>
+  &nbsp;·&nbsp;
   <a href="#技术栈">技术栈</a>
   &nbsp;·&nbsp;
   <a href="#使用前须知">须知</a>
@@ -42,26 +44,6 @@
   &nbsp;·&nbsp;
   <a href="README.en.md">English</a>
 </p>
-
-<br/>
-
-## 描述
-
-**ArcDesk** 是一款开源、桌面优先的 **Coding Agent**：在独立原生窗口里让 AI 读取代码库、编辑文件、执行 shell 命令，并提供 Diff 审阅与工具审批流程。
-
-与 Cursor 同类的是 **Agent 循环**（对话 → 工具 → Diff → 审批），但不是 VS Code 分支，也不试图替代专业 IDE——可与 VS Code、JetBrains 或终端并行使用。
-
-| 对比 | ArcDesk | 网页版 DeepSeek | Cursor |
-|:---:|:---:|:---:|:---:|
-| 形态 | 原生桌面 + CLI | 浏览器标签 | IDE 分支 |
-| Agent 工作流 | 读文件 / bash / Diff / 审批 | 以对话为主 | 深度 IDE 集成 |
-| 工具链深度 | 内置工具 + MCP + Skills + 项目记忆 | 基本无工具 | IDE 内置 + 插件 |
-| DeepSeek 长会话成本 | 前缀缓存 + 压缩策略 | 无专门优化 | 多模型订阅 |
-| MCP + 项目级信任 | ✅ | ❌ | ✅ |
-
-**适合：** 想要「能动手」而不只是聊天的开发者 — 工具链要全、DeepSeek 长会话要省、每一步工具调用要能审批。
-
-**不适合：** 需要完整 IDE 一站式替代、只要单行补全、或不愿配置 API Key 的用户。
 
 <br/>
 
@@ -78,6 +60,18 @@
   &nbsp;·&nbsp;
   <a href="https://github.com/P1ouson/deepseek-ArcDesk/releases">全部 Release</a>
 </p>
+
+<br/>
+
+## 描述
+
+**ArcDesk** 是一款开源、桌面优先的 **Coding Agent**：在独立原生窗口里让 AI 读取代码库、编辑文件、执行 shell 命令，并提供 Diff 审阅与工具审批流程。
+
+与 Cursor 同类的是 **Agent 循环**（对话 → 工具 → Diff → 审批），但不是 VS Code 分支，也不试图替代专业 IDE——可与 VS Code、JetBrains 或终端并行使用。
+
+**适合：** 想要「能动手」而不只是聊天的开发者 — 工具链要全、DeepSeek 长会话要省、每一步工具调用要能审批。
+
+**不适合：** 需要完整 IDE 一站式替代、只要单行补全、或不愿配置 API Key 的用户。
 
 <br/>
 
