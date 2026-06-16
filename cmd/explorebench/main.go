@@ -95,7 +95,7 @@ func main() {
 			continue
 		}
 		paths = append(paths, path)
-		fmt.Printf("wrote %s\n", path)
+		fmt.Fprintf(os.Stderr, "wrote %s\n", path)
 	}
 	if len(paths) == 0 {
 		os.Exit(1)

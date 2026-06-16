@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,8 @@ type Store struct {
 	root       string
 	maxEntries int
 	mu         sync.Mutex
+	entries    []Entry
+	loaded     bool
 }
 
 // Open returns a store bound to workspace root.
@@ -362,13 +365,9 @@ func scoreEntryText(e Entry, query string) float64 {
 }
 
 func sortEntriesByScore(ranked []scoredEntry) {
-	for i := 0; i < len(ranked); i++ {
-		for j := i + 1; j < len(ranked); j++ {
-			if ranked[j].score > ranked[i].score {
-				ranked[i], ranked[j] = ranked[j], ranked[i]
-			}
-		}
-	}
+	sort.Slice(ranked, func(i, j int) bool {
+		return ranked[i].score > ranked[j].score
+	})
 }
 
 // List returns the most recent entries (newest last in slice).
@@ -440,7 +439,27 @@ func entryMatches(e Entry, q string) bool {
 	return false
 }
 
+func (s *Store) ensureLoadedLocked() error {
+	if s.loaded {
+		return nil
+	}
+	entries, err := s.readFromDisk()
+	if err != nil {
+		return err
+	}
+	s.entries = entries
+	s.loaded = true
+	return nil
+}
+
 func (s *Store) loadLocked() ([]Entry, error) {
+	if err := s.ensureLoadedLocked(); err != nil {
+		return nil, err
+	}
+	return append([]Entry(nil), s.entries...), nil
+}
+
+func (s *Store) readFromDisk() ([]Entry, error) {
 	p, err := s.path()
 	if err != nil {
 		return nil, err
@@ -453,6 +472,13 @@ func (s *Store) loadLocked() ([]Entry, error) {
 		return nil, err
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("failure memory path is a directory")
+	}
 	var entries []Entry
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 512*1024)
@@ -471,6 +497,8 @@ func (s *Store) loadLocked() ([]Entry, error) {
 }
 
 func (s *Store) saveLocked(entries []Entry) error {
+	s.entries = append([]Entry(nil), entries...)
+	s.loaded = true
 	p, err := s.path()
 	if err != nil {
 		return err

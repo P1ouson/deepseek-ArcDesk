@@ -429,8 +429,17 @@ func repoRevision(workspace string) (gitHead, fingerprint string) {
 }
 
 // WorkspaceRevision returns git HEAD when available, otherwise a non-git workspace fingerprint.
+// Git HEAD is always resolved fresh; non-git fingerprints are cached until invalidated.
 func WorkspaceRevision(workspace string) (gitHead, fingerprint string) {
-	return repoRevision(workspace)
+	head, fp := repoRevision(workspace)
+	if head != "" {
+		return head, fp
+	}
+	if cachedHead, cachedFP, ok := cachedWorkspaceRevision(workspace); ok {
+		return cachedHead, cachedFP
+	}
+	storeWorkspaceRevision(workspace, head, fp)
+	return head, fp
 }
 
 func generateMap(workspace string) (string, error) {

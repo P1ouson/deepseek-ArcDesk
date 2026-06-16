@@ -30,14 +30,19 @@ type Stats struct {
 type Cache struct {
 	mu sync.Mutex
 
-	entries map[string]Entry
+	entries map[string]cachedEntry
 	stats   Stats
 	keyCtx  toolstats.KeyContext
 }
 
+type cachedEntry struct {
+	out   Entry
+	paths []string
+}
+
 // New returns an empty session cache.
 func New() *Cache {
-	return &Cache{entries: make(map[string]Entry)}
+	return &Cache{entries: make(map[string]cachedEntry)}
 }
 
 // SetKeyContext configures Phase-2 workspace-aware arg normalization for keys.
@@ -90,7 +95,7 @@ func (c *Cache) Get(name, argsJSON string) (Entry, bool) {
 		c.stats.SessionHits++
 		c.stats.TurnHits++
 	}
-	return e, ok
+	return e.out, ok
 }
 
 // RecordMiss counts a cacheable lookup that did not hit.
@@ -112,17 +117,55 @@ func (c *Cache) Put(name, argsJSON string, e Entry) {
 	key := c.cacheKey(name, argsJSON)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.entries[key] = e
+	c.entries[key] = cachedEntry{
+		out:   e,
+		paths: CachePaths(name, argsJSON, c.keyCtx),
+	}
 }
 
-// InvalidateAll drops every entry — called after a successful writer run.
+// InvalidateAll drops every entry — fallback when write paths are unknown.
 func (c *Cache) InvalidateAll() {
 	if c == nil {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.entries = make(map[string]Entry)
+	c.entries = make(map[string]cachedEntry)
+}
+
+// InvalidatePaths drops entries whose cached paths overlap written paths.
+// Returns the number of entries removed; falls back to InvalidateAll when
+// writtenPaths is empty.
+func (c *Cache) InvalidatePaths(writtenPaths []string) int {
+	if c == nil {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(writtenPaths) == 0 {
+		n := len(c.entries)
+		c.entries = make(map[string]cachedEntry)
+		return n
+	}
+	normalized := make([]string, 0, len(writtenPaths))
+	for _, p := range writtenPaths {
+		if p = normalizeSlash(p); p != "" {
+			normalized = append(normalized, p)
+		}
+	}
+	if len(normalized) == 0 {
+		n := len(c.entries)
+		c.entries = make(map[string]cachedEntry)
+		return n
+	}
+	removed := 0
+	for key, rec := range c.entries {
+		if entryAffectedByWrites(rec.paths, normalized) {
+			delete(c.entries, key)
+			removed++
+		}
+	}
+	return removed
 }
 
 // Snapshot returns a copy of hit/miss counters.

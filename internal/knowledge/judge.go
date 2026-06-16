@@ -62,6 +62,27 @@ func (f FuncCaptureJudger) JudgeCapture(ctx context.Context, in CaptureJudgeInpu
 	return f(ctx, in)
 }
 
+// HeuristicCaptureJudger records lessons using local rules only (no LLM).
+type HeuristicCaptureJudger struct{}
+
+func NewHeuristicCaptureJudger() *HeuristicCaptureJudger {
+	return &HeuristicCaptureJudger{}
+}
+
+func (j *HeuristicCaptureJudger) JudgeCapture(_ context.Context, in CaptureJudgeInput) (CaptureJudgment, error) {
+	proposal, ok := heuristicSourceFixProposal(in.FailedCmd, in.ErrOut, in.Paths)
+	if !ok {
+		return CaptureJudgment{Record: false, Reason: "no heuristic match"}, nil
+	}
+	return CaptureJudgment{
+		Record:    true,
+		Signature: proposal.Signature,
+		Error:     proposal.Error,
+		Fix:       proposal.Fix,
+		Summary:   proposal.Summary,
+	}, nil
+}
+
 // ProviderCaptureJudger uses the workspace model to judge capture worthiness.
 type ProviderCaptureJudger struct {
 	prov provider.Provider

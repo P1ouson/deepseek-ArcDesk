@@ -57,11 +57,14 @@ func (s Settings) withDefaults() Settings {
 
 // Store persists plan skeletons under <workspace>/.arcdesk/plan-cache.json.
 type Store struct {
-	mu      sync.Mutex
-	root    string
-	cfg     Settings
-	entries map[string]Entry
-	dirty   bool
+	mu           sync.Mutex
+	root         string
+	cfg          Settings
+	entries      map[string]Entry
+	dirty        bool
+	lookupHits   int
+	lookupMisses int
+	flushTimer   *time.Timer
 }
 
 type filePayload struct {
@@ -107,21 +110,25 @@ func (s *Store) Lookup(in intent.Result, workspaceRoot string) (hint string, hit
 	defer s.mu.Unlock()
 	e, ok := s.entries[key]
 	if !ok {
+		s.lookupMisses++
 		return "", false
 	}
 	if s.cfg.TTLDays > 0 && !e.CreatedAt.IsZero() {
 		if time.Since(e.CreatedAt.UTC()) > time.Duration(s.cfg.TTLDays)*24*time.Hour {
+			s.lookupMisses++
 			return "", false
 		}
 	}
 	if len(e.Phases) < s.cfg.MinPhases {
+		s.lookupMisses++
 		return "", false
 	}
 	e.Hits++
 	e.LastUsedAt = time.Now().UTC()
 	s.entries[key] = e
 	s.dirty = true
-	_ = s.saveLocked()
+	s.lookupHits++
+	s.scheduleFlushLocked()
 	return formatHint(in.Canonical, head, e), true
 }
 
@@ -159,7 +166,28 @@ func (s *Store) Record(in intent.Result, workspaceRoot, planText string) {
 	}
 	s.entries[key] = e
 	s.dirty = true
-	_ = s.saveLocked()
+	s.scheduleFlushLocked()
+}
+
+// Flush persists pending changes immediately.
+func (s *Store) Flush() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveLocked()
+}
+
+func (s *Store) scheduleFlushLocked() {
+	if s.flushTimer != nil {
+		s.flushTimer.Stop()
+	}
+	s.flushTimer = time.AfterFunc(5*time.Second, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		_ = s.saveLocked()
+	})
 }
 
 // Stats returns session-visible hit/miss counters (in-memory for tests).

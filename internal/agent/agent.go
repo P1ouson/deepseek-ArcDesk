@@ -30,6 +30,7 @@ import (
 	"arcdesk/internal/planner"
 	"arcdesk/internal/prefixruntime"
 	"arcdesk/internal/provider"
+	"arcdesk/internal/repomap"
 	"arcdesk/internal/rollback"
 	"arcdesk/internal/runtime"
 	"arcdesk/internal/selfdebug"
@@ -347,6 +348,9 @@ type Agent struct {
 	prefixHealth         *prefixruntime.HealthMonitor
 	rumination           *prefixruntime.RuminationScheduler
 	verifySelectEnabled  bool
+
+	cachedSchemaLen int
+	cachedSchemas   []provider.ToolSchema
 }
 
 type inflightTool struct {
@@ -719,7 +723,7 @@ func New(prov provider.Provider, tools *tool.Registry, session *Session, opts Op
 		prefixRuntimeEnabled: prefixOn,
 		prefixHealth:         prefixHealth,
 		rumination:           rumination,
-		verifySelectEnabled:  prefixOn && prCfg.VerifySelectEnabled(),
+		verifySelectEnabled:  prCfg.VerifySelectEnabled(),
 	}
 }
 
@@ -747,7 +751,7 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 
 	finalReadinessBlocks := 0
 	for step := 0; a.maxSteps <= 0 || step < a.maxSteps; step++ {
-		schemas := a.tools.Schemas()
+		schemas := a.toolSchemas()
 		prefixShape := a.capturePrefixShape(schemas)
 		prevPrefixShape := a.lastPrefixShape
 		if !a.haveLastPrefixShape {
@@ -1044,7 +1048,7 @@ func (a *Agent) noteVerifyFailure(ctx context.Context, call provider.ToolCall, e
 			paths = mergeCapturePaths(paths, pendingPaths)
 			judger := a.captureJudger
 			if judger == nil {
-				judger = knowledge.NewProviderCaptureJudger(a.prov)
+				judger = knowledge.NewHeuristicCaptureJudger()
 			}
 			if judger != nil {
 				failedCmd := snap.command
@@ -1053,13 +1057,11 @@ func (a *Agent) noteVerifyFailure(ctx context.Context, call provider.ToolCall, e
 				store := a.failureStore
 				cfg := a.knowledgeCfg
 				sink := a.sink
-				parent := ctx
-				if parent == nil {
-					parent = context.Background()
-				}
-				runCtx, cancel := context.WithTimeout(parent, 20*time.Second)
-				knowledge.CaptureOnVerifyPass(runCtx, judger, store, cfg, sink, failedCmd, errOut, pathsCopy)
-				cancel()
+				go func(j knowledge.CaptureJudger, st *failuremem.Store, kcfg config.KnowledgeConfig, sk event.Sink, cmd, stderr string, pths []string) {
+					runCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+					defer cancel()
+					knowledge.CaptureOnVerifyPass(runCtx, j, st, kcfg, sk, cmd, stderr, pths)
+				}(judger, store, cfg, sink, failedCmd, errOut, pathsCopy)
 			}
 		}
 		a.lastVerifyFailure = verifyFailureSnapshot{}
@@ -1202,21 +1204,29 @@ func (a *Agent) runtimeRetryContext() string {
 	return runtime.BuildVerifyContext(a.runtimeHub, failedCmd, stderr)
 }
 
+func (a *Agent) effectiveProjectChecks() []instruction.VerifyCheck {
+	checks := a.projectChecks
+	if !a.verifySelectEnabled || a.evidence == nil || len(checks) == 0 {
+		return checks
+	}
+	writer, ok := a.evidence.LatestSuccessfulWriterIndex()
+	if !ok {
+		return checks
+	}
+	paths := a.evidence.WritePathsThrough(writer)
+	if len(paths) == 0 {
+		return checks
+	}
+	plan := verification.NewPlan(checks, verification.Policy{})
+	selected := verifyselect.MinimumChecks(plan, paths)
+	return planChecksToInstruction(selected)
+}
+
 func (a *Agent) verificationRetryContext() string {
 	if a == nil || a.evidence == nil || len(a.projectChecks) == 0 {
 		return ""
 	}
-	checks := a.projectChecks
-	if a.verifySelectEnabled && a.evidence != nil {
-		writer, ok := a.evidence.LatestSuccessfulWriterIndex()
-		if !ok {
-			writer = 0
-		}
-		paths := a.evidence.WrittenPathsAfter(writer)
-		plan := verification.NewPlan(checks, verification.Policy{})
-		selected := verifyselect.MinimumChecks(plan, paths)
-		checks = planChecksToInstruction(selected)
-	}
+	checks := a.effectiveProjectChecks()
 	writer, ok := a.evidence.LatestSuccessfulWriterIndex()
 	if !ok {
 		writer = 0
@@ -1390,7 +1400,7 @@ func (a *Agent) stream(ctx context.Context, turn int) (string, string, string, [
 	})
 	ch, err := a.prov.Stream(ctx, provider.Request{
 		Messages:    a.providerMessages(),
-		Tools:       a.tools.Schemas(),
+		Tools:       a.toolSchemas(),
 		Temperature: a.temperature,
 	})
 	if err != nil {
@@ -1475,6 +1485,20 @@ func (a *Agent) providerMessages() []provider.Message {
 		return a.session.Messages
 	}
 	return prefixruntime.ForProviderRequest(a.session.Messages)
+}
+
+func (a *Agent) toolSchemas() []provider.ToolSchema {
+	if a == nil || a.tools == nil {
+		return nil
+	}
+	n := a.tools.Len()
+	if n == a.cachedSchemaLen && len(a.cachedSchemas) > 0 {
+		return a.cachedSchemas
+	}
+	schemas := a.tools.Schemas()
+	a.cachedSchemas = schemas
+	a.cachedSchemaLen = n
+	return schemas
 }
 
 func (a *Agent) ruminationInterrupt(reasoning, text string) string {
@@ -1870,7 +1894,7 @@ func (a *Agent) executeOneBody(ctx context.Context, call provider.ToolCall, t to
 		cctx = evidence.WithLedger(cctx, a.evidence)
 	}
 	if len(a.projectChecks) > 0 {
-		cctx = instruction.WithChecks(cctx, a.projectChecks)
+		cctx = instruction.WithChecks(cctx, a.effectiveProjectChecks())
 	}
 	cctx = instruction.WithEnforceVerification(cctx, a.verifyEnforceFinalAnswer)
 	if a.jobs != nil {
@@ -1951,9 +1975,24 @@ func (a *Agent) executeOneBody(ctx context.Context, call provider.ToolCall, t to
 		})
 	}
 	if !t.ReadOnly() {
-		a.invalidateToolCache()
+		receipt := evidence.ReceiptFromToolCall(call.Name, json.RawMessage(call.Arguments), true, t.ReadOnly())
+		a.invalidateToolCacheForPaths(receipt.Paths)
 	}
 	return toolOutcome{output: body, truncated: truncMsg != "", truncMsg: truncMsg}
+}
+
+func (a *Agent) invalidateToolCacheForPaths(writtenPaths []string) {
+	if !a.toolCacheEnabled || a.toolCache == nil {
+		return
+	}
+	a.toolCache.InvalidatePaths(writtenPaths)
+	if a.toolCacheKeyCtx.WorkDir != "" {
+		repomap.InvalidateWorkspaceRevision(a.toolCacheKeyCtx.WorkDir)
+	}
+}
+
+func (a *Agent) invalidateToolCache() {
+	a.invalidateToolCacheForPaths(nil)
 }
 
 func (a *Agent) tryToolCache(call provider.ToolCall, t tool.Tool) (bool, toolOutcome) {
@@ -1974,12 +2013,6 @@ func (a *Agent) tryToolCache(call provider.ToolCall, t tool.Tool) (bool, toolOut
 	return true, toolOutcome{
 		output: entry.Output, errMsg: entry.ErrMsg,
 		truncated: entry.Truncated, truncMsg: entry.TruncMsg, cached: true,
-	}
-}
-
-func (a *Agent) invalidateToolCache() {
-	if a.toolCache != nil {
-		a.toolCache.InvalidateAll()
 	}
 }
 
