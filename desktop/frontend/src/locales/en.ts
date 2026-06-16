@@ -773,6 +773,10 @@ export const en = {
   "git.commitHint": "Commit with",
   "git.changesHeading": "Changes",
   "git.emptyHint": "Working tree clean, or changes not tracked yet",
+  "git.notARepository": "This folder is not a Git repository yet",
+  "git.initRepository": "Create Git repository",
+  "git.initRepositoryHint": "Initializes Git and adds .arcdesk/ to .gitignore so local tool caches stay out of commits.",
+  "git.initFailed": "Failed to create Git repository",
   "git.statusUntracked": "Untracked — new file or folder not yet in Git (stage with git add to commit)",
   "git.statusModified": "Modified — file content changed",
   "git.statusAdded": "Added / staged",
@@ -1649,6 +1653,11 @@ export const en = {
   // assistant message
   "msg.thinking": "thinking",
   "msg.copy": "Copy",
+  "msg.continueGenerate": "Continue",
+  "msg.continuePrompt": "Continue your previous response exactly where it was cut off. Do not repeat any content already written; output only the continuation.",
+  "codeBlock.download": "Download",
+  "codeBlock.run": "Run",
+  "codeBlock.scrollDown": "Scroll to bottom",
 
   // message timeline
   "timeline.scrollToBottom": "Scroll to bottom",

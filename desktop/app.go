@@ -411,6 +411,20 @@ func (a *App) RunShellQuiet(command string) ShellRunResult {
 		}
 		return ShellRunResult{Output: out}
 	}
+	if isDetachedGitInitCommand(command) {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		workDir := a.activeWorkspaceRoot()
+		out, err := runDetachedShell(ctx, command, workDir)
+		if err != nil {
+			msg := err.Error()
+			if strings.TrimSpace(out) != "" {
+				msg = strings.TrimSpace(out)
+			}
+			return ShellRunResult{Output: out, Err: msg}
+		}
+		return ShellRunResult{Output: out}
+	}
 	return ShellRunResult{Err: "no active session"}
 }
 

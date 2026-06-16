@@ -774,6 +774,10 @@ export const zh: Record<DictKey, string> = {
   "git.commitHint": "提交快捷键",
   "git.changesHeading": "改动",
   "git.emptyHint": "工作区干净，或改动尚未被 Git 跟踪",
+  "git.notARepository": "当前目录还不是 Git 仓库",
+  "git.initRepository": "创建 Git 仓库",
+  "git.initRepositoryHint": "会初始化 Git，并自动把 .arcdesk/ 写入 .gitignore，避免工具缓存出现在待提交列表。",
+  "git.initFailed": "创建 Git 仓库失败",
   "git.statusUntracked": "未跟踪 — 新文件或新目录，Git 尚未纳入版本控制（git add 后可提交）",
   "git.statusModified": "已修改 — 文件内容有变动",
   "git.statusAdded": "新增 / 已暂存",
@@ -1650,6 +1654,11 @@ export const zh: Record<DictKey, string> = {
   // 助手消息
   "msg.thinking": "思考过程",
   "msg.copy": "复制",
+  "msg.continueGenerate": "继续生成",
+  "msg.continuePrompt": "请从上次截断处继续输出，不要重复已写内容，只输出接续部分。",
+  "codeBlock.download": "下载",
+  "codeBlock.run": "运行",
+  "codeBlock.scrollDown": "滚动到底部",
 
   // 消息时间线
   "timeline.scrollToBottom": "滚动到底部",

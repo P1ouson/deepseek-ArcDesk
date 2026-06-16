@@ -231,7 +231,12 @@
 }
 
 .msg__stream {
-  display: inline;
+  display: block;
+}
+
+.msg__stream .cursor {
+  display: inline-block;
+  vertical-align: text-bottom;
 }
 
 .msg__actions {
@@ -244,6 +249,30 @@
 .msg__actions-spacer {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.msg__continue {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg-elev);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.msg__continue:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--bg-elev) 88%, var(--accent-soft));
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border-soft));
+}
+
+.msg__continue:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .cursor {

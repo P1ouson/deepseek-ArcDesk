@@ -1,3 +1,4 @@
+import { isContinueTextStream } from "./continueGeneration";
 import { parseToolArgs, toolArgString } from "./parseToolArgs";
 import type { Item, State } from "./useController";
 
@@ -19,7 +20,13 @@ export function extractLocalhostUrl(text: string): string | null {
 }
 
 /** Agent work the user can cancel (excludes long-running dev-server bash). */
-export function isCancellableAgentWork(state: Pick<State, "running" | "turnActive" | "live" | "pendingUser" | "approval" | "ask" | "items">): boolean {
+export function isCancellableAgentWork(
+  state: Pick<
+    State,
+    "continueActive" | "running" | "turnActive" | "live" | "pendingUser" | "approval" | "ask" | "items"
+  >,
+): boolean {
+  if (isContinueTextStream(state)) return false;
   if (!state.running) return false;
   if (state.live || state.pendingUser || state.approval || state.ask) return true;
   const runningTools = state.items.filter(
@@ -30,7 +37,13 @@ export function isCancellableAgentWork(state: Pick<State, "running" | "turnActiv
 }
 
 /** Block concurrent send only when non-dev-server agent work is active. */
-export function shouldBlockAgentSend(state: Pick<State, "running" | "turnActive" | "live" | "pendingUser" | "approval" | "ask" | "items">): boolean {
+export function shouldBlockAgentSend(
+  state: Pick<
+    State,
+    "continueActive" | "running" | "turnActive" | "live" | "pendingUser" | "approval" | "ask" | "items"
+  >,
+): boolean {
+  if (isContinueTextStream(state)) return false;
   if (!state.running && !state.turnActive) return false;
   if (state.pendingUser || state.approval || state.ask || state.live) return true;
   const runningTools = state.items.filter(

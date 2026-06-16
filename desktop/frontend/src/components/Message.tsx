@@ -185,6 +185,9 @@ export const AssistantMessage = memo(function AssistantMessage({
   rewindDisabled = false,
   copyText,
   showTurnActions = false,
+  showContinue = false,
+  continueDisabled = false,
+  onContinue,
 }: {
   item: AssistantItem;
   turn?: number;
@@ -198,6 +201,9 @@ export const AssistantMessage = memo(function AssistantMessage({
   copyText?: string;
   /** Only the turn's final assistant bubble should enable copy/rewind actions. */
   showTurnActions?: boolean;
+  showContinue?: boolean;
+  continueDisabled?: boolean;
+  onContinue?: () => void;
 }) {
   const t = useT();
   const hasText = item.text.trim().length > 0;
@@ -207,7 +213,8 @@ export const AssistantMessage = memo(function AssistantMessage({
   const canRewind = onRewind != null && turn != null;
   const resolvedCopyText = (copyText ?? item.text).trim();
   const showCopy = showTurnActions && resolvedCopyText.length > 0;
-  const showActions = showTurnActions && !item.streaming && hasText && (showCopy || canRewind);
+  const showActions =
+    showTurnActions && !item.streaming && hasText && (showCopy || showContinue || canRewind);
 
   useEffect(() => {
     if (thinkingActive) {
@@ -242,7 +249,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         <div className="msg__body">
           {item.streaming ? (
             <div className="msg__stream">
-              {item.text}
+              <Markdown text={item.text} />
               <span className="cursor" />
             </div>
           ) : (
@@ -250,10 +257,20 @@ export const AssistantMessage = memo(function AssistantMessage({
           )}
         </div>
       ) : null}
-      {showActions && (showCopy || canRewind) ? (
+      {showActions && (showCopy || showContinue || canRewind) ? (
         <div className="msg__actions">
           {showCopy ? <CopyButton text={resolvedCopyText} variant="tool" /> : null}
           <span className="msg__actions-spacer" aria-hidden="true" />
+          {showContinue ? (
+            <button
+              className="msg__continue"
+              type="button"
+              disabled={continueDisabled}
+              onClick={onContinue}
+            >
+              {t("msg.continueGenerate")}
+            </button>
+          ) : null}
           {canRewind ? (
             <MessageRewindMenu
               turn={turn}

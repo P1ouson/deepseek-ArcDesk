@@ -3,6 +3,7 @@ import { ChevronDown, Info } from "lucide-react";
 import { MotionUnfold } from "./MotionUnfold";
 import { buildTimelineRows, isShellTimelineTool } from "../lib/actionStream";
 import type { TimelineRow as BuiltTimelineRow } from "../lib/actionStream";
+import { truncatedAssistantIds } from "../lib/responseTruncation";
 import type { Item, LiveStream } from "../lib/useController";
 import { useT } from "../lib/i18n";
 import { ActionSegmentView, ThinkingBlockView, type ActionFileOpenRequest } from "./ActionStream";
@@ -42,6 +43,8 @@ export interface MessageTimelineProps {
   actionPending?: boolean;
   rewindDisabled?: boolean;
   onPrompt: (text: string) => void;
+  onContinueGeneration?: (assistantId: string) => void;
+  continueDisabled?: boolean;
   onRewind?: (turn: number, scope: string) => void;
   workspaceRoot?: string;
   onOpenActionFile?: (req: ActionFileOpenRequest) => void;
@@ -88,6 +91,9 @@ const TimelineRow = memo(function TimelineRow({
   rewindDisabled,
   turnCopyText,
   showTurnActions,
+  showContinue,
+  continueDisabled,
+  onContinue,
 }: {
   item: Item;
   live?: LiveStream;
@@ -101,6 +107,9 @@ const TimelineRow = memo(function TimelineRow({
   rewindDisabled?: boolean;
   turnCopyText?: string;
   showTurnActions?: boolean;
+  showContinue?: boolean;
+  continueDisabled?: boolean;
+  onContinue?: () => void;
 }) {
   switch (item.kind) {
     case "user": {
@@ -127,6 +136,9 @@ const TimelineRow = memo(function TimelineRow({
           rewindDisabled={rewindDisabled}
           copyText={turnCopyText}
           showTurnActions={showTurnActions}
+          showContinue={showContinue}
+          continueDisabled={continueDisabled}
+          onContinue={onContinue}
           onRewind={(tn, scope) => {
             onRewind?.(tn, scope);
             onToggleRewind(null);
@@ -178,6 +190,8 @@ export function MessageTimeline({
   actionPending = false,
   rewindDisabled = false,
   onPrompt,
+  onContinueGeneration,
+  continueDisabled = false,
   onRewind,
   workspaceRoot = "",
   onOpenActionFile,
@@ -235,6 +249,8 @@ export function MessageTimeline({
   }, [items, userTurn]);
 
   const checkpointsByTurn = useMemo(() => new Map(checkpoints.map((cp) => [cp.turn, cp])), [checkpoints]);
+
+  const truncatedAssistants = useMemo(() => truncatedAssistantIds(items), [items]);
 
   const turnAssistantActions = useMemo(() => {
     const copyTextByAssistantId = new Map<string, string>();
@@ -391,6 +407,18 @@ export function MessageTimeline({
           rewindDisabled={rewindDisabled}
           turnCopyText={turnAssistantActions.copyTextByAssistantId.get(row.item.id)}
           showTurnActions={turnAssistantActions.showActionsByAssistantId.get(row.item.id) === true}
+          showContinue={
+            row.item.kind === "assistant" &&
+            turnAssistantActions.showActionsByAssistantId.get(row.item.id) === true &&
+            truncatedAssistants.has(row.item.id) &&
+            live?.id !== row.item.id
+          }
+          continueDisabled={continueDisabled}
+          onContinue={
+            row.item.kind === "assistant" && onContinueGeneration
+              ? () => onContinueGeneration(row.item.id)
+              : undefined
+          }
         />
       )}
     </div>

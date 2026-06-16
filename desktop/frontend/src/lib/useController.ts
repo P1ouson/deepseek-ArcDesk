@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { shouldBlockAgentSend } from "./agentActivity";
+import { assistantSeedText } from "./responseTruncation";
 import { asArray } from "./array";
 import { app, onEvent, onReady, onTabsShell } from "./bridge";
 import { sameWorkspaceRoot } from "./composerWorkspace";
@@ -112,6 +113,9 @@ export interface State {
   retry?: { attempt: number; max: number };
   recentlyCompleted: boolean;
   seq: number;
+  /** Append streamed text to an existing assistant bubble (continue generation). */
+  continueActive?: boolean;
+  continueTargetId?: string;
 }
 
 const initialState: State = {
@@ -160,11 +164,23 @@ export type Action =
   | { type: "clearRecentCompletion" }
   | { type: "resolveAsk"; id: string; answers: QuestionAnswer[]; dismissed: boolean }
   | { type: "cancelTurn" }
+  | { type: "continue_generation"; assistantId: string; text: string; reasoning: string }
+  | { type: "clear_continue" }
   | { type: "reset" };
 
 // ---- reducer helpers (unchanged logic) ----
 
 function ensureAssistant(s: State): { items: Item[]; id: string; seq: number } {
+  if (s.continueTargetId) {
+    const id = s.continueTargetId;
+    const exists = s.items.some((it) => it.id === id && it.kind === "assistant");
+    if (exists) {
+      const items = s.items.map((it) =>
+        it.kind === "assistant" && it.id === id ? { ...it, streaming: true } : it,
+      );
+      return { items, id, seq: s.seq };
+    }
+  }
   if (s.currentAssistant) {
     const exists = s.items.some((it) => it.id === s.currentAssistant && it.kind === "assistant");
     if (exists) return { items: s.items, id: s.currentAssistant, seq: s.seq };
@@ -276,6 +292,15 @@ function historyItemsFromMessages(messages: HistoryMessage[], seq: number): { it
   return { items, nextSeq: seq + visible.length };
 }
 
+function liveSeed(s: State, id: string): LiveStream {
+  if (s.live?.id === id) return s.live;
+  if (s.continueActive && s.continueTargetId === id) {
+    const seed = assistantSeedText(s.items, id);
+    return { id, text: seed.text, reasoning: seed.reasoning };
+  }
+  return { id, text: "", reasoning: "" };
+}
+
 function applyStreamDelta(s: State, textDelta?: string, reasoningDelta?: string): State {
   if (!textDelta && !reasoningDelta) return s;
   let base = s;
@@ -283,7 +308,7 @@ function applyStreamDelta(s: State, textDelta?: string, reasoningDelta?: string)
     base = flushPendingUser(base);
   }
   const { items, id, seq } = ensureAssistant(base);
-  const liveBase = base.live?.id === id ? base.live : { id, text: "", reasoning: "" };
+  const liveBase = liveSeed(base, id);
   const live = {
     id,
     text: liveBase.text + (textDelta ?? ""),
@@ -335,13 +360,29 @@ function applyEvent(s: State, e: WireEvent): State {
   if (s.retry) s = { ...s, retry: undefined };
   switch (e.kind) {
     case "turn_started":
+      if (s.continueActive && s.continueTargetId) {
+        const id = s.continueTargetId;
+        const seed = liveSeed(s, id);
+        return {
+          ...s,
+          running: true,
+          turnActive: true,
+          recentlyCompleted: false,
+          currentAssistant: id,
+          live: seed,
+          turnStartAt: Date.now(),
+        };
+      }
       return { ...s, running: true, turnActive: true, recentlyCompleted: false, currentAssistant: undefined, turnStartAt: Date.now(), turnTokens: 0 };
     case "text":
     case "reasoning": {
       const { items, id, seq } = ensureAssistant(s);
-      const delta = e.text ?? e.reasoning ?? "";
-      const base = s.live?.id === id ? s.live : { id, text: "", reasoning: "" };
-      const live = e.kind === "text" ? { ...base, text: base.text + delta } : { ...base, reasoning: base.reasoning + delta };
+      const delta = e.kind === "text" ? (e.text ?? "") : (e.reasoning ?? "");
+      const liveBase = liveSeed(s, id);
+      const live =
+        e.kind === "text"
+          ? { ...liveBase, text: liveBase.text + delta }
+          : { ...liveBase, reasoning: liveBase.reasoning + delta };
       return { ...s, items, live, currentAssistant: id, seq };
     }
     case "message": {
@@ -493,6 +534,8 @@ function applyEvent(s: State, e: WireEvent): State {
         turnActive: false,
         recentlyCompleted: !errText,
         currentAssistant: undefined,
+        continueActive: false,
+        continueTargetId: undefined,
         approval: undefined,
         ask: undefined,
         seq: s.seq + 1,
@@ -547,6 +590,22 @@ function reducer(s: State, a: Action): State {
       );
       return { ...s, ask: undefined, items };
     }
+    case "continue_generation":
+      return {
+        ...s,
+        continueActive: true,
+        continueTargetId: a.assistantId,
+        running: true,
+        turnActive: true,
+        turnStartAt: Date.now(),
+        currentAssistant: a.assistantId,
+        live: { id: a.assistantId, text: a.text, reasoning: a.reasoning },
+        items: s.items.map((it) =>
+          it.kind === "assistant" && it.id === a.assistantId ? { ...it, streaming: true } : it,
+        ),
+      };
+    case "clear_continue":
+      return { ...s, continueActive: false, continueTargetId: undefined };
     case "cancelTurn": {
       const items = s.items.flatMap((it) => {
         if (it.kind === "assistant" && (it.streaming || (s.live && it.id === s.live.id))) {
@@ -570,6 +629,8 @@ function reducer(s: State, a: Action): State {
         turnActive: false,
         discardTurn: true,
         currentAssistant: undefined,
+        continueActive: false,
+        continueTargetId: undefined,
         retry: undefined,
       };
     }
@@ -1037,10 +1098,47 @@ export function useController() {
       notice(t("composer.agentBusy"), "warn");
       return;
     }
-    dispatchTo(activeTabId, { type: "user", text: displayText });
-    const display = displayText.trim(); const submit = submitText.trim();
-    (display !== submit ? app.SubmitDisplayToTab(activeTabId, display, submit) : app.SubmitToTab(activeTabId, submit)).catch((err) => {
-      dispatchTo(activeTabId, { type: "unsend" });
+    const tabId = activeTabId;
+    const display = displayText.trim();
+    const submit = submitText.trim();
+
+    const launch = () => {
+      dispatchTo(tabId, { type: "user", text: displayText });
+      void (display !== submit
+        ? app.SubmitDisplayToTab(tabId, display, submit)
+        : app.SubmitToTab(tabId, submit)
+      ).catch((err) => {
+        dispatchTo(tabId, { type: "unsend" });
+        reportFailure(err);
+      });
+    };
+
+    if (cur.continueActive) {
+      dispatchTo(tabId, { type: "cancelTurn" });
+      void app.CancelTab(tabId).catch(() => undefined).finally(launch);
+      return;
+    }
+    launch();
+  }, [activeTabId, dispatchTo, notice, reportFailure]);
+
+  const continueGeneration = useCallback((assistantId: string) => {
+    if (!activeTabId) return;
+    const cur = stateRef.current;
+    if (cur.continueActive || shouldBlockConcurrentSend(cur)) return;
+    const target = cur.items.find((it) => it.kind === "assistant" && it.id === assistantId);
+    if (!target || target.kind !== "assistant" || !target.text.trim()) return;
+
+    const tabId = activeTabId;
+    dispatchTo(tabId, {
+      type: "continue_generation",
+      assistantId,
+      text: target.text,
+      reasoning: target.reasoning,
+    });
+    const prompt = t("msg.continuePrompt");
+    void app.SubmitDisplayToTab(tabId, "", prompt).catch((err) => {
+      dispatchTo(tabId, { type: "clear_continue" });
+      dispatchTo(tabId, { type: "cancelTurn" });
       reportFailure(err);
     });
   }, [activeTabId, dispatchTo, reportFailure]);
@@ -1404,7 +1502,7 @@ export function useController() {
     state: activeState,
     activeTabId,
     bootPhase,
-    send, runShell, notice, cancel, approve, answerQuestion, recordKnowledgeCapture, dismissKnowledgeCapture, setControllerMode,
+    send, continueGeneration, runShell, notice, cancel, approve, answerQuestion, recordKnowledgeCapture, dismissKnowledgeCapture, setControllerMode,
     newSession, listSessions, listTrashedSessions, resumeSession, previewSession, deleteSession, restoreSession, purgeTrashedSession, renameSession,
     refreshMeta, pickWorkspace, switchWorkspace, compact, rewind, setModel, setEffort,
     fetchMemory, fetchKnowledge, confirmKnowledge, staleKnowledge, remember, forget, saveDoc,

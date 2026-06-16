@@ -8,6 +8,7 @@ import { useWorkspaceChanges } from "../../lib/useWorkspaceChanges";
 import type { WorkspaceChangeView } from "../../lib/types";
 import { hasGitChange } from "../../lib/workspaceChangeHelpers";
 import { DockEmptyState } from "../dock/DockEmptyState";
+import { GitRepoInitBanner } from "../dock/GitRepoInitBanner";
 
 interface SidebarChangesViewProps {
   cwd?: string;
@@ -156,9 +157,12 @@ export function SidebarChangesView({
 
   return (
     <div className="sidebar-changes-view">
-      {changes && !changes.gitAvailable && changes.gitErr ? (
-        <p className="dock-panel__banner dock-panel__banner--warn">{t("workspace.gitUnavailable")}</p>
-      ) : null}
+      <GitRepoInitBanner
+        cwd={cwd}
+        gitAvailable={changes?.gitAvailable}
+        gitErr={changes?.gitErr}
+        onInitialized={() => void loadChanges()}
+      />
 
       <div className="sidebar-changes-view__list">
         {loading && !changes ? (

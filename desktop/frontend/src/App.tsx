@@ -151,6 +151,7 @@ export default function App() {
     state,
     activeTabId,
     send,
+    continueGeneration,
     runShell,
     notice,
     cancel,
@@ -1685,6 +1686,8 @@ export default function App() {
                     workspaceRoot={workspaceRoot}
                     onOpenActionFile={openActionFilePreview}
                     onPrompt={handleSend}
+                    onContinueGeneration={continueGeneration}
+                    continueDisabled={state.messageAction != null || (state.running && !state.continueActive)}
                     onRewind={(turn, scope) => void rewind(turn, scope)}
                     onPinnedToBottomChange={setTimelinePinnedToBottom}
                     showConnectionRecovery={showConnectionRecovery}

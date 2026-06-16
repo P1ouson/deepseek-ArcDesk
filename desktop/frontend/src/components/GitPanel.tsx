@@ -35,6 +35,7 @@ import {
 } from "../lib/workspaceDockActions";
 import { DockEmptyState } from "./dock/DockEmptyState";
 import { DockPanelHeader } from "./dock/DockPanelHeader";
+import { GitRepoInitBanner } from "./dock/GitRepoInitBanner";
 import { FloatingMenu, FloatingMenuItems } from "./FloatingMenu";
 import { Tooltip } from "./Tooltip";
 
@@ -271,9 +272,12 @@ export function GitPanel({ cwd, refreshKey, activeFilePath, onOpenFile, onAddToC
         onRefresh={() => void loadChanges()}
       />
 
-      {changes && !changes.gitAvailable && changes.gitErr && (
-        <p className="dock-panel__banner dock-panel__banner--warn">{t("workspace.gitUnavailable")}</p>
-      )}
+      <GitRepoInitBanner
+        cwd={cwd}
+        gitAvailable={changes?.gitAvailable}
+        gitErr={changes?.gitErr}
+        onInitialized={() => void loadChanges()}
+      />
 
       {gitAvailable && ghBannerKey && (
         <div className="dock-panel__banner dock-panel__banner--warn dock-panel__banner--actions">

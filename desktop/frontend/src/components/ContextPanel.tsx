@@ -9,6 +9,7 @@ import { useT, type Translator } from "../lib/i18n";
 import type { DictKey } from "../locales/en";
 import { useWorkspaceChanges } from "../lib/useWorkspaceChanges";
 import type { BalanceInfo, ContextInfo, ContextPanelInfo, EffortInfo, Mode, WireUsage, WorkspaceChangeView } from "../lib/types";
+import { GitRepoInitBanner } from "./dock/GitRepoInitBanner";
 
 interface ContextPanelProps {
   tabId?: string;
@@ -291,7 +292,7 @@ export function ContextPanel({
   const [detailView, setDetailView] = useState<ContextDetail | null>(null);
   const [query, setQuery] = useState("");
   const [gitBranch, setGitBranch] = useState("");
-  const { changes, loading: gitLoading } = useWorkspaceChanges(cwd, refreshKey);
+  const { changes, loading: gitLoading, loadChanges } = useWorkspaceChanges(cwd, refreshKey);
 
   const refresh = useCallback(async () => {
     if (!tabId) return;
@@ -481,12 +482,14 @@ export function ContextPanel({
 
             <GitOverviewCard
               loading={gitLoading}
+              cwd={cwd}
               gitAvailable={changes?.gitAvailable}
               gitErr={changes?.gitErr}
               branch={gitBranch}
               stats={gitStats}
               rows={gitPreviewRows}
               onOpenGit={onOpenGitTab}
+              onGitInitialized={() => void loadChanges()}
             />
 
             <p className={`context-panel__health context-panel__health--${health.tone}`}>
@@ -523,20 +526,24 @@ export function ContextPanel({
 
 function GitOverviewCard({
   loading,
+  cwd,
   gitAvailable,
   gitErr,
   branch,
   stats,
   rows,
   onOpenGit,
+  onGitInitialized,
 }: {
   loading: boolean;
+  cwd?: string;
   gitAvailable?: boolean;
   gitErr?: string;
   branch: string;
   stats: GitOverviewStats;
   rows: Array<{ key: string; path: string; meta: string; time: string; detail: string }>;
   onOpenGit?: () => void;
+  onGitInitialized?: () => void;
 }) {
   const t = useT();
 
@@ -549,9 +556,12 @@ function GitOverviewCard({
             <span>{t("context.git")}</span>
           </div>
         </header>
-        <p className="context-panel__git-note context-panel__git-note--warn">
-          {gitErr ? gitErr : t("context.gitUnavailable")}
-        </p>
+        <GitRepoInitBanner
+          cwd={cwd}
+          gitAvailable={gitAvailable}
+          gitErr={gitErr}
+          onInitialized={onGitInitialized}
+        />
       </section>
     );
   }

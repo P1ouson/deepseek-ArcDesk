@@ -114,6 +114,7 @@ export interface AppBindings {
   UpdateLatestTodoArgsForTab(tabID: string, args: string): Promise<void>;
   RunShell(command: string): Promise<void>;
   RunShellQuiet(command: string): Promise<ShellRunResult>;
+  InitProjectGitRepository(workspaceRoot: string): Promise<ShellRunResult>;
   InstallGitHubCLI(): Promise<GitHubCLIInstallResult>;
   StartTerminal(): Promise<TerminalStartResult>;
   WriteTerminal(sessionID: string, data: string): Promise<void>;
@@ -1387,6 +1388,10 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
             return { output: "{}\n" };
           }
           return { output: "Already up to date.\n" };
+        },
+        async InitProjectGitRepository(_workspaceRoot: string) {
+          await delay(120);
+          return { output: "Initialized empty Git repository" };
         },
         async InstallGitHubCLI() {
           await delay(800);
