@@ -132,6 +132,11 @@ function KnowledgeEntryCard({
             {path.split(/[/\\]/).pop() || path}
           </span>
         ))}
+        {entry.provenanceStale && entry.provenanceStaleReason === "commit_mismatch" ? (
+          <span className="knowledge-studio__chip knowledge-studio__chip--warn">
+            {t("knowledge.commitMismatchShort")}
+          </span>
+        ) : null}
       </div>
     </button>
   );
@@ -168,7 +173,9 @@ function KnowledgeDetail({
   inModal?: boolean;
 }) {
   const t = useT();
-  const stale = entry.confidence.trim().toLowerCase() === "stale";
+  const userStale = entry.confidence.trim().toLowerCase() === "stale";
+  const provenanceStale = entry.provenanceStale === true;
+  const commitMismatch = entry.provenanceStaleReason === "commit_mismatch";
   const summaryText = (entry.summary.trim() || cardPreview(entry, 240)).trim();
   const fixText = entry.fix.trim();
   const showSummary = summaryText !== "" && !sameLessonText(summaryText, fixText);
@@ -186,6 +193,17 @@ function KnowledgeDetail({
   const body = (
     <>
       {inModal ? <div className="knowledge-studio__detail-meta">{badges}</div> : null}
+
+      {commitMismatch ? (
+        <section className="knowledge-studio__detail-block">
+          <p className="knowledge-studio__detail-note knowledge-studio__detail-note--warn">
+            {t("knowledge.commitMismatchNote", {
+              recorded: entry.repoHead?.slice(0, 7) ?? "—",
+              current: entry.currentRepoHead?.slice(0, 7) ?? "—",
+            })}
+          </p>
+        </section>
+      ) : null}
 
       {showSummary ? (
         <section className="knowledge-studio__detail-block">
@@ -231,6 +249,12 @@ function KnowledgeDetail({
               </dd>
             </div>
           ) : null}
+          {entry.repoHead ? (
+            <div>
+              <dt>{t("knowledge.detail.repoHead")}</dt>
+              <dd><code>{entry.repoHead.slice(0, 7)}</code></dd>
+            </div>
+          ) : null}
         </dl>
       </section>
     </>
@@ -238,10 +262,13 @@ function KnowledgeDetail({
 
   const actions = (
     <div className="knowledge-studio__detail-actions">
-      {stale ? (
+      {userStale ? (
         <p className="knowledge-studio__detail-note">{t("knowledge.staleNote")}</p>
       ) : (
         <>
+          {provenanceStale && !commitMismatch ? (
+            <p className="knowledge-studio__detail-note">{t("knowledge.provenanceStaleNote")}</p>
+          ) : null}
           <button type="button" className="knowledge-studio__action knowledge-studio__action--primary" disabled={busy} onClick={onConfirm}>
             <Check size={14} aria-hidden="true" />
             {t("knowledge.confirm")}

@@ -89,7 +89,10 @@ export function filterBySection(entries: KnowledgeEntry[], section: KnowledgeSec
     case "all":
       return entries;
     case "stale":
-      return entries.filter((entry) => entry.confidence.trim().toLowerCase() === "stale");
+      return entries.filter(
+        (entry) =>
+          entry.confidence.trim().toLowerCase() === "stale" || entry.provenanceStale === true,
+      );
     case "negative":
       return entries.filter(isNegativeEntry);
     default:
@@ -133,7 +136,10 @@ export function sectionCounts(entries: KnowledgeEntry[]): Record<KnowledgeSectio
 }
 
 export function injectableCount(entries: KnowledgeEntry[]): number {
-  return entries.filter((entry) => entry.confidence.trim().toLowerCase() !== "stale").length;
+  return entries.filter(
+    (entry) =>
+      entry.confidence.trim().toLowerCase() !== "stale" && entry.provenanceStale !== true,
+  ).length;
 }
 
 function truncate(value: string, max: number): string {

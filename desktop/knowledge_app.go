@@ -42,7 +42,7 @@ func (a *App) knowledgeStore() (*failuremem.Store, config.KnowledgeConfig, bool)
 // Knowledge lists workspace experience entries for the active tab.
 func (a *App) Knowledge() KnowledgeView {
 	view := KnowledgeView{Entries: []knowledge.ListViewEntry{}}
-	store, _, ok := a.knowledgeStore()
+	store, cfg, ok := a.knowledgeStore()
 	if !ok || store == nil {
 		return view
 	}
@@ -51,7 +51,8 @@ func (a *App) Knowledge() KnowledgeView {
 	if err != nil {
 		return view
 	}
-	view.Entries = knowledge.ListView(entries, 100)
+	ctx := failuremem.NewSearchContext(store.WorkspaceRoot(), cfg.ResolvedTTLDays(), cfg.ShouldRequireMatchingHead())
+	view.Entries = knowledge.ListView(entries, 100, ctx)
 	return view
 }
 
