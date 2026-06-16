@@ -57,6 +57,7 @@ import {
   setStoredCodeWorkspaceRoot,
   setStoredComposerNoWorkspace,
 } from "./lib/composerWorkspace";
+import { isPathUnderWorkspace, syncComposerAfterWorkspaceRemoved } from "./lib/workspaceRemoval";
 import {
   getInitialWriteWorkspaceRoot,
   getStoredWriteWorkspaceRoot,
@@ -1134,9 +1135,19 @@ export default function App() {
 
   const removeWorkspace = useCallback(async (path: string) => {
     await app.RemoveWorkspace(path);
+    const { detached } = await syncComposerAfterWorkspaceRemoved(path);
+    if (detached) {
+      setComposerNoWorkspace(true);
+      if (filePreviewPath && isPathUnderWorkspace(filePreviewPath, path)) {
+        closeFilePreview();
+      }
+    }
     setProjectRevision((value) => value + 1);
-    await refreshTabMetas();
-  }, [refreshTabMetas]);
+    const tabs = await refreshTabMetas();
+    if (activeTabId && !tabs.some((tab) => tab.id === activeTabId)) {
+      await syncActiveTab(true);
+    }
+  }, [activeTabId, closeFilePreview, filePreviewPath, refreshTabMetas, syncActiveTab]);
 
   const refreshProjectsAndTabs = useCallback(async () => {
     setProjectRevision((value) => value + 1);
@@ -1581,6 +1592,7 @@ export default function App() {
             void openProjectHistory(scope, workspaceRoot);
           }}
           onTopicsChanged={refreshProjectsAndTabs}
+          onRemoveWorkspace={removeWorkspace}
           writeConversation={writeConversationTurns}
           writeRunning={state.running}
         />

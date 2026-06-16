@@ -26,6 +26,7 @@ interface ProjectTreeProps {
   onAddProject: () => Promise<void>;
   onRenameTopic?: (topicId: string, title: string) => Promise<void> | void;
   onTopicsChanged?: () => Promise<void> | void;
+  onRemoveWorkspace?: (path: string) => Promise<void>;
   refreshSignal?: number;
 }
 
@@ -113,6 +114,7 @@ export function ProjectTree({
   onAddProject,
   onRenameTopic,
   onTopicsChanged,
+  onRemoveWorkspace,
   refreshSignal,
 }: ProjectTreeProps) {
   const t = useT();
@@ -285,11 +287,16 @@ export function ProjectTree({
   const removeProject = async (path: string) => {
     if (!path) return;
     try {
-      await app.RemoveWorkspace(path);
+      if (onRemoveWorkspace) {
+        await onRemoveWorkspace(path);
+      } else {
+        await app.RemoveWorkspace(path);
+      }
       setMenuProject(null);
       setMenuPoint(null);
       setConfirmRemoveProject(null);
       await refresh();
+      await onTopicsChanged?.();
     } catch {
       /* ignore */
     }
