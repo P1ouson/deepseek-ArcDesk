@@ -99,7 +99,7 @@ func Compose(base, workspace string) string {
 // LoadBlock returns the markdown block for prefix injection, or "" if missing.
 func LoadBlock(workspace string) string {
 	workspace = strings.TrimSpace(workspace)
-	if workspace == "" {
+	if workspace == "" || IsBroadPersonalRoot(workspace) {
 		return ""
 	}
 	p, err := mapPath(workspace)
@@ -263,7 +263,7 @@ func lockFor(workspace string) *sync.Mutex {
 // background RefreshIfStale.
 func EnsureReady(workspace string) error {
 	workspace = strings.TrimSpace(workspace)
-	if workspace == "" {
+	if workspace == "" || IsBroadPersonalRoot(workspace) {
 		return nil
 	}
 	mp, err := mapPath(workspace)
@@ -287,7 +287,7 @@ func EnsureReady(workspace string) error {
 // serialize on a per-workspace lock so only one refresh runs at a time.
 func RefreshIfStale(workspace string) error {
 	workspace = strings.TrimSpace(workspace)
-	if workspace == "" {
+	if workspace == "" || IsBroadPersonalRoot(workspace) {
 		return nil
 	}
 	mu := lockFor(workspace)
@@ -302,6 +302,11 @@ func RefreshIfStale(workspace string) error {
 		return nil
 	}
 	return refresh(workspace)
+}
+
+// IsStale reports whether the repo map needs regeneration.
+func IsStale(workspace string) (bool, error) {
+	return isStale(workspace)
 }
 
 func isStale(workspace string) (bool, error) {
@@ -423,6 +428,20 @@ func repoRevision(workspace string) (gitHead, fingerprint string) {
 	return "", strings.Join(parts, "|")
 }
 
+// WorkspaceRevision returns git HEAD when available, otherwise a non-git workspace fingerprint.
+// Git HEAD is always resolved fresh; non-git fingerprints are cached until invalidated.
+func WorkspaceRevision(workspace string) (gitHead, fingerprint string) {
+	head, fp := repoRevision(workspace)
+	if head != "" {
+		return head, fp
+	}
+	if cachedHead, cachedFP, ok := cachedWorkspaceRevision(workspace); ok {
+		return cachedHead, cachedFP
+	}
+	storeWorkspaceRevision(workspace, head, fp)
+	return head, fp
+}
+
 func generateMap(workspace string) (string, error) {
 	abs, err := filepath.Abs(workspace)
 	if err != nil {
@@ -510,6 +529,19 @@ func skipDir(name string) bool {
 	case ".git", "node_modules", "vendor", "dist", "build", "out", "target",
 		"__pycache__", ".venv", "venv", ".idea", ".vscode", ".cursor":
 		return true
+	}
+	return false
+}
+
+// IsBroadPersonalRoot reports user-level folders (Desktop/Documents/Downloads)
+// that are too wide to treat as a code project for repo-map indexing.
+func IsBroadPersonalRoot(workspace string) bool {
+	p := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(workspace, `\`, "/")))
+	p = strings.TrimRight(p, "/")
+	for _, suffix := range []string{"/desktop", "/documents", "/downloads"} {
+		if strings.HasSuffix(p, suffix) {
+			return true
+		}
 	}
 	return false
 }

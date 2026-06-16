@@ -340,6 +340,17 @@ func Render(sk Skill, args string) string {
 	return b.String()
 }
 
+// RenderContinuation is the lightweight follow-up when the same skill body is
+// already in the session — avoids re-uploading the full playbook every turn.
+func RenderContinuation(sk Skill, args string) string {
+	var b strings.Builder
+	b.WriteString("# Skill: " + sk.Name + " (already loaded — follow the same playbook; do not reload the full body)")
+	if args != "" {
+		b.WriteString("\n\nArguments: " + args)
+	}
+	return b.String()
+}
+
 // renderInline wraps Render's output in a skill-pin sentinel so context
 // compaction preserves the body verbatim instead of paraphrasing it.
 func renderInline(sk Skill, args string) string {

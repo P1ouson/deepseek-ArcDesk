@@ -27,6 +27,31 @@ export function isUsableCodeWorkspaceRoot(path: string | undefined | null): bool
   return normalized !== "" && normalized !== "." && !isNoWorkspaceRoot(normalized);
 }
 
+const BROAD_PERSONAL_SUFFIXES = [
+  "/desktop",
+  "/documents",
+  "/downloads",
+  "/documents/",
+  "/downloads/",
+  "/desktop/",
+];
+
+/** True for user home shells (Desktop/Documents/Downloads) — too broad to index or explore as a code project. */
+export function isBroadPersonalRoot(path: string | undefined | null): boolean {
+  const normalized = (path ?? "").trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  if (!normalized) return false;
+  for (const suffix of BROAD_PERSONAL_SUFFIXES) {
+    const s = suffix.replace(/\/+$/, "");
+    if (normalized === s || normalized.endsWith(s)) return true;
+  }
+  return false;
+}
+
+/** Code workspace suitable for agent tool confinement and repo-map indexing. */
+export function isProjectLikeCodeWorkspaceRoot(path: string | undefined | null): boolean {
+  return isUsableCodeWorkspaceRoot(path) && !isBroadPersonalRoot(path);
+}
+
 export function getStoredComposerNoWorkspace(): boolean {
   if (typeof window === "undefined") return true;
   try {

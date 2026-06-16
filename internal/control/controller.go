@@ -30,6 +30,7 @@ import (
 	"arcdesk/internal/event"
 	"arcdesk/internal/harness"
 	"arcdesk/internal/hook"
+	"arcdesk/internal/intent"
 	"arcdesk/internal/i18n"
 	"arcdesk/internal/jobs"
 	"arcdesk/internal/memory"
@@ -122,6 +123,8 @@ type Controller struct {
 	nextID      int
 	// turn counts model turns this session, passed to hooks in their payload.
 	turn int
+	// lastIntent is the Phase-2 canonical bucket for the current user turn.
+	lastIntent intent.Result
 	// autoApprove auto-allows writer tool calls without prompting. Set only while
 	// executing a just-approved plan: approving the plan is the go-ahead, so the
 	// model shouldn't re-prompt for every write of the work it just got cleared to
@@ -412,7 +415,13 @@ func (c *Controller) runGuarded(body func(ctx context.Context) error) {
 				})
 			}
 		}
-		c.sink.Emit(event.Event{Kind: event.TurnDone, Err: explainError(err)})
+		c.sink.Emit(event.Event{
+			Kind:            event.TurnDone,
+			Err:             explainError(err),
+			ToolReuse:       c.toolReuseSnapshot(),
+			IntentClass:     c.turnIntentClass(),
+			IntentCanonical: c.turnIntentCanonical(),
+		})
 	}()
 }
 
@@ -455,6 +464,9 @@ func (c *Controller) runTurn(ctx context.Context, input string) error {
 
 func (c *Controller) runTurnWithRaw(ctx context.Context, input, raw string) error {
 	c.maybeSessionStart(ctx)
+	c.mu.Lock()
+	c.lastIntent = intent.Classify(raw)
+	c.mu.Unlock()
 	planMode, autoEntered := c.beginHarnessTurnWithCtx(ctx, raw)
 	input = c.Compose(input)
 	c.emitHarnessBegin(planMode, autoEntered)
@@ -1498,6 +1510,41 @@ func (c *Controller) SessionCache() (hit, miss int) {
 		return 0, 0
 	}
 	return c.executor.SessionCache()
+}
+
+func (c *Controller) turnIntentClass() string {
+	if c == nil {
+		return ""
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastIntent.Class
+}
+
+func (c *Controller) turnIntentCanonical() string {
+	if c == nil {
+		return ""
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastIntent.Canonical
+}
+
+func (c *Controller) toolReuseSnapshot() *event.ToolReuseStats {
+	if c.executor == nil {
+		return nil
+	}
+	s := c.executor.ToolReuseStats()
+	return &s
+}
+
+// ToolReuseStats returns session-cumulative duplicate tool-call counters for the
+// context panel and diagnostics.
+func (c *Controller) ToolReuseStats() event.ToolReuseStats {
+	if c.executor == nil {
+		return event.ToolReuseStats{}
+	}
+	return c.executor.ToolReuseStats()
 }
 
 // Balance queries the active provider's wallet balance, or (nil, nil) when the

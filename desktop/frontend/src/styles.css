@@ -143,8 +143,12 @@
 }
 
 /* Theme accent styles */
-:root[data-theme="dark"][data-theme-style="graphite"],
-:root:not([data-theme])[data-theme-style="graphite"] {
+:root[data-theme="light"][data-theme-style="indigo"],
+:root[data-theme="dark"][data-theme-style="indigo"],
+:root:not([data-theme])[data-theme-style="indigo"] {
+  --accent: #5e6ad2; --accent-strong: #4854b8; --accent-soft: rgba(94, 106, 210, 0.12); --shell-accent: #5e6ad2;
+}
+:root[data-theme="dark"][data-theme-style="graphite"] {
   --accent: #d97757; --accent-strong: #e89474; --accent-soft: rgba(217, 119, 87, 0.14); --shell-accent: #d97757;
 }
 :root[data-theme="dark"][data-theme-style="ember"] {
@@ -9431,6 +9435,7 @@ button:disabled:active,
   font-weight: 650;
 }
 .settings-accent-swatch__dot { width: 12px; height: 12px; border-radius: 999px; background: var(--accent); }
+.settings-accent-swatch[data-style="indigo"] .settings-accent-swatch__dot { background: #5e6ad2; }
 .settings-accent-swatch[data-style="graphite"] .settings-accent-swatch__dot { background: #d97757; }
 .settings-accent-swatch[data-style="ember"] .settings-accent-swatch__dot { background: #f06d38; }
 .settings-accent-swatch[data-style="aurora"] .settings-accent-swatch__dot { background: #34c3a6; }

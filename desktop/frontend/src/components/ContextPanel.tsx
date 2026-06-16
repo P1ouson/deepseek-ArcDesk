@@ -100,6 +100,16 @@ function TokenUsageCard({ usage, info }: { usage?: WireUsage; info: ContextPanel
   const savingsPct = cacheTokensForSavings
     ? estimatePromptCacheSavingsPct(cacheTokensForSavings.hit, cacheTokensForSavings.miss)
     : null;
+  const reuseCalls = usage?.toolReuse?.sessionCalls ?? info?.toolReuseCalls ?? 0;
+  const reuseDupes = usage?.toolReuse?.sessionDuplicates ?? info?.toolReuseDuplicates ?? 0;
+  const reuseCacheDupes = usage?.toolReuse?.sessionCacheableDupes ?? info?.toolReuseCacheableDupes ?? 0;
+  const reuseCacheHits = usage?.toolReuse?.sessionCacheHits ?? info?.toolReuseCacheHits ?? 0;
+  const hasToolReuse = reuseCalls > 0;
+  const reusePct = reuseCalls > 0 ? ((reuseDupes / reuseCalls) * 100).toFixed(1) : null;
+  const reuseCachePct =
+    (usage?.toolReuse?.sessionCacheableCalls ?? 0) > 0
+      ? ((reuseCacheDupes / (usage?.toolReuse?.sessionCacheableCalls ?? 1)) * 100).toFixed(1)
+      : null;
 
   const rows: Array<{ label: string; value: string }> = [
     { label: t("context.prompt"), value: hasUsage ? formatTokens(prompt) : "—" },
@@ -182,6 +192,44 @@ function TokenUsageCard({ usage, info }: { usage?: WireUsage; info: ContextPanel
               </p>
             )}
           </div>
+        </>
+      )}
+
+      {hasToolReuse && (
+        <>
+          <div className="context-panel__tokens-divider" />
+          <header className="context-panel__tokens-head context-panel__tokens-head--cache">
+            <h3 className="context-panel__tokens-title">{t("context.toolReuseTitle")}</h3>
+          </header>
+          <div className="context-panel__token-grid">
+            <div className="context-panel__token-row">
+              <span>{t("context.toolReuseCalls")}</span>
+              <strong>{formatTokens(reuseCalls)}</strong>
+            </div>
+            <div className="context-panel__token-row">
+              <span>{t("context.toolReuseDuplicates")}</span>
+              <strong>{formatTokens(reuseDupes)}</strong>
+            </div>
+            {reusePct != null && (
+              <div className="context-panel__token-row">
+                <span>{t("context.toolReuseDuplicateRate")}</span>
+                <strong>{fmtPct(reusePct)}</strong>
+              </div>
+            )}
+            {reuseCacheDupes > 0 && reuseCachePct != null && (
+              <div className="context-panel__token-row context-panel__token-row--muted">
+                <span>{t("context.toolReuseCacheableDupes")}</span>
+                <strong>{fmtPct(reuseCachePct)}</strong>
+              </div>
+            )}
+            {reuseCacheHits > 0 && (
+              <div className="context-panel__token-row context-panel__token-row--muted">
+                <span>{t("context.toolReuseCacheHits")}</span>
+                <strong>{formatTokens(reuseCacheHits)}</strong>
+              </div>
+            )}
+          </div>
+          <p className="context-panel__cache-savings">{t("context.toolReuseHint")}</p>
         </>
       )}
     </section>

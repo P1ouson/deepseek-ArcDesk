@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { app } from "./bridge";
+import { isNoWorkspaceRoot } from "./composerWorkspace";
 import { toErrorMessage } from "./errors";
 import type { WorkspaceChangesView } from "./types";
 
@@ -13,6 +14,12 @@ export function useWorkspaceChanges(cwd?: string, refreshKey?: number) {
     requestRef.current = requestId;
     setLoading(true);
     try {
+      if (isNoWorkspaceRoot(cwd)) {
+        if (requestRef.current === requestId) {
+          setChanges({ files: [], gitAvailable: false, gitErr: "" });
+        }
+        return;
+      }
       const next = await app.WorkspaceChanges();
       if (requestRef.current === requestId) setChanges(next);
     } catch (err) {
@@ -22,7 +29,7 @@ export function useWorkspaceChanges(cwd?: string, refreshKey?: number) {
     } finally {
       if (requestRef.current === requestId) setLoading(false);
     }
-  }, []);
+  }, [cwd]);
 
   useEffect(() => {
     void loadChanges();

@@ -13,6 +13,7 @@ func IndexBlock(store *failuremem.Store, cfg config.KnowledgeConfig) string {
 	if store == nil || !cfg.ShouldEnable() || !cfg.SystemPromptIndexEnabled() {
 		return ""
 	}
+	ctx := failuremem.NewSearchContext(store.WorkspaceRoot(), cfg.ResolvedTTLDays(), cfg.ShouldRequireMatchingHead())
 	maxLines := cfg.ResolvedMaxIndexLines()
 	entries, err := store.List(maxLines * 2)
 	if err != nil || len(entries) == 0 {
@@ -23,6 +24,9 @@ func IndexBlock(store *failuremem.Store, cfg config.KnowledgeConfig) string {
 		e := entries[i]
 		failuremem.NormalizeEntry(&e)
 		if !e.IsInjectable() {
+			continue
+		}
+		if st := e.ProvenanceStatus(ctx); !st.AutoInjectable {
 			continue
 		}
 		line := e.SummaryLine(120)
@@ -47,19 +51,23 @@ func IndexBlock(store *failuremem.Store, cfg config.KnowledgeConfig) string {
 
 // ListViewEntry is a JSON-friendly row for the desktop panel.
 type ListViewEntry struct {
-	ID         string   `json:"id"`
-	Signature  string   `json:"signature"`
-	Error      string   `json:"error,omitempty"`
-	Fix        string   `json:"fix"`
-	Paths      []string `json:"paths,omitempty"`
-	Confidence string   `json:"confidence"`
-	Hits       int      `json:"hits"`
-	Kind       string   `json:"kind,omitempty"`
-	Summary    string   `json:"summary"`
+	ID                   string   `json:"id"`
+	Signature            string   `json:"signature"`
+	Error                string   `json:"error,omitempty"`
+	Fix                  string   `json:"fix"`
+	Paths                []string `json:"paths,omitempty"`
+	Confidence           string   `json:"confidence"`
+	Hits                 int      `json:"hits"`
+	Kind                 string   `json:"kind,omitempty"`
+	Summary              string   `json:"summary"`
+	RepoHead             string   `json:"repoHead,omitempty"`
+	CurrentRepoHead      string   `json:"currentRepoHead,omitempty"`
+	ProvenanceStale      bool     `json:"provenanceStale,omitempty"`
+	ProvenanceStaleReason string  `json:"provenanceStaleReason,omitempty"`
 }
 
 // ListView maps store entries for UI listing (newest first, one row per fingerprint).
-func ListView(entries []failuremem.Entry, limit int) []ListViewEntry {
+func ListView(entries []failuremem.Entry, limit int, ctx failuremem.SearchContext) []ListViewEntry {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -75,7 +83,8 @@ func ListView(entries []failuremem.Entry, limit int) []ListViewEntry {
 		if fp != "" {
 			seen[fp] = true
 		}
-		out = append(out, ListViewEntry{
+		st := e.ProvenanceStatus(ctx)
+		row := ListViewEntry{
 			ID:         e.ID,
 			Signature:  e.Signature,
 			Error:      truncateField(e.Error, 400),
@@ -85,7 +94,16 @@ func ListView(entries []failuremem.Entry, limit int) []ListViewEntry {
 			Hits:       e.Hits,
 			Kind:       e.Kind,
 			Summary:    e.SummaryLine(160),
-		})
+			RepoHead:   e.RepoHead,
+		}
+		if !st.AutoInjectable && st.Reason != "" && st.Reason != "stale_confidence" {
+			row.ProvenanceStale = true
+			row.ProvenanceStaleReason = st.Reason
+			if ctx.RepoHead != "" {
+				row.CurrentRepoHead = ctx.RepoHead
+			}
+		}
+		out = append(out, row)
 	}
 	return out
 }
@@ -113,14 +131,17 @@ func ConfirmEntry(store *failuremem.Store, id string) error {
 	}
 	for _, e := range entries {
 		if strings.EqualFold(strings.TrimSpace(e.ID), id) {
+			head, fp := failuremem.WorkspaceProvenance(store.WorkspaceRoot())
 			return store.Record(failuremem.Entry{
-				Signature:  e.Signature,
-				Error:      e.Error,
-				Fix:        e.Fix,
-				Paths:      e.Paths,
-				Tags:       e.Tags,
-				Kind:       e.Kind,
-				Confidence: failuremem.ConfidenceUserConfirmed,
+				Signature:            e.Signature,
+				Error:                e.Error,
+				Fix:                  e.Fix,
+				Paths:                e.Paths,
+				Tags:                 e.Tags,
+				Kind:                 e.Kind,
+				Confidence:           failuremem.ConfidenceUserConfirmed,
+				RepoHead:             head,
+				WorkspaceFingerprint: fp,
 			})
 		}
 	}

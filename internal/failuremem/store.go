@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -26,8 +27,10 @@ type Entry struct {
 	Kind       string    `json:"kind,omitempty"`
 	Confidence string    `json:"confidence,omitempty"`
 	Hits       int       `json:"hits,omitempty"`
-	LastUsedAt time.Time `json:"last_used_at,omitempty"`
-	ID         string    `json:"id,omitempty"`
+	LastUsedAt           time.Time `json:"last_used_at,omitempty"`
+	ID                   string    `json:"id,omitempty"`
+	RepoHead             string    `json:"repo_head,omitempty"`
+	WorkspaceFingerprint string    `json:"workspace_fingerprint,omitempty"`
 }
 
 // Store appends and searches failure memory for a workspace.
@@ -35,6 +38,8 @@ type Store struct {
 	root       string
 	maxEntries int
 	mu         sync.Mutex
+	entries    []Entry
+	loaded     bool
 }
 
 // Open returns a store bound to workspace root.
@@ -81,6 +86,7 @@ func (s *Store) Record(e Entry) error {
 	if e.Signature == "" || e.Fix == "" {
 		return fmt.Errorf("signature and fix are required")
 	}
+	s.StampProvenance(&e)
 	if len(e.Error) > 2000 {
 		e.Error = e.Error[:1997] + "..."
 	}
@@ -224,11 +230,12 @@ func (s *Store) CompactDuplicates() error {
 }
 
 type scoredEntry struct {
-	e     Entry
-	score float64
+	e         Entry
+	score     float64
+	textScore float64
 }
 
-// RankedSearch scores entries for knowledge injection.
+// RankedSearch scores entries for knowledge injection (legacy callers; no provenance filter).
 func (s *Store) RankedSearch(query string, paths []string, limit int) ([]Entry, error) {
 	if s == nil {
 		return nil, fmt.Errorf("failure memory not configured")
@@ -264,26 +271,51 @@ func (s *Store) RankedSearch(query string, paths []string, limit int) ([]Entry, 
 	return out, nil
 }
 
+// RankedSearchWithContext scores entries and skips provenance-stale rows.
+func (s *Store) RankedSearchWithContext(ctx SearchContext, query string, paths []string, limit int) ([]Entry, error) {
+	if s == nil {
+		return nil, fmt.Errorf("failure memory not configured")
+	}
+	if limit <= 0 {
+		limit = 3
+	}
+	ctx = ctx.withDefaults()
+	entries, err := s.List(s.maxEntries)
+	if err != nil {
+		return nil, err
+	}
+	q := strings.ToLower(strings.TrimSpace(query))
+	var ranked []scoredEntry
+	for _, e := range entries {
+		NormalizeEntry(&e)
+		if !e.IsInjectable() {
+			continue
+		}
+		if st := e.ProvenanceStatus(ctx); !st.AutoInjectable {
+			continue
+		}
+		sc := scoreEntry(e, q, paths)
+		if sc <= 0 {
+			continue
+		}
+		ranked = append(ranked, scoredEntry{e: e, score: sc})
+	}
+	sortEntriesByScore(ranked)
+	if len(ranked) > limit {
+		ranked = ranked[:limit]
+	}
+	out := make([]Entry, len(ranked))
+	for i, r := range ranked {
+		out[i] = r.e
+	}
+	return out, nil
+}
+
 func scoreEntry(e Entry, query string, paths []string) float64 {
 	if !e.IsInjectable() {
 		return 0
 	}
-	q := strings.ToLower(strings.TrimSpace(query))
-	score := 0.0
-	if q != "" {
-		low := strings.ToLower(e.Signature + " " + e.Error + " " + e.Fix)
-		if strings.Contains(low, q) {
-			score += 0.5
-		}
-		for _, tok := range strings.Fields(query) {
-			if len(tok) < 2 {
-				continue
-			}
-			if strings.Contains(low, strings.ToLower(tok)) {
-				score += 0.25
-			}
-		}
-	}
+	score := scoreEntryText(e, query)
 	for _, p := range paths {
 		p = strings.ToLower(strings.TrimSpace(p))
 		if p == "" {
@@ -309,14 +341,33 @@ func scoreEntry(e Entry, query string, paths []string) float64 {
 	return score
 }
 
-func sortEntriesByScore(ranked []scoredEntry) {
-	for i := 0; i < len(ranked); i++ {
-		for j := i + 1; j < len(ranked); j++ {
-			if ranked[j].score > ranked[i].score {
-				ranked[i], ranked[j] = ranked[j], ranked[i]
+func scoreEntryText(e Entry, query string) float64 {
+	if !e.IsInjectable() {
+		return 0
+	}
+	q := strings.ToLower(strings.TrimSpace(query))
+	score := 0.0
+	if q != "" {
+		low := strings.ToLower(e.Signature + " " + e.Error + " " + e.Fix)
+		if strings.Contains(low, q) {
+			score += 0.5
+		}
+		for _, tok := range strings.Fields(query) {
+			if len(tok) < 2 {
+				continue
+			}
+			if strings.Contains(low, strings.ToLower(tok)) {
+				score += 0.25
 			}
 		}
 	}
+	return score
+}
+
+func sortEntriesByScore(ranked []scoredEntry) {
+	sort.Slice(ranked, func(i, j int) bool {
+		return ranked[i].score > ranked[j].score
+	})
 }
 
 // List returns the most recent entries (newest last in slice).
@@ -388,7 +439,27 @@ func entryMatches(e Entry, q string) bool {
 	return false
 }
 
+func (s *Store) ensureLoadedLocked() error {
+	if s.loaded {
+		return nil
+	}
+	entries, err := s.readFromDisk()
+	if err != nil {
+		return err
+	}
+	s.entries = entries
+	s.loaded = true
+	return nil
+}
+
 func (s *Store) loadLocked() ([]Entry, error) {
+	if err := s.ensureLoadedLocked(); err != nil {
+		return nil, err
+	}
+	return append([]Entry(nil), s.entries...), nil
+}
+
+func (s *Store) readFromDisk() ([]Entry, error) {
 	p, err := s.path()
 	if err != nil {
 		return nil, err
@@ -401,6 +472,13 @@ func (s *Store) loadLocked() ([]Entry, error) {
 		return nil, err
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("failure memory path is a directory")
+	}
 	var entries []Entry
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 512*1024)
@@ -419,6 +497,8 @@ func (s *Store) loadLocked() ([]Entry, error) {
 }
 
 func (s *Store) saveLocked(entries []Entry) error {
+	s.entries = append([]Entry(nil), entries...)
+	s.loaded = true
 	p, err := s.path()
 	if err != nil {
 		return err

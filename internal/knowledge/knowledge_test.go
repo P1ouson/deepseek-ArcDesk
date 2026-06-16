@@ -186,7 +186,7 @@ func TestListViewDedupesByFingerprint(t *testing.T) {
 		{Signature: "go test ./pkg", Error: "fail", Fix: "fix one merged"},
 		{Signature: "go test ./other", Error: "fail", Fix: "fix two"},
 	}
-	got := ListView(entries, 10)
+	got := ListView(entries, 10, failuremem.SearchContext{})
 	if len(got) != 2 {
 		t.Fatalf("ListView len = %d, want 2", len(got))
 	}

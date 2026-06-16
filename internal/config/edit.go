@@ -252,7 +252,7 @@ func (c *Config) SetDesktopAppearance(theme, style string) error {
 	}
 	normalized := normalizeThemeStyle(style)
 	if normalized == "" {
-		return fmt.Errorf("desktop theme style %q: must be graphite|ember|aurora|midnight|cobalt|sandstone|porcelain|linen|glacier", style)
+		return fmt.Errorf("desktop theme style %q: must be indigo|graphite|ember|aurora|midnight|cobalt|sandstone|porcelain|linen|glacier", style)
 	}
 	c.Desktop.ThemeStyle = normalized
 	return nil
@@ -272,7 +272,7 @@ func (c *Config) SetDesktopAppearancePrefs(in DesktopAppearanceInput) error {
 	if bg := normalizeDesktopBackgroundPreset(in.BackgroundPreset); bg != "" {
 		c.Desktop.Appearance.BackgroundPreset = bg
 	} else if strings.TrimSpace(in.BackgroundPreset) != "" {
-		return fmt.Errorf("desktop background preset %q: must be paper|white|fog|linen|charcoal|graphite|slate|midnight", in.BackgroundPreset)
+		return fmt.Errorf("desktop background preset %q: must be paper|white|fog|linen|studio|parchment|charcoal|graphite|slate|midnight|nightfall", in.BackgroundPreset)
 	}
 	if fg := normalizeDesktopForegroundPreset(in.ForegroundPreset); fg != "" {
 		c.Desktop.Appearance.ForegroundPreset = fg

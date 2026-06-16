@@ -17,6 +17,7 @@ import (
 	"arcdesk/internal/plugin"
 	"arcdesk/internal/repomap"
 	"arcdesk/internal/tool"
+	"arcdesk/internal/workspacerefresh"
 )
 
 // WorkspaceKit holds workspace-scoped resources shared across desktop tabs:
@@ -31,6 +32,7 @@ type WorkspaceKit struct {
 	BgSpecs    []plugin.Spec
 	DepIdx     *dependency.Index
 	CgIdx      *callgraph.Index
+	RefreshHost *workspacerefresh.Host
 	EnvSnap    envaware.Snapshot
 }
 
@@ -88,11 +90,6 @@ func PrepareWorkspaceKit(ctx context.Context, root string, stderr io.Writer, def
 			if err := idx.EnsureReady(ctx); err != nil {
 				slog.Debug("dependency: kit ensure", "err", err)
 			}
-			go func() {
-				if err := idx.RefreshIfStale(context.WithoutCancel(ctx)); err != nil {
-					slog.Debug("dependency: kit background refresh", "err", err)
-				}
-			}()
 		}
 	}
 
@@ -109,9 +106,34 @@ func PrepareWorkspaceKit(ctx context.Context, root string, stderr io.Writer, def
 			if kit.DepIdx != nil {
 				kit.DepIdx.SetBridgeImpactAnalyzer(newBridgeImpactAdapter(idx))
 			}
+		}
+	}
+
+	kit.RefreshHost = workspacerefresh.NewHost(root, cfg, kit.DepIdx, kit.CgIdx)
+	if cfg.WorkspaceRefresh.ShouldEnable() {
+		kit.RefreshHost.RefreshBackground(ctx)
+	} else {
+		if kit.DepIdx != nil {
 			go func() {
-				if err := idx.RefreshIfStale(context.WithoutCancel(ctx)); err != nil {
+				if err := kit.DepIdx.RefreshIfStale(context.WithoutCancel(ctx)); err != nil {
+					slog.Debug("dependency: kit background refresh", "err", err)
+				}
+			}()
+		}
+		if kit.CgIdx != nil {
+			go func() {
+				if err := kit.CgIdx.RefreshIfStale(context.WithoutCancel(ctx)); err != nil {
 					slog.Debug("callgraph: kit background refresh", "err", err)
+				}
+			}()
+		}
+		if cfg.Reporag.ShouldEnable() {
+			go func() {
+				if err := repomap.EnsureReady(root); err != nil {
+					slog.Debug("repomap kit ensure", "root", root, "err", err)
+				}
+				if err := repomap.RefreshIfStale(root); err != nil {
+					slog.Debug("repomap kit refresh", "root", root, "err", err)
 				}
 			}()
 		}
@@ -189,17 +211,6 @@ func PrepareWorkspaceKit(ctx context.Context, root string, stderr io.Writer, def
 	kit.LazySpecs = lazySpecs
 	kit.BgSpecs = bgSpecs
 
-	if cfg.Reporag.ShouldEnable() {
-		go func() {
-			if err := repomap.EnsureReady(root); err != nil {
-				slog.Debug("repomap kit ensure", "root", root, "err", err)
-			}
-			if err := repomap.RefreshIfStale(root); err != nil {
-				slog.Debug("repomap kit refresh", "root", root, "err", err)
-			}
-		}()
-	}
-
 	_ = hook.IsTrusted(root, "")
 	return kit, nil
 }
@@ -212,6 +223,22 @@ func WarmWorkspaceIndexes(ctx context.Context, root string) {
 	}
 	root = strings.TrimSpace(root)
 	if root == "" {
+		return
+	}
+	if cfg.WorkspaceRefresh.ShouldEnable() {
+		var depIdx *dependency.Index
+		var cgIdx *callgraph.Index
+		if cfg.Dependency.ShouldIndex(dependency.Discoverable(root)) {
+			depIdx, _ = dependency.Open(root)
+		}
+		if cfg.Callgraph.ShouldIndex(callgraph.Discoverable(root)) {
+			var catalog callgraph.ModuleCatalog
+			if depIdx != nil {
+				catalog = callgraph.NewDependencyCatalog(depIdx)
+			}
+			cgIdx, _ = callgraph.Open(root, catalog)
+		}
+		workspacerefresh.NewHost(root, cfg, depIdx, cgIdx).RefreshBackground(ctx)
 		return
 	}
 	if cfg.Dependency.ShouldIndex(dependency.Discoverable(root)) {

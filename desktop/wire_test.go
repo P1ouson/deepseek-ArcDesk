@@ -167,6 +167,44 @@ func TestToWireTurnDoneNoError(t *testing.T) {
 	}
 }
 
+func TestToWireUsageWithToolReuse(t *testing.T) {
+	e := event.Event{
+		Kind:  event.Usage,
+		Usage: &provider.Usage{PromptTokens: 100, TotalTokens: 100},
+		ToolReuse: &event.ToolReuseStats{
+			SessionCalls: 4, SessionDuplicates: 2,
+			SessionCacheableCalls: 3, SessionCacheableDupes: 2,
+		},
+	}
+	w := toWire(e)
+	if w.Usage == nil || w.Usage.ToolReuse == nil {
+		t.Fatal("usage toolReuse missing")
+	}
+	if w.Usage.ToolReuse.SessionDuplicates != 2 {
+		t.Fatalf("got %+v", w.Usage.ToolReuse)
+	}
+	b, err := json.Marshal(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(b); !strings.Contains(s, `"sessionDuplicates":2`) {
+		t.Fatalf("JSON = %s", s)
+	}
+}
+
+func TestToWireTurnDoneWithToolReuse(t *testing.T) {
+	e := event.Event{
+		Kind: event.TurnDone,
+		ToolReuse: &event.ToolReuseStats{
+			SessionCalls: 2, SessionDuplicates: 1,
+		},
+	}
+	w := toWire(e)
+	if w.ToolReuse == nil || w.ToolReuse.SessionDuplicates != 1 {
+		t.Fatalf("turn_done toolReuse = %+v", w.ToolReuse)
+	}
+}
+
 // --- kindNames completeness ---
 
 func TestKindNamesComplete(t *testing.T) {

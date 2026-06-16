@@ -11,6 +11,7 @@ import (
 	"arcdesk/internal/jobs"
 	"arcdesk/internal/provider"
 	"arcdesk/internal/tool"
+	"arcdesk/internal/toolcache"
 )
 
 // DefaultTaskSystemPrompt steers a sub-agent toward focused, terse delivery —
@@ -61,6 +62,10 @@ type TaskTool struct {
 	archiveDir        string
 	sysPrompt         string
 	gate              Gate
+	toolCache         *toolcache.Cache
+	toolCacheEnabled  bool
+	toolCacheWorkDir  string
+	toolCacheNormalize bool
 }
 
 // NewTaskTool wires a task tool to the parent agent's environment so its
@@ -205,6 +210,17 @@ func FilterRegistry(parent *tool.Registry, names []string, exclude ...string) *t
 	return sub
 }
 
+// SetToolCache shares the parent session tool-result cache with sub-agents.
+func (t *TaskTool) SetToolCache(c *toolcache.Cache, enabled bool, workDir string, normalize bool) {
+	if t == nil {
+		return
+	}
+	t.toolCache = c
+	t.toolCacheEnabled = enabled
+	t.toolCacheWorkDir = workDir
+	t.toolCacheNormalize = normalize
+}
+
 // runSub builds a sub-agent over subReg, runs prompt to completion emitting to
 // sink, and returns its final assistant answer. Shared by the foreground and
 // background paths.
@@ -213,16 +229,22 @@ func (t *TaskTool) runSub(ctx context.Context, prompt string, subReg *tool.Regis
 }
 
 func (t *TaskTool) runSubWithGate(ctx context.Context, prompt string, subReg *tool.Registry, sink event.Sink, maxSteps int, gate Gate) (string, error) {
+	enabled := t.toolCacheEnabled
+	normalize := t.toolCacheNormalize
 	return RunSubAgent(ctx, t.prov, subReg, t.sysPrompt, prompt, Options{
-		MaxSteps:          maxSteps,
-		Temperature:       t.temperature,
-		Pricing:           t.pricing,
-		Gate:              gate,
-		ContextWindow:     t.contextWindow,
-		SoftCompactRatio:  t.softCompactRatio,
-		CompactRatio:      t.compactRatio,
-		CompactForceRatio: t.compactForceRatio,
-		ArchiveDir:        t.archiveDir,
+		MaxSteps:           maxSteps,
+		Temperature:        t.temperature,
+		Pricing:            t.pricing,
+		Gate:               gate,
+		ContextWindow:      t.contextWindow,
+		SoftCompactRatio:   t.softCompactRatio,
+		CompactRatio:       t.compactRatio,
+		CompactForceRatio:  t.compactForceRatio,
+		ArchiveDir:         t.archiveDir,
+		ToolCache:          t.toolCache,
+		ToolCacheEnabled:   &enabled,
+		ToolCacheWorkDir:   t.toolCacheWorkDir,
+		ToolCacheNormalize: &normalize,
 	}, sink)
 }
 

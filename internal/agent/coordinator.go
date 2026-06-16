@@ -6,7 +6,9 @@ import (
 	"strings"
 
 	"arcdesk/internal/event"
+	"arcdesk/internal/intent"
 	"arcdesk/internal/nilutil"
+	"arcdesk/internal/plancache"
 	"arcdesk/internal/planner"
 	"arcdesk/internal/provider"
 )
@@ -40,6 +42,9 @@ type Coordinator struct {
 	shouldPlan func(string) bool
 	// phaseTracker receives the planner output as phased stages when set.
 	phaseTracker *planner.Tracker
+
+	planCache     *plancache.Store
+	workspaceRoot string
 }
 
 // NewCoordinator wires a planner provider (with its own session) to an executor.
@@ -88,10 +93,26 @@ func (c *Coordinator) Run(ctx context.Context, input string) error {
 	return c.executor.Run(ctx, handoff)
 }
 
+// BindPlanCache attaches Phase-5 planning skeleton reuse for this workspace.
+func (c *Coordinator) BindPlanCache(store *plancache.Store, workspaceRoot string) {
+	if c == nil {
+		return
+	}
+	c.planCache = store
+	c.workspaceRoot = strings.TrimSpace(workspaceRoot)
+}
+
 // plan streams a plan from the planner (no tools) and appends it to the planner
 // session, so that session grows prepend-only and stays cache-friendly.
 func (c *Coordinator) plan(ctx context.Context, input string) (string, error) {
-	c.plannerSess.Add(provider.Message{Role: provider.RoleUser, Content: input})
+	plannerInput := input
+	if c.planCache != nil && c.workspaceRoot != "" {
+		in := intent.Classify(input)
+		if hint, hit := c.planCache.Lookup(in, c.workspaceRoot); hit {
+			plannerInput = hint + "\n\nTask:\n" + input
+		}
+	}
+	c.plannerSess.Add(provider.Message{Role: provider.RoleUser, Content: plannerInput})
 
 	ch, err := c.planner.Stream(ctx, provider.Request{
 		Messages:    c.plannerSess.Messages,
@@ -120,6 +141,9 @@ func (c *Coordinator) plan(ctx context.Context, input string) (string, error) {
 
 	plan := text.String()
 	c.plannerSess.Add(provider.Message{Role: provider.RoleAssistant, Content: plan})
+	if c.planCache != nil && c.workspaceRoot != "" {
+		c.planCache.Record(intent.Classify(input), c.workspaceRoot, plan)
+	}
 	return plan, nil
 }
 

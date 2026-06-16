@@ -39,6 +39,7 @@ export interface SidebarProps {
   onAddProject: () => Promise<void>;
   onOpenProjectHistory: (scope: "global" | "project", workspaceRoot: string) => void;
   onTopicsChanged?: () => Promise<void>;
+  onRemoveWorkspace?: (path: string) => Promise<void>;
   writeConversation?: WriteTurn[];
   writeRunning?: boolean;
 }
@@ -105,6 +106,7 @@ export function Sidebar({
   onAddProject,
   onOpenProjectHistory,
   onTopicsChanged,
+  onRemoveWorkspace,
   writeConversation = [],
   writeRunning = false,
 }: SidebarProps) {
@@ -222,6 +224,7 @@ export function Sidebar({
                 onOpenProjectHistory={onOpenProjectHistory}
                 onAddProject={onAddProject}
                 onTopicsChanged={onTopicsChanged}
+                onRemoveWorkspace={onRemoveWorkspace}
               />
             </div>
           )}

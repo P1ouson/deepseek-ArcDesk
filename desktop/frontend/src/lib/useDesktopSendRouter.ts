@@ -10,7 +10,8 @@ import { applyThemeFromSettings } from "./applyThemeFromSettings";
 import { getTheme, getThemeStyle, normalizeThemeStyleForTheme, themeForStyle } from "./theme";
 import { toErrorMessage } from "./errors";
 import { applyWriteModeSkill } from "./writeSkill";
-import { enrichWriteModeSubmit } from "./writeAgentContext";
+import { enrichWriteModeSubmit, hasLinkedCodeProject } from "./writeAgentContext";
+import type { WriteAgentWorkspaceOptions } from "./writeTab";
 
 export type DesktopSendRouterDeps = {
   appMode: AppMode;
@@ -35,6 +36,7 @@ export type DesktopSendRouterDeps = {
   exitExpandedPreviewComposer: () => void;
   writeSelectedFile?: string;
   writeWorkspaceRoot?: string;
+  getWriteAgentWorkspaceOpts?: () => Omit<WriteAgentWorkspaceOptions, "codeWorkspaceRoot">;
 };
 
 async function executeDesktopSendRoute(route: DesktopSendRoute, deps: DesktopSendRouterDeps): Promise<void> {
@@ -126,13 +128,19 @@ async function executeDesktopSendRoute(route: DesktopSendRoute, deps: DesktopSen
         let displayText = route.displayText;
         let submitText = route.submitText;
         if (deps.appMode === "write") {
-          const enriched = await enrichWriteModeSubmit(displayText, submitText, {
+          const workspaceOpts = deps.getWriteAgentWorkspaceOpts?.() ?? {};
+          const agentContext = {
             writeFilePath: deps.writeSelectedFile,
             writeWorkspaceRoot: deps.writeWorkspaceRoot,
-          });
+            workspaceOpts,
+          };
+          const enriched = await enrichWriteModeSubmit(displayText, submitText, agentContext);
           displayText = enriched.displayText;
           submitText = enriched.submitText;
-          const outbound = applyWriteModeSkill(displayText, submitText);
+          const outbound = applyWriteModeSkill(displayText, submitText, {
+            hasLinkedCodeProject: hasLinkedCodeProject(agentContext),
+            hasOpenDocument: Boolean(deps.writeSelectedFile?.trim()),
+          });
           deps.send(outbound.displayText, outbound.submitText);
         } else {
           deps.send(displayText, submitText);

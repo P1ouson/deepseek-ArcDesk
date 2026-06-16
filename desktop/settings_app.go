@@ -247,15 +247,12 @@ func nonNil(s []string) []string {
 
 func desktopThemeStyleForSettings(cfg *config.Config) string {
 	if cfg == nil {
-		return "glacier"
+		return "indigo"
 	}
 	if style := cfg.DesktopThemeStyle(); style != "" {
 		return style
 	}
-	if cfg.DesktopTheme() == "dark" {
-		return "cobalt"
-	}
-	return "glacier"
+	return "indigo"
 }
 
 // Settings returns the current configuration for the Settings panel.
@@ -275,7 +272,7 @@ func (a *App) Settings() SettingsView {
 			AutoPlan:          "off",
 			Agent:             agentViewFromConfig(config.Default()),
 			DesktopTheme:      "light",
-			DesktopThemeStyle: "glacier",
+			DesktopThemeStyle: "indigo",
 			DesktopGit: desktopGitView(config.DesktopGitConfig{
 				PRMergeMethod: "merge",
 			}),

@@ -5,6 +5,12 @@ import { AnchoredPopover } from "./AnchoredPopover";
 import { CodeViewer } from "./CodeViewer";
 import { FileTypeIcon } from "./FileTypeIcon";
 import {
+  actionContextForTool,
+  deriveThinkingBlockHint,
+  deriveThinkingBlockTitle,
+  verbLabelForTool,
+} from "../lib/thinkingBlockLabels";
+import {
   type ActionFileRef,
   type ActionSegment,
   type SegmentEntry,
@@ -13,8 +19,6 @@ import {
   isWriteTool,
   subjectLabel,
   thinkingBlockIsActive,
-  verbForThinking,
-  verbForTool,
 } from "../lib/actionStream";
 import type { ToolItem } from "../lib/actionStream";
 import type { LiveStream } from "../lib/useController";
@@ -134,11 +138,12 @@ const ActionToolRow = memo(function ActionToolRow({
   const t = useT();
   const [detailOpen, setDetailOpen] = useState(false);
   const running = item.status === "running";
-  const verb = verbForTool(item.name, item.status);
+  const verb = verbLabelForTool(item.name, item.status, t);
+  const context = actionContextForTool(item, t);
   const files = filesForTool(item, workspaceRoot);
-  const subject = subjectLabel(item);
+  const subject = context ? "" : subjectLabel(item);
   const hasFileLinks = files.length > 0;
-  const hasDetails = !!(item.output || item.error || (item.args && !hasFileLinks));
+  const hasDetails = !!(item.output || item.error || (item.args && !hasFileLinks && !context));
   const expandable = hasDetails && !running;
 
   const handleFileOpen = (req: ActionFileOpenRequest) => {
@@ -160,6 +165,8 @@ const ActionToolRow = memo(function ActionToolRow({
           <ActionFileLinks files={files} running={running} onOpenFile={handleFileOpen} />
         ) : subject ? (
           <span className="action-row__subject">{subject}</span>
+        ) : context ? (
+          <span className="action-row__subject action-row__subject--context">{context}</span>
         ) : null}
         {showCollapseToggle ? (
           <SegmentToggle collapsed={!!collapsed} onToggle={() => onToggleCollapse?.()} />
@@ -227,10 +234,13 @@ function ThinkingRow({
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }) {
+  const t = useT();
+  const verb =
+    status.status === "running" ? t("thinkingBlock.verb.thinking") : t("thinkingBlock.verbDone.thinking");
   return (
     <div className={`action-row action-row--thinking action-row--${status.status}`}>
       <div className="action-row__main">
-        <span className="action-row__verb">{verbForThinking(status.status)}</span>
+        <span className="action-row__verb">{verb}</span>
         {showCollapseToggle ? (
           <SegmentToggle collapsed={!!collapsed} onToggle={() => onToggleCollapse?.()} />
         ) : null}
@@ -293,6 +303,8 @@ export const ThinkingBlockView = memo(function ThinkingBlockView({
 }) {
   const t = useT();
   const active = thinkingBlockIsActive(block);
+  const title = deriveThinkingBlockTitle(block, t);
+  const meta = deriveThinkingBlockHint(block, t);
   const liveAttached =
     live != null && block.streaming && live.reasoning.trim().length > 0;
   const displayReasoning =
@@ -319,11 +331,13 @@ export const ThinkingBlockView = memo(function ThinkingBlockView({
 
   return (
     <div className={`reasoning thinking-block${active ? " thinking-block--active" : ""}`}>
-      <button type="button" className="reasoning__toggle" onClick={() => setOpen((v) => !v)}>
+      <button type="button" className="reasoning__toggle thinking-block__toggle" onClick={() => setOpen((v) => !v)}>
         <ChevronRight className={`reasoning__chevron ${open ? "reasoning__chevron--open" : ""}`} size={12} />
-        {t("msg.thinking")}
+        <span className="thinking-block__title">{title}</span>
+        {active ? <span className="thinking-block__badge">{t("thinkingBlock.badgeAuto")}</span> : null}
         {active && !hasReasoning && hasTools ? <Loader2 className="thinking-block__spin" size={12} /> : null}
       </button>
+      {meta ? <div className="thinking-block__meta">{meta}</div> : null}
       <MotionUnfold open={open}>
         <div className="reasoning__body">
           {hasReasoning ? (

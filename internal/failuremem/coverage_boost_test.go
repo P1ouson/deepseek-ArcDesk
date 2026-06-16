@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"arcdesk/internal/repomap"
 	"arcdesk/internal/tool"
 )
 
@@ -84,9 +85,16 @@ func TestSearchPathsAndTags(t *testing.T) {
 
 func TestLoadSkipsBadLines(t *testing.T) {
 	root := t.TempDir()
-	store, _ := Open(root, 10)
-	dir, _ := store.path()
-	if err := os.WriteFile(dir, []byte("not json\n{\"ts\":\"2020-01-01T00:00:00Z\",\"signature\":\"ok\",\"error\":\"\",\"fix\":\"done\"}\n"), 0o644); err != nil {
+	dir, err := repomap.ProjectDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, fileName)
+	if err := os.WriteFile(p, []byte("not json\n{\"ts\":\"2020-01-01T00:00:00Z\",\"signature\":\"ok\",\"error\":\"\",\"fix\":\"done\"}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(root, 10)
+	if err != nil {
 		t.Fatal(err)
 	}
 	entries, err := store.List(10)
@@ -257,15 +265,15 @@ func TestOpenDefaultMaxEntries(t *testing.T) {
 
 func TestLoadLockedInvalidFile(t *testing.T) {
 	root := t.TempDir()
-	store, _ := Open(root, 10)
-	p, err := store.path()
+	dir, err := repomap.ProjectDir(root)
 	if err != nil {
 		t.Fatal(err)
 	}
+	p := filepath.Join(dir, fileName)
 	if err := os.Mkdir(p, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.List(5); err == nil {
+	if _, err := Open(root, 10); err == nil {
 		t.Fatal("expected load error for directory path")
 	}
 }
@@ -341,15 +349,15 @@ func TestSaveLockedRenameFailure(t *testing.T) {
 
 func TestLoadScannerError(t *testing.T) {
 	root := t.TempDir()
-	store, _ := Open(root, 10)
-	p, err := store.path()
+	dir, err := repomap.ProjectDir(root)
 	if err != nil {
 		t.Fatal(err)
 	}
+	p := filepath.Join(dir, fileName)
 	if err := os.WriteFile(p, []byte(strings.Repeat("x", 600*1024)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.List(5); err == nil {
+	if _, err := Open(root, 10); err == nil {
 		t.Fatal("expected scanner error for oversized line")
 	}
 }

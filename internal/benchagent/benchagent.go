@@ -31,6 +31,8 @@ type Report struct {
 	Timings     Timings     `json:"timings"`
 	ToolUsage   ToolUsage   `json:"toolUsage"`
 	ReadPatterns ReadPatterns `json:"readPatterns"`
+	ToolReuse    ToolReuseStats `json:"toolReuse"`
+	LocalToolCache LocalToolCacheStats `json:"localToolCache"`
 	Cache       CacheStats  `json:"cache"`
 	Fanout      FanoutStats `json:"fanout"`
 	API         APIStats    `json:"api"`
@@ -64,6 +66,22 @@ type ReadPatterns struct {
 	OffsetPagingChains int `json:"offsetPagingChains"`
 	MaxPagingDepth     int `json:"maxPagingDepth"`
 	DuplicateReads     int `json:"duplicateReads"`
+}
+
+type ToolReuseStats struct {
+	DuplicateCalls     int `json:"duplicateCalls"`
+	RepeatedKeys       int `json:"repeatedKeys"`
+	DuplicateReadCalls int `json:"duplicateReadCalls"`
+}
+
+// LocalToolCacheStats reports Phase-1 session tool-result cache effectiveness.
+type LocalToolCacheStats struct {
+	Hits                int     `json:"hits"`
+	Misses              int     `json:"misses"`
+	HitRate             float64 `json:"hitRate"`
+	DuplicateCalls      int     `json:"duplicateCalls"`
+	CachedResults       int     `json:"cachedResults"`
+	ExecuteReductionPct float64 `json:"executeReductionPct"`
 }
 
 type CacheStats struct {
@@ -119,7 +137,8 @@ func WriteReport(r Report, outDir string) (string, error) {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return "", err
 	}
-	name := fmt.Sprintf("benchmark-%s.json", r.StartedAt.UTC().Format("20060102-150405"))
+	name := fmt.Sprintf("benchmark-%s-%s-%s.json",
+		safeFilePart(r.Label), safeFilePart(r.Variant), r.StartedAt.UTC().Format("20060102-150405"))
 	path := filepath.Join(outDir, name)
 	b, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
@@ -144,4 +163,27 @@ func defaultOutDir() string {
 		}
 	}
 	return filepath.Join(cwd, "desktop", "benchmarks")
+}
+
+func safeFilePart(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "run"
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "run"
+	}
+	return out
 }

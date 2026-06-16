@@ -37,7 +37,7 @@ import { SideConversation, type SideMessage } from "./components/SideConversatio
 import { RequirementDraft } from "./components/RequirementDraft";
 import { ModeWorkspaceCenter } from "./components/ModeWorkspaceCenter";
 import { DevMockBanner } from "./components/DevMockBanner";
-import { WRITE_MODE_TOPIC_ID, normalizedWriteWorkspaceRoot, writeAgentWorkspaceRoot } from "./lib/writeTab";
+import { WRITE_MODE_TOPIC_ID, resolveWriteAgentWorkspaceRoot } from "./lib/writeTab";
 import { buildWriteConversation } from "./lib/writeConversation";
 import { useWriteModeTab } from "./lib/useWriteModeTab";
 import type { AppMode } from "./lib/appMode";
@@ -51,11 +51,13 @@ import {
   clearStoredCodeWorkspaceRoot,
   getStoredCodeWorkspaceRoot,
   getStoredComposerNoWorkspace,
+  isProjectLikeCodeWorkspaceRoot,
   isUsableCodeWorkspaceRoot,
   sameWorkspaceRoot,
   setStoredCodeWorkspaceRoot,
   setStoredComposerNoWorkspace,
 } from "./lib/composerWorkspace";
+import { isPathUnderWorkspace, syncComposerAfterWorkspaceRemoved } from "./lib/workspaceRemoval";
 import {
   getInitialWriteWorkspaceRoot,
   getStoredWriteWorkspaceRoot,
@@ -378,10 +380,13 @@ export default function App() {
       if (legacyLanguage || legacyTheme.hasValue) {
         const migrateTheme = normalizeThemePreference(legacyTheme.theme);
         let migrateStyle = normalizeThemeStyleForTheme(legacyTheme.style, migrateTheme);
-        if (migrateTheme !== "dark" && migrateStyle !== "glacier") {
-          migrateStyle = "glacier";
+        const warmLegacyStyles = new Set(["graphite", "ember", "sandstone", "linen"]);
+        if (warmLegacyStyles.has(legacyTheme.style)) {
+          migrateStyle = "indigo";
+        } else if (migrateTheme !== "dark" && migrateStyle !== "indigo" && migrateStyle !== "glacier" && migrateStyle !== "porcelain") {
+          migrateStyle = "indigo";
         }
-        await app.MigrateDesktopPreferences(legacyLanguage, legacyTheme.theme, migrateStyle);
+        await app.MigrateDesktopPreferences(legacyLanguage, migrateTheme, migrateStyle);
         clearLegacyLangPref();
         clearLegacyThemePreference();
       }
@@ -497,7 +502,7 @@ export default function App() {
     () => tabMetas.find((tab) => tab.id === activeTabId) ?? tabMetas.find((tab) => tab.active),
     [activeTabId, tabMetas],
   );
-  const { activateWriteTab, restoreCodeTab, ensureWriteTabMatchesWorkspace } = useWriteModeTab({
+  const { activateWriteTab, restoreCodeTab, ensureWriteTabMatchesWorkspace, getWriteAgentWorkspaceOpts } = useWriteModeTab({
     appMode,
     writeWorkspaceRoot,
     activeTabId,
@@ -843,6 +848,7 @@ export default function App() {
     exitExpandedPreviewComposer,
     writeSelectedFile,
     writeWorkspaceRoot,
+    getWriteAgentWorkspaceOpts,
   });
 
   useEffect(() => {
@@ -1129,9 +1135,19 @@ export default function App() {
 
   const removeWorkspace = useCallback(async (path: string) => {
     await app.RemoveWorkspace(path);
+    const { detached } = await syncComposerAfterWorkspaceRemoved(path);
+    if (detached) {
+      setComposerNoWorkspace(true);
+      if (filePreviewPath && isPathUnderWorkspace(filePreviewPath, path)) {
+        closeFilePreview();
+      }
+    }
     setProjectRevision((value) => value + 1);
-    await refreshTabMetas();
-  }, [refreshTabMetas]);
+    const tabs = await refreshTabMetas();
+    if (activeTabId && !tabs.some((tab) => tab.id === activeTabId)) {
+      await syncActiveTab(true);
+    }
+  }, [activeTabId, closeFilePreview, filePreviewPath, refreshTabMetas, syncActiveTab]);
 
   const refreshProjectsAndTabs = useCallback(async () => {
     setProjectRevision((value) => value + 1);
@@ -1280,9 +1296,11 @@ export default function App() {
       notice(t("sidebar.newSessionNotReady"), "warn");
       return;
     }
-    const normalized = normalizedWriteWorkspaceRoot(writeWorkspaceRoot);
-    const agentRoot = writeAgentWorkspaceRoot(normalized);
-    if (isUsableCodeWorkspaceRoot(agentRoot)) {
+    const agentRoot = resolveWriteAgentWorkspaceRoot({
+      ...getWriteAgentWorkspaceOpts(),
+      codeWorkspaceRoot: getStoredCodeWorkspaceRoot(),
+    });
+    if (isProjectLikeCodeWorkspaceRoot(agentRoot)) {
       await openProjectTab(agentRoot, WRITE_MODE_TOPIC_ID, true, true);
     } else {
       await openGlobalTab(WRITE_MODE_TOPIC_ID, true, true);
@@ -1296,6 +1314,7 @@ export default function App() {
     state.meta?.ready,
     t,
     writeWorkspaceRoot,
+    getWriteAgentWorkspaceOpts,
   ]);
 
   const handleCloseOpenTab = useCallback(
@@ -1573,6 +1592,7 @@ export default function App() {
             void openProjectHistory(scope, workspaceRoot);
           }}
           onTopicsChanged={refreshProjectsAndTabs}
+          onRemoveWorkspace={removeWorkspace}
           writeConversation={writeConversationTurns}
           writeRunning={state.running}
         />

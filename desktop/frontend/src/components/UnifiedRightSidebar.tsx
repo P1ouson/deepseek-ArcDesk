@@ -3,7 +3,7 @@ import type { PreviewMode } from "../lib/dockHubs";
 import { sidebarShowsBranchBar, type SidebarPrimaryTab, type SidebarProfile, defaultSidebarPanelTab } from "../lib/sidebarViews";
 import { buildSidebarSessionTabs, type SidebarSessionKind } from "../lib/sidebarSessionTabs";
 import type { RightDockTab } from "./Topbar";
-import type { RightDockProps } from "./RightDock";
+import type { RightDockProps } from "./rightDockTypes";
 import { SidebarTabBar } from "./sidebar/SidebarTabBar";
 import { SidebarBranchBar } from "./sidebar/SidebarBranchBar";
 import { SidebarChangesView } from "./sidebar/SidebarChangesView";

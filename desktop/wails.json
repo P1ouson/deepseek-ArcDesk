@@ -12,7 +12,7 @@
   "info": {
     "companyName": "ArcDesk",
     "productName": "ArcDesk",
-    "productVersion": "0.1.9",
+    "productVersion": "0.1.10",
     "copyright": "Copyright © 2026 ArcDesk Contributors",
     "comments": "ArcDesk desktop — a Wails shell around the Go kernel."
   }

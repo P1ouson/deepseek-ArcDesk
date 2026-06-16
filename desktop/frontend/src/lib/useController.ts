@@ -72,6 +72,7 @@ export type Item =
       output?: string;
       error?: string;
       truncated?: boolean;
+      cached?: boolean;
       isShell?: boolean; // true for !-prefix shell commands (controls default expand)
       parentId?: string; // a sub-agent call nests under the `task` call with this id
       fileDiff?: { diff: string; added: number; removed: number };
@@ -404,7 +405,7 @@ function applyEvent(s: State, e: WireEvent): State {
       }
       if (idx >= 0) {
         const it = next[idx];
-        if (it.kind === "tool") next[idx] = { ...it, status: t.err ? "error" : "done", output: t.output, error: t.err, truncated: t.truncated };
+        if (it.kind === "tool") next[idx] = { ...it, status: t.err ? "error" : "done", output: t.output, error: t.err, truncated: t.truncated, cached: t.cached };
       }
       return { ...s, items: next };
     }

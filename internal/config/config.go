@@ -16,6 +16,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"arcdesk/internal/failuremem"
 	"arcdesk/internal/netclient"
 	"arcdesk/internal/provider"
 	"arcdesk/internal/provider/apikey"
@@ -72,6 +73,10 @@ type Config struct {
 	ContextCompression ContextCompressionConfig `toml:"context_compression"`
 	EnvAware      EnvAwareConfig    `toml:"env_aware"`
 	Knowledge     KnowledgeConfig   `toml:"knowledge"`
+	ToolCache     ToolCacheConfig   `toml:"tool_cache"`
+	WorkspaceRefresh WorkspaceRefreshConfig `toml:"workspace_refresh"`
+	PlanCache          PlanCacheConfig        `toml:"plan_cache"`
+	PrefixRuntime      PrefixRuntimeConfig    `toml:"prefix_runtime"`
 	Statusline    StatuslineConfig  `toml:"statusline"`
 	LSP           LSPConfig         `toml:"lsp"`
 }
@@ -80,7 +85,7 @@ type Config struct {
 // DesktopConfig so desktop preferences cannot alter terminal output or prompts.
 type UIConfig struct {
 	Theme         string `toml:"theme"`          // auto|dark|light; empty resolves to auto
-	ThemeStyle    string `toml:"theme_style"`    // graphite|ember|aurora|midnight|cobalt|sandstone|porcelain|linen|glacier
+	ThemeStyle    string `toml:"theme_style"`    // indigo|graphite|ember|aurora|midnight|cobalt|sandstone|porcelain|linen|glacier
 	CloseBehavior string `toml:"close_behavior"` // legacy desktop close behavior; prefer desktop.close_behavior
 }
 
@@ -113,7 +118,7 @@ type DesktopCodeReviewConfig struct {
 type DesktopConfig struct {
 	Language      string                  `toml:"language"`        // auto|en|zh; empty/auto = browser/OS auto-detect
 	Theme         string                  `toml:"theme"`           // auto|dark|light; empty resolves to dark
-	ThemeStyle    string                  `toml:"theme_style"`     // graphite|ember|aurora|midnight|cobalt|sandstone|porcelain|linen|glacier
+	ThemeStyle    string                  `toml:"theme_style"`     // indigo|graphite|ember|aurora|midnight|cobalt|sandstone|porcelain|linen|glacier
 	CloseBehavior string                  `toml:"close_behavior"`  // quit|background; desktop window close behavior
 	TerminalShell string                  `toml:"terminal_shell"` // powershell|cmd|git-bash|wsl; empty = auto
 	Git           DesktopGitConfig        `toml:"git"`
@@ -141,7 +146,7 @@ func (c *Config) UIThemeStyle() string {
 
 func normalizeThemeStyle(style string) string {
 	switch strings.ToLower(strings.TrimSpace(style)) {
-	case "graphite", "ember", "aurora", "midnight", "cobalt", "sandstone", "porcelain", "linen", "glacier":
+	case "graphite", "ember", "aurora", "midnight", "cobalt", "sandstone", "porcelain", "linen", "glacier", "indigo":
 		return strings.ToLower(strings.TrimSpace(style))
 	default:
 		return ""
@@ -213,7 +218,7 @@ func (c *Config) DesktopTerminalShell() string {
 
 func normalizeDesktopBackgroundPreset(preset string) string {
 	switch strings.ToLower(strings.TrimSpace(preset)) {
-	case "paper", "white", "fog", "linen", "charcoal", "graphite", "slate", "midnight":
+	case "paper", "white", "fog", "linen", "studio", "parchment", "charcoal", "graphite", "slate", "midnight", "nightfall":
 		return strings.ToLower(strings.TrimSpace(preset))
 	default:
 		return ""
@@ -726,6 +731,11 @@ type KnowledgeConfig struct {
 	InjectOnVerifyRetry  *bool  `toml:"inject_on_verify_retry"`
 	MaxRetryHintChars    int    `toml:"max_retry_hint_chars"`
 	MaxRetryStderrExcerpt int   `toml:"max_retry_stderr_excerpt"`
+	TTLDays               *int  `toml:"ttl_days"`
+	RequireMatchingHead   *bool `toml:"require_matching_head"`
+	SemanticFallback      *bool `toml:"semantic_fallback"`
+	MinExactScore         float64 `toml:"min_exact_score"`
+	MinSemanticScore      float64 `toml:"min_semantic_score"`
 
 	AutoCaptureOnVerify *bool  `toml:"auto_capture_on_verify"`
 	// RequireCaptureConfirm when true keeps the Record/Ignore card instead of
@@ -793,6 +803,49 @@ func (c KnowledgeConfig) ResolvedMaxIndexLines() int {
 	return 30
 }
 
+func (c KnowledgeConfig) ResolvedTTLDays() int {
+	if c.TTLDays != nil && *c.TTLDays > 0 {
+		return *c.TTLDays
+	}
+	return 90
+}
+
+func (c KnowledgeConfig) ShouldRequireMatchingHead() bool {
+	if c.RequireMatchingHead != nil {
+		return *c.RequireMatchingHead
+	}
+	return true
+}
+
+func (c KnowledgeConfig) SemanticFallbackEnabled() bool {
+	if c.SemanticFallback != nil {
+		return *c.SemanticFallback
+	}
+	return true
+}
+
+func (c KnowledgeConfig) ResolvedMinExactScore() float64 {
+	if c.MinExactScore > 0 {
+		return c.MinExactScore
+	}
+	return 0.5
+}
+
+func (c KnowledgeConfig) ResolvedMinSemanticScore() float64 {
+	if c.MinSemanticScore > 0 {
+		return c.MinSemanticScore
+	}
+	return 0.35
+}
+
+func (c KnowledgeConfig) SemanticSettings() failuremem.SemanticSettings {
+	return failuremem.SemanticSettings{
+		Enabled:          c.SemanticFallbackEnabled(),
+		MinExactScore:    c.ResolvedMinExactScore(),
+		MinSemanticScore: c.ResolvedMinSemanticScore(),
+	}
+}
+
 func (c KnowledgeConfig) InjectOnMessageDebugOnly() bool {
 	switch strings.ToLower(strings.TrimSpace(c.InjectOnMessage)) {
 	case "debug_only", "debug", "auto":
@@ -800,6 +853,99 @@ func (c KnowledgeConfig) InjectOnMessageDebugOnly() bool {
 	default:
 		return false
 	}
+}
+
+// ToolCacheConfig governs session-local read-only tool result caching (Phase 1).
+type ToolCacheConfig struct {
+	Enabled   *bool `toml:"enabled"`
+	Normalize *bool `toml:"normalize"`
+}
+
+func (c ToolCacheConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c ToolCacheConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+func (c ToolCacheConfig) ShouldNormalize() bool {
+	return c.Normalize == nil || *c.Normalize
+}
+
+// WorkspaceRefreshConfig governs Phase-4 repo index orchestration (partial reuse).
+type WorkspaceRefreshConfig struct {
+	Enabled *bool `toml:"enabled"`
+}
+
+func (c WorkspaceRefreshConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c WorkspaceRefreshConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+// PlanCacheConfig governs Phase-5 planner skeleton reuse (intent + repo HEAD).
+type PlanCacheConfig struct {
+	Enabled       *bool   `toml:"enabled"`
+	MinConfidence float64 `toml:"min_confidence"`
+	TTLDays       int     `toml:"ttl_days"`
+	MinPhases     int     `toml:"min_phases"`
+}
+
+func (c PlanCacheConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c PlanCacheConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+// PrefixRuntimeConfig governs Phase-7 DeepSeek prefix stability, cache health,
+// prewarm, rumination control, and verify-aware selection.
+type PrefixRuntimeConfig struct {
+	Enabled          *bool   `toml:"enabled"`
+	MinCacheHitRate  float64 `toml:"min_cache_hit_rate"`
+	PrewarmOnOpen    *bool   `toml:"prewarm_on_open"`
+	Rumination       *bool   `toml:"rumination_scheduler"`
+	VerifySelect     *bool   `toml:"verify_select"`
+}
+
+func (c PrefixRuntimeConfig) Disabled() bool {
+	return c.Enabled != nil && !*c.Enabled
+}
+
+func (c PrefixRuntimeConfig) ShouldEnable() bool {
+	return !c.Disabled()
+}
+
+func (c PrefixRuntimeConfig) ResolvedMinCacheHitRate() float64 {
+	if c.MinCacheHitRate > 0 {
+		return c.MinCacheHitRate
+	}
+	return 0.4
+}
+
+func (c PrefixRuntimeConfig) PrewarmEnabled() bool {
+	if c.PrewarmOnOpen != nil {
+		return *c.PrewarmOnOpen
+	}
+	return true
+}
+
+func (c PrefixRuntimeConfig) RuminationEnabled() bool {
+	if c.Rumination != nil {
+		return *c.Rumination
+	}
+	return true
+}
+
+func (c PrefixRuntimeConfig) VerifySelectEnabled() bool {
+	if c.VerifySelect != nil {
+		return *c.VerifySelect
+	}
+	return true
 }
 
 // EnvAwareConfig governs host OS/toolchain probing (P1-#12).

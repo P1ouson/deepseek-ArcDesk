@@ -43,6 +43,8 @@ import (
 	"arcdesk/internal/netclient"
 	"arcdesk/internal/outputstyle"
 	"arcdesk/internal/permission"
+	"arcdesk/internal/plancache"
+	"arcdesk/internal/prefixruntime"
 	"arcdesk/internal/planner"
 	"arcdesk/internal/plugin"
 	"arcdesk/internal/prompt"
@@ -56,8 +58,11 @@ import (
 	"arcdesk/internal/taskdag"
 	"arcdesk/internal/tool"
 	"arcdesk/internal/tool/builtin"
+	"arcdesk/internal/toolcache"
+	"arcdesk/internal/toolstats"
 	"arcdesk/internal/uirag"
 	"arcdesk/internal/verification"
+	"arcdesk/internal/workspacerefresh"
 )
 
 // ErrUnknownModel is returned by Build when the configured model can't be
@@ -90,6 +95,10 @@ type Options struct {
 	// so each tab loads its own config/skills/hooks without changing the process
 	// cwd — enabling concurrent multi-project sessions.
 	WorkspaceRoot string
+	// ConfigRoot, when set, is the directory used to load arcdesk.toml and user
+	// merge paths for LoadForRoot. explorebench passes the repo root here while
+	// WorkspaceRoot points at the scenario subdirectory.
+	ConfigRoot string
 	// SkillInstallGuard, when set, must approve install_skill persistent writes
 	// (desktop uses native confirmation). Nil preserves autonomous headless behavior.
 	SkillInstallGuard skill.InstallGuard
@@ -120,6 +129,10 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 			root = wd
 		}
 	}
+	configRoot := root
+	if opts.ConfigRoot != "" {
+		configRoot = opts.ConfigRoot
+	}
 	// One-time import of v1/v0.5 legacy config — runs before Load so the freshly
 	// written config + ~/.env are picked up this same boot. CLI Run also calls this
 	// before config-only commands; this call stays as the shared frontend fallback.
@@ -129,7 +142,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		cfg = opts.Kit.Cfg
 	} else {
 		var err error
-		cfg, err = config.LoadForRoot(root)
+		cfg, err = config.LoadForRoot(configRoot)
 		if err != nil {
 			return nil, err
 		}
@@ -230,14 +243,16 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	}
 	sysPrompt = memory.Compose(sysPrompt, mem)
 	if cfg.Reporag.ShouldEnable() {
-		go func() {
-			if err := repomap.EnsureReady(root); err != nil {
-				slog.Debug("repomap ensure before boot", "root", root, "err", err)
-			}
-			if err := repomap.RefreshIfStale(root); err != nil {
-				slog.Debug("repomap background refresh", "root", root, "err", err)
-			}
-		}()
+		if !cfg.WorkspaceRefresh.ShouldEnable() {
+			go func() {
+				if err := repomap.EnsureReady(root); err != nil {
+					slog.Debug("repomap ensure before boot", "root", root, "err", err)
+				}
+				if err := repomap.RefreshIfStale(root); err != nil {
+					slog.Debug("repomap background refresh", "root", root, "err", err)
+				}
+			}()
+		}
 		sysPrompt = repomap.Compose(sysPrompt, root)
 	}
 
@@ -269,10 +284,12 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 
 	var depIdx *dependency.Index
 	var cgIdx *callgraph.Index
+	var refreshHost *workspacerefresh.Host
 	kitShared := opts.Kit != nil
 	if kitShared {
 		depIdx = opts.Kit.DepIdx
 		cgIdx = opts.Kit.CgIdx
+		refreshHost = opts.Kit.RefreshHost
 		if depIdx != nil {
 			dependency.RegisterTools(reg, depIdx)
 		}
@@ -289,11 +306,13 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 				fmt.Fprintln(stderr, "warning: dependency index not ready:", err)
 			}
 			dependency.RegisterTools(reg, depIdx)
-			go func() {
-				if err := depIdx.RefreshIfStale(context.WithoutCancel(ctx)); err != nil {
-					slog.Debug("dependency: background refresh", "err", err)
-				}
-			}()
+			if !cfg.WorkspaceRefresh.ShouldEnable() {
+				go func() {
+					if err := depIdx.RefreshIfStale(context.WithoutCancel(ctx)); err != nil {
+						slog.Debug("dependency: background refresh", "err", err)
+					}
+				}()
+			}
 		}
 	}
 
@@ -314,12 +333,21 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 			if depIdx != nil {
 				depIdx.SetBridgeImpactAnalyzer(newBridgeImpactAdapter(cgIdx))
 			}
-			go func() {
-				if err := cgIdx.RefreshIfStale(context.WithoutCancel(ctx)); err != nil {
-					slog.Debug("callgraph: background refresh", "err", err)
-				}
-			}()
+			if !cfg.WorkspaceRefresh.ShouldEnable() {
+				go func() {
+					if err := cgIdx.RefreshIfStale(context.WithoutCancel(ctx)); err != nil {
+						slog.Debug("callgraph: background refresh", "err", err)
+					}
+				}()
+			}
 		}
+	}
+
+	if refreshHost == nil {
+		refreshHost = workspacerefresh.NewHost(root, cfg, depIdx, cgIdx)
+	}
+	if cfg.WorkspaceRefresh.ShouldEnable() {
+		refreshHost.RefreshBackground(ctx)
 	}
 
 	if rtHub != nil {
@@ -564,6 +592,9 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 			CodegraphEnabled: cfg.Codegraph.Enabled,
 		})
 	}
+	if cfg.WorkspaceRefresh.ShouldEnable() {
+		workspacerefresh.RegisterTools(reg, refreshHost)
+	}
 
 	var constraintEng *constraint.Engine
 	if cfg.Constraint.ShouldEnable() {
@@ -654,14 +685,29 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 			Text: "this project defines hooks but they are not trusted — run /hooks trust to enable them"})
 	}
 
+	toolCacheOn := cfg.ToolCache.ShouldEnable()
+	toolCacheNormalize := cfg.ToolCache.ShouldNormalize()
+	var sharedToolCache *toolcache.Cache
+	if toolCacheOn {
+		sharedToolCache = toolcache.New()
+		sharedToolCache.SetKeyContext(toolstats.KeyContext{
+			WorkDir:   root,
+			Normalize: toolCacheNormalize,
+		})
+	}
+
 	// The `task` tool spawns sub-agents that reuse the parent's provider and
 	// tool registry. Wired here after the built-ins / plugins are loaded so
 	// sub-agents inherit the full tool set (minus `task` itself, to keep
 	// nesting out of the picture). It registers into the same reg the
 	// executor uses, so the model surfaces it like any other tool.
-	reg.Add(agent.NewTaskTool(execProv, entry.Price, reg, maxSteps,
+	taskTool := agent.NewTaskTool(execProv, entry.Price, reg, maxSteps,
 		entry.ContextWindow, cfg.Agent.SoftCompactRatio, cfg.Agent.CompactRatio, cfg.Agent.CompactForceRatio,
-		cfg.Agent.Temperature, config.ArchiveDir(), "", headlessGate))
+		cfg.Agent.Temperature, config.ArchiveDir(), "", headlessGate)
+	if sharedToolCache != nil {
+		taskTool.SetToolCache(sharedToolCache, true, root, toolCacheNormalize)
+	}
+	reg.Add(taskTool)
 
 	// The `remember` tool lets the model persist durable facts to the project's
 	// auto-memory store; `forget` prunes ones that turn out wrong. The saved index
@@ -704,12 +750,16 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 			}
 		}
 		answer, err := agent.RunSubAgent(sctx, prov, subReg, sk.Body, task, agent.Options{
-			MaxSteps:      steps,
-			Temperature:   cfg.Agent.Temperature,
-			Pricing:       price,
-			Gate:          agent.EffectiveSubagentGate(sctx, headlessGate),
-			ContextWindow: ctxWin,
-			ArchiveDir:    config.ArchiveDir(),
+			MaxSteps:           steps,
+			Temperature:        cfg.Agent.Temperature,
+			Pricing:            price,
+			Gate:               agent.EffectiveSubagentGate(sctx, headlessGate),
+			ContextWindow:      ctxWin,
+			ArchiveDir:         config.ArchiveDir(),
+			ToolCache:          sharedToolCache,
+			ToolCacheEnabled:   &toolCacheOn,
+			ToolCacheWorkDir:   root,
+			ToolCacheNormalize: &toolCacheNormalize,
 		}, agent.NestedSink(sctx, event.Discard))
 		if err == nil && sk.Name == "explore" && strings.TrimSpace(root) != "" {
 			_ = repomap.RecordExploreSummary(root, task, answer)
@@ -756,7 +806,24 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		CompactRatio:      cfg.Agent.CompactRatio,
 		CompactForceRatio: cfg.Agent.CompactForceRatio,
 		ArchiveDir:        config.ArchiveDir(),
+		ToolCache:         sharedToolCache,
+		ToolCacheEnabled:  &toolCacheOn,
+		ToolCacheWorkDir:  root,
+		ToolCacheNormalize: &toolCacheNormalize,
+		PrefixRuntime:     cfg.PrefixRuntime,
 	}, sink)
+
+	if cfg.PrefixRuntime.ShouldEnable() && cfg.PrefixRuntime.PrewarmEnabled() {
+		warmPrompt := sysPrompt
+		warmProv := execProv
+		warmSchemas := reg.Schemas()
+		go func() {
+			pctx := context.WithoutCancel(ctx)
+			if err := prefixruntime.PrewarmPrefix(pctx, warmProv, warmPrompt, warmSchemas); err != nil {
+				slog.Debug("prefix_runtime: prewarm skipped", "err", err)
+			}
+		}()
+	}
 
 	// Custom slash commands (.arcdesk/commands + user dir). Best-effort: a malformed
 	// file is skipped, and a load error never blocks the session.
@@ -803,7 +870,19 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 				return nil, fmt.Errorf("planner %q: %w", pm, err)
 			}
 			plannerSess := agent.NewSession(agent.DefaultPlannerPrompt)
-			runner = agent.NewCoordinator(plannerProv, plannerSess, pe.Price, executor, cfg.Agent.Temperature, sink, control.TaskWarrantsPlanner, phaseTracker)
+			coord := agent.NewCoordinator(plannerProv, plannerSess, pe.Price, executor, cfg.Agent.Temperature, sink, control.TaskWarrantsPlanner, phaseTracker)
+			if cfg.PlanCache.ShouldEnable() {
+				if pc, err := plancache.Open(root, plancache.Settings{
+					MinConfidence: cfg.PlanCache.MinConfidence,
+					TTLDays:       cfg.PlanCache.TTLDays,
+					MinPhases:     cfg.PlanCache.MinPhases,
+				}); err == nil {
+					coord.BindPlanCache(pc, root)
+				} else {
+					slog.Debug("plan_cache: open skipped", "err", err)
+				}
+			}
+			runner = coord
 			label = entry.Model + " + planner " + pe.Model
 		}
 	}

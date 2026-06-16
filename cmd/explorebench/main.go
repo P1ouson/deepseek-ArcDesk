@@ -15,6 +15,7 @@ import (
 
 	"arcdesk/internal/benchagent"
 	"arcdesk/internal/boot"
+	"arcdesk/internal/config"
 	"arcdesk/internal/event"
 )
 
@@ -94,7 +95,7 @@ func main() {
 			continue
 		}
 		paths = append(paths, path)
-		fmt.Printf("wrote %s\n", path)
+		fmt.Fprintf(os.Stderr, "wrote %s\n", path)
 	}
 	if len(paths) == 0 {
 		os.Exit(1)
@@ -120,6 +121,8 @@ func runScenario(sc scenario, absDir, repoRoot, variant, model, outDir string) (
 		_ = os.Chdir(repoRoot)
 	}()
 
+	config.InvalidateConfigCache(repoRoot)
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
@@ -130,6 +133,7 @@ func runScenario(sc scenario, absDir, repoRoot, variant, model, outDir string) (
 		RequireKey:    true,
 		Sink:          sink,
 		WorkspaceRoot: absDir,
+		ConfigRoot:    repoRoot,
 		DeferEagerMCP: true,
 		Stderr:        os.Stderr,
 	}

@@ -124,39 +124,6 @@ export function filesForTool(item: ToolItem, workspaceRoot: string): ActionFileR
   }
 }
 
-export function verbForTool(name: string, status: ToolStatus): string {
-  const running = status === "running";
-  switch (name) {
-    case "grep":
-    case "glob":
-      return running ? "Grepping" : "Grepped";
-    case "read_file":
-      return running ? "Reading" : "Read";
-    case "web_fetch":
-      return running ? "Fetching" : "Fetched";
-    case "edit_file":
-    case "write_file":
-    case "multi_edit":
-      return running ? "Editing" : "Edited";
-    case "bash":
-      return running ? "Running" : "Ran";
-    case "ls":
-      return running ? "Listing" : "Listed";
-    case "task":
-    case "run_skill":
-    case "explore":
-    case "research":
-    case "security_review":
-      return running ? "Working" : "Worked";
-    default:
-      return running ? "Running" : "Ran";
-  }
-}
-
-export function verbForThinking(status: ToolStatus): string {
-  return status === "running" ? "Thinking" : "Thought";
-}
-
 export function isWriteTool(name: string): boolean {
   return WRITE_TOOLS.has(name);
 }

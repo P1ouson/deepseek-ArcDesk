@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 
 	"arcdesk/internal/acp"
 	"arcdesk/internal/agent"
@@ -16,6 +17,7 @@ import (
 	"arcdesk/internal/event"
 	"arcdesk/internal/i18n"
 	"arcdesk/internal/permission"
+	"arcdesk/internal/plancache"
 	"arcdesk/internal/plugin"
 	"arcdesk/internal/sandbox"
 	"arcdesk/internal/tool"
@@ -170,7 +172,17 @@ func (f *acpFactory) NewSession(ctx context.Context, p acp.SessionParams) (*cont
 				return nil, fmt.Errorf("planner %q: %w", pm, err)
 			}
 			plannerSess := agent.NewSession(agent.DefaultPlannerPrompt)
-			runner = agent.NewCoordinator(plannerProv, plannerSess, pe.Price, executor, cfg.Agent.Temperature, p.Sink, control.TaskWarrantsPlanner, nil)
+			coord := agent.NewCoordinator(plannerProv, plannerSess, pe.Price, executor, cfg.Agent.Temperature, p.Sink, control.TaskWarrantsPlanner, nil)
+			if cfg.PlanCache.ShouldEnable() && strings.TrimSpace(p.Cwd) != "" {
+				if pc, err := plancache.Open(p.Cwd, plancache.Settings{
+					MinConfidence: cfg.PlanCache.MinConfidence,
+					TTLDays:       cfg.PlanCache.TTLDays,
+					MinPhases:     cfg.PlanCache.MinPhases,
+				}); err == nil {
+					coord.BindPlanCache(pc, p.Cwd)
+				}
+			}
+			runner = coord
 			label = entry.Model + " + planner " + pe.Model
 		}
 	}

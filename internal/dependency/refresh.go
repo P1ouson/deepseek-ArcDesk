@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
+
+	"arcdesk/internal/reporeuse"
 )
 
 var refreshLocks sync.Map
@@ -39,6 +42,17 @@ func (i *Index) RefreshIfStale(ctx context.Context) error {
 		}
 	}
 
+	if i.graph != nil && i.meta != nil && !i.forceStale {
+		newHead := gitHead(i.root)
+		newFP := ComputeFingerprint(i.root)
+		if reporeuse.HeadChangedFingerprintStable(i.meta.GitHead, newHead, i.meta.Fingerprint, newFP) {
+			paths, err := reporeuse.ChangedFilesBetween(i.root, i.meta.GitHead, newHead)
+			if err == nil && !reporeuse.PathsAffectDependency(paths) {
+				return i.bumpGitHeadLocked()
+			}
+		}
+	}
+
 	g, meta, err := BuildGraph(BuildOptions{Root: i.root})
 	if err != nil {
 		return err
@@ -68,5 +82,24 @@ func (i *Index) InvalidateFiles(paths []string) error {
 	i.mu.Lock()
 	i.forceStale = true
 	i.mu.Unlock()
+	return nil
+}
+
+func (i *Index) bumpGitHeadLocked() error {
+	head := gitHead(i.root)
+	if i.meta == nil {
+		i.meta = &Meta{IndexVersion: IndexVersion}
+	}
+	i.meta.GitHead = head
+	i.meta.GeneratedAt = time.Now().UTC()
+	i.meta.Fingerprint = ComputeFingerprint(i.root)
+	dir, err := ProjectDir(i.root)
+	if err != nil {
+		return err
+	}
+	if err := SaveMeta(i.meta, dir); err != nil {
+		return err
+	}
+	i.forceStale = false
 	return nil
 }

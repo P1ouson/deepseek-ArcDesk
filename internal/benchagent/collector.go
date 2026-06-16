@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"arcdesk/internal/event"
+	"arcdesk/internal/toolstats"
 )
 
 type readKey struct {
@@ -46,6 +47,7 @@ type Collector struct {
 	readLineCount  int
 
 	readKeys      map[readKey]int
+	toolKeys      map[string]int
 	lastRead      readFileState
 	pagingDepth   int
 	maxPagingDepth int
@@ -58,6 +60,9 @@ type Collector struct {
 	maxConcurrency int
 	throttledRounds int
 
+	toolReuseSnapshot event.ToolReuseStats
+	cachedResults     int
+
 	promptTokens     int
 	completionTokens int
 	agentTurns       int
@@ -69,6 +74,7 @@ func NewCollector() *Collector {
 	return &Collector{
 		started:               time.Now(),
 		readKeys:              make(map[readKey]int),
+		toolKeys:              make(map[string]int),
 		firstToolMs:           -1,
 		firstReadMs:           -1,
 		firstReasoningMs:      -1,
@@ -159,6 +165,7 @@ func (c *Collector) observe(e event.Event) {
 		}
 		c.totalToolCalls++
 		mark(&c.firstToolMs)
+		c.toolKeys[toolstats.Key(e.Tool.Name, e.Tool.Args)]++
 		if e.Tool.Name == "read_file" {
 			c.readCalls++
 			mark(&c.firstReadMs)
@@ -168,6 +175,9 @@ func (c *Collector) observe(e event.Event) {
 			mark(&c.firstActionMs)
 		}
 	case event.ToolResult:
+		if e.Tool.Cached {
+			c.cachedResults++
+		}
 		if e.Tool.Name == "read_file" {
 			if e.Tool.Truncated {
 				c.truncatedReads++
@@ -196,10 +206,16 @@ func (c *Collector) observe(e event.Event) {
 				float64(miss)*p.Input +
 				float64(u.CompletionTokens)*p.Output) / 1e6
 		}
+		if e.ToolReuse != nil {
+			c.toolReuseSnapshot = *e.ToolReuse
+		}
 	case event.TurnDone:
 		mark(&c.completedMs)
 		if e.Err != nil {
 			c.runErr = e.Err.Error()
+		}
+		if e.ToolReuse != nil {
+			c.toolReuseSnapshot = *e.ToolReuse
 		}
 	}
 }
@@ -290,6 +306,14 @@ func (c *Collector) BuildReport(projectSize ProjectSize) Report {
 			repeated++
 		}
 	}
+	toolDup := 0
+	toolRepeatedKeys := 0
+	for _, n := range c.toolKeys {
+		if n > 1 {
+			toolDup += n - 1
+			toolRepeatedKeys++
+		}
+	}
 
 	avgLines := 0.0
 	if c.readLineCount > 0 {
@@ -363,6 +387,12 @@ func (c *Collector) BuildReport(projectSize ProjectSize) Report {
 			MaxPagingDepth:     c.maxPagingDepth,
 			DuplicateReads:     dup,
 		},
+		ToolReuse: ToolReuseStats{
+			DuplicateCalls:     toolDup,
+			RepeatedKeys:       toolRepeatedKeys,
+			DuplicateReadCalls: dup,
+		},
+		LocalToolCache: buildLocalToolCache(c.toolReuseSnapshot, c.cachedResults, toolDup),
 		Cache: CacheStats{
 			AvgHitRate:         avgHit,
 			LowestStepHitRate:  lowHit,
@@ -381,5 +411,25 @@ func (c *Collector) BuildReport(projectSize ProjectSize) Report {
 			EstimatedCost:         c.estimatedCost,
 		},
 		Error: c.runErr,
+	}
+}
+
+func buildLocalToolCache(reuse event.ToolReuseStats, cachedResults, duplicateCalls int) LocalToolCacheStats {
+	hits := reuse.SessionCacheHits
+	misses := reuse.SessionCacheMisses
+	denom := hits + misses
+	hitRate := 0.0
+	execReduction := 0.0
+	if denom > 0 {
+		hitRate = float64(hits) / float64(denom)
+		execReduction = hitRate * 100
+	}
+	return LocalToolCacheStats{
+		Hits:                hits,
+		Misses:              misses,
+		HitRate:             hitRate,
+		DuplicateCalls:      duplicateCalls,
+		CachedResults:       cachedResults,
+		ExecuteReductionPct: execReduction,
 	}
 }

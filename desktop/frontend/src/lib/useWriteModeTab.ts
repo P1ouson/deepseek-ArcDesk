@@ -1,13 +1,14 @@
 import { useCallback, useRef } from "react";
 import type { AppMode } from "./appMode";
-import { getStoredCodeWorkspaceRoot, isUsableCodeWorkspaceRoot } from "./composerWorkspace";
+import { getStoredCodeWorkspaceRoot, isProjectLikeCodeWorkspaceRoot } from "./composerWorkspace";
 import type { TabMeta } from "./types";
+import type { WriteAgentWorkspaceOptions } from "./writeTab";
 import {
   WRITE_MODE_TOPIC_ID,
   isWriteModeTopicId,
   isWriteTabForWorkspace,
-  normalizedWriteWorkspaceRoot,
-  writeAgentWorkspaceRoot,
+  pickCodeTabHint,
+  resolveWriteAgentWorkspaceRoot,
 } from "./writeTab";
 
 type Params = {
@@ -35,6 +36,13 @@ export function useWriteModeTab({
   const codeTabIdBeforeWriteRef = useRef<string | undefined>();
   const activatingRef = useRef(false);
 
+  const getWriteAgentWorkspaceOpts = useCallback((): Omit<WriteAgentWorkspaceOptions, "codeWorkspaceRoot"> => {
+    return {
+      rememberedCodeTab: pickCodeTabHint(tabMetas, codeTabIdBeforeWriteRef.current, activeTab),
+      openProjectTabs: tabMetas,
+    };
+  }, [activeTab, tabMetas]);
+
   const rememberCodeTab = useCallback(() => {
     if (!activeTabId || !activeTab) return;
     if (isWriteModeTopicId(activeTab.topicId)) return;
@@ -42,14 +50,16 @@ export function useWriteModeTab({
   }, [activeTab, activeTabId]);
 
   const activateWriteTab = useCallback(
-    async (writeRoot: string) => {
+    async (_writeRoot: string) => {
       if (activatingRef.current) return;
       activatingRef.current = true;
       try {
         rememberCodeTab();
-        const normalized = normalizedWriteWorkspaceRoot(writeRoot);
-        const agentRoot = writeAgentWorkspaceRoot(normalized);
-        if (isUsableCodeWorkspaceRoot(agentRoot)) {
+        const agentRoot = resolveWriteAgentWorkspaceRoot({
+          ...getWriteAgentWorkspaceOpts(),
+          codeWorkspaceRoot: getStoredCodeWorkspaceRoot(),
+        });
+        if (isProjectLikeCodeWorkspaceRoot(agentRoot)) {
           await openProjectTab(agentRoot, WRITE_MODE_TOPIC_ID);
           return;
         }
@@ -58,7 +68,7 @@ export function useWriteModeTab({
         activatingRef.current = false;
       }
     },
-    [openGlobalTab, openProjectTab, rememberCodeTab],
+    [getWriteAgentWorkspaceOpts, openGlobalTab, openProjectTab, rememberCodeTab],
   );
 
   const restoreCodeTab = useCallback(async () => {
@@ -73,16 +83,18 @@ export function useWriteModeTab({
 
   const ensureWriteTabMatchesWorkspace = useCallback(
     async (writeRoot: string) => {
+      const opts = getWriteAgentWorkspaceOpts();
       const codeRoot = getStoredCodeWorkspaceRoot();
-      if (isWriteTabForWorkspace(activeTab, writeRoot, codeRoot)) return;
+      if (isWriteTabForWorkspace(activeTab, writeRoot, codeRoot, opts)) return;
       await activateWriteTab(writeRoot);
     },
-    [activateWriteTab, activeTab],
+    [activateWriteTab, activeTab, getWriteAgentWorkspaceOpts],
   );
 
   return {
     activateWriteTab,
     restoreCodeTab,
     ensureWriteTabMatchesWorkspace,
+    getWriteAgentWorkspaceOpts,
   };
 }

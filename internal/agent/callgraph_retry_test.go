@@ -125,8 +125,9 @@ func TestVerifyRetryIncludesCallgraphEndToEnd(t *testing.T) {
 	}}
 
 	a := New(prov, reg, NewSession(""), Options{
-		ProjectChecks:  []instruction.VerifyCheck{{Command: "go test ./...", SourcePath: "AGENTS.md", Line: 3}},
-		CallgraphIndex: idx,
+		ProjectChecks:            []instruction.VerifyCheck{{Command: "go test ./...", SourcePath: "AGENTS.md", Line: 3}},
+		VerifyEnforceFinalAnswer: true,
+		CallgraphIndex:           idx,
 	}, event.Discard)
 
 	if err := a.Run(context.Background(), "edit submit flow and verify"); err != nil {

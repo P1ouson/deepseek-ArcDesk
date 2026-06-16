@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	"fmt"
 	"strings"
 
 	"arcdesk/internal/config"
@@ -24,21 +25,63 @@ func RetryHint(store *failuremem.Store, cfg config.KnowledgeConfig, p RetryParam
 	if query == "" {
 		query = firstLine(p.Stderr)
 	}
+	searchQuery := query
+	if stderr := strings.TrimSpace(p.Stderr); stderr != "" && stderr != query {
+		if searchQuery == "" {
+			searchQuery = stderr
+		} else {
+			searchQuery = searchQuery + " " + stderr
+		}
+	}
 	limit := p.Limit
 	if limit <= 0 {
 		limit = 1
 	}
-	entries, err := store.RankedSearch(query, p.Paths, limit)
-	if err != nil || len(entries) == 0 {
+	ctx := failuremem.NewSearchContext(store.WorkspaceRoot(), cfg.ResolvedTTLDays(), cfg.ShouldRequireMatchingHead())
+	matches, err := store.RankedSearchSmart(ctx, searchQuery, p.Paths, limit, cfg.SemanticSettings())
+	if err != nil || len(matches) == 0 {
 		return ""
 	}
+	match := matches[0]
+	entry := match.Entry
+	status := entry.ProvenanceStatus(ctx)
 	max := cfg.ResolvedMaxRetryHintChars()
-	line := entries[0].SummaryLine(max - len(tagOpen) - len(tagClose) - 2)
+	line := entry.SummaryLine(max - len(tagOpen) - len(tagClose) - 64)
+	if match.Kind == failuremem.MatchSemantic {
+		if sk := failuremem.FixSkeleton(entry.Fix); sk != "" {
+			line = sk
+		}
+	}
 	if line == "" {
 		return ""
 	}
-	_ = store.Touch(failuremem.Fingerprint(entries[0]))
-	return FormatHint(line, max)
+	_ = store.Touch(failuremem.Fingerprint(entry))
+	note := hintProvenanceNote(status)
+	if match.Kind == failuremem.MatchSemantic {
+		note = joinNote(note, fmt.Sprintf("match=semantic similarity=%.2f", match.Score))
+	}
+	return FormatHintWithMeta(line, max, entry.Confidence, status.HintHead, note)
+}
+
+func joinNote(a, b string) string {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	return a + " " + b
+}
+
+func hintProvenanceNote(st failuremem.ProvenanceStatus) string {
+	switch st.Reason {
+	case "commit_mismatch":
+		return "note=recorded-at-old-commit"
+	default:
+		return ""
+	}
 }
 
 func firstLine(s string) string {
