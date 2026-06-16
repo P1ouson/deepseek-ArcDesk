@@ -13,6 +13,7 @@ export type Theme = "auto" | "light" | "dark";
 export type ResolvedTheme = Exclude<Theme, "auto">;
 
 export const THEME_STYLES = [
+  "indigo",
   "graphite",
   "ember",
   "aurora",
@@ -27,16 +28,16 @@ export const THEME_STYLES = [
 export type ThemeStyle = (typeof THEME_STYLES)[number];
 
 const DEFAULT_THEME: Theme = "light";
-const DEFAULT_DARK_STYLE: ThemeStyle = "cobalt";
-const DEFAULT_LIGHT_STYLE: ThemeStyle = "glacier";
+const DEFAULT_DARK_STYLE: ThemeStyle = "indigo";
+const DEFAULT_LIGHT_STYLE: ThemeStyle = "indigo";
 const THEME_KEY = "arcdesk-theme";
 const STYLE_KEY = "arcdesk-theme-style";
 let currentTheme: Theme = DEFAULT_THEME;
 let currentStyle: ThemeStyle = DEFAULT_LIGHT_STYLE;
 let systemThemeListenerInstalled = false;
 
-const DARK_STYLES = new Set<ThemeStyle>(["graphite", "ember", "aurora", "midnight", "cobalt"]);
-const LIGHT_STYLES = new Set<ThemeStyle>(["sandstone", "porcelain", "linen", "glacier"]);
+const DARK_STYLES = new Set<ThemeStyle>(["indigo", "graphite", "ember", "aurora", "midnight", "cobalt"]);
+const LIGHT_STYLES = new Set<ThemeStyle>(["indigo", "sandstone", "porcelain", "linen", "glacier"]);
 
 export function isThemeStyle(value: unknown): value is ThemeStyle {
   return typeof value === "string" && (THEME_STYLES as readonly string[]).includes(value);
@@ -125,8 +126,8 @@ export function normalizeThemeStyleForTheme(style: string | undefined, theme: Th
 
 export function stylesForTheme(theme: Theme): ThemeStyle[] {
   return resolveTheme(theme) === "light"
-    ? ["glacier", "sandstone", "porcelain", "linen"]
-    : ["graphite", "ember", "aurora", "midnight", "cobalt"];
+    ? ["indigo", "glacier", "sandstone", "porcelain", "linen"]
+    : ["indigo", "graphite", "ember", "aurora", "midnight", "cobalt"];
 }
 
 export type ApplyThemeOptions = {

@@ -44,6 +44,8 @@ function diffMarkerName(style: DiffMarkerStyle, t: ReturnType<typeof useT>): str
 
 function themeStyleName(style: ThemeStyle, t: ReturnType<typeof useT>): string {
   switch (style) {
+    case "indigo":
+      return t("settings.style.indigo");
     case "graphite":
       return t("settings.style.graphite");
     case "ember":

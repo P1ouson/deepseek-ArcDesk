@@ -86,9 +86,13 @@ export function useAppearanceSettingsState(
       });
     },
     onThemeStyle: (nextStyle: ThemeStyle) => {
-      applyTheme(theme, nextStyle, { syncSurfaces: false });
+      const safeTheme = normalizeThemePreference(theme);
+      applyTheme(safeTheme, nextStyle, { syncSurfaces: false });
       setThemeStyleState(nextStyle);
-      void apply(() => app.SetDesktopAppearance(theme, nextStyle));
+      void apply(async () => {
+        await app.SetDesktopAppearance(safeTheme, nextStyle);
+        await persistAppearanceConfig();
+      });
     },
     onBackgroundPreset: (preset: BackgroundPreset) => {
       const nextForeground = saveBackgroundPreset(preset);

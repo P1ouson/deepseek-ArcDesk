@@ -85,7 +85,7 @@ type Config struct {
 // DesktopConfig so desktop preferences cannot alter terminal output or prompts.
 type UIConfig struct {
 	Theme         string `toml:"theme"`          // auto|dark|light; empty resolves to auto
-	ThemeStyle    string `toml:"theme_style"`    // graphite|ember|aurora|midnight|cobalt|sandstone|porcelain|linen|glacier
+	ThemeStyle    string `toml:"theme_style"`    // indigo|graphite|ember|aurora|midnight|cobalt|sandstone|porcelain|linen|glacier
 	CloseBehavior string `toml:"close_behavior"` // legacy desktop close behavior; prefer desktop.close_behavior
 }
 
@@ -118,7 +118,7 @@ type DesktopCodeReviewConfig struct {
 type DesktopConfig struct {
 	Language      string                  `toml:"language"`        // auto|en|zh; empty/auto = browser/OS auto-detect
 	Theme         string                  `toml:"theme"`           // auto|dark|light; empty resolves to dark
-	ThemeStyle    string                  `toml:"theme_style"`     // graphite|ember|aurora|midnight|cobalt|sandstone|porcelain|linen|glacier
+	ThemeStyle    string                  `toml:"theme_style"`     // indigo|graphite|ember|aurora|midnight|cobalt|sandstone|porcelain|linen|glacier
 	CloseBehavior string                  `toml:"close_behavior"`  // quit|background; desktop window close behavior
 	TerminalShell string                  `toml:"terminal_shell"` // powershell|cmd|git-bash|wsl; empty = auto
 	Git           DesktopGitConfig        `toml:"git"`
@@ -146,7 +146,7 @@ func (c *Config) UIThemeStyle() string {
 
 func normalizeThemeStyle(style string) string {
 	switch strings.ToLower(strings.TrimSpace(style)) {
-	case "graphite", "ember", "aurora", "midnight", "cobalt", "sandstone", "porcelain", "linen", "glacier":
+	case "graphite", "ember", "aurora", "midnight", "cobalt", "sandstone", "porcelain", "linen", "glacier", "indigo":
 		return strings.ToLower(strings.TrimSpace(style))
 	default:
 		return ""
@@ -218,7 +218,7 @@ func (c *Config) DesktopTerminalShell() string {
 
 func normalizeDesktopBackgroundPreset(preset string) string {
 	switch strings.ToLower(strings.TrimSpace(preset)) {
-	case "paper", "white", "fog", "linen", "charcoal", "graphite", "slate", "midnight":
+	case "paper", "white", "fog", "linen", "studio", "parchment", "charcoal", "graphite", "slate", "midnight", "nightfall":
 		return strings.ToLower(strings.TrimSpace(preset))
 	default:
 		return ""
