@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
+
+	"arcdesk/internal/reporeuse"
 )
 
 // Index is the query entry point for the Wails call graph.
@@ -99,6 +102,17 @@ func (i *Index) RefreshIfStale(ctx context.Context) error {
 		}
 	}
 
+	if i.graph != nil && i.meta != nil && !i.forceStale {
+		newHead := gitHead(i.root)
+		newFP := ComputeFingerprint(i.root)
+		if reporeuse.HeadChangedFingerprintStable(i.meta.GitHead, newHead, i.meta.Fingerprint, newFP) {
+			paths, err := reporeuse.ChangedFilesBetween(i.root, i.meta.GitHead, newHead)
+			if err == nil && !reporeuse.PathsAffectCallgraph(paths) {
+				return i.bumpGitHeadLocked()
+			}
+		}
+	}
+
 	g, meta, err := BuildGraph(BuildOptions{Root: i.root, Catalog: i.catalog})
 	if err != nil {
 		return err
@@ -128,6 +142,25 @@ func (i *Index) InvalidateFiles(paths []string) error {
 	i.mu.Lock()
 	i.forceStale = true
 	i.mu.Unlock()
+	return nil
+}
+
+func (i *Index) bumpGitHeadLocked() error {
+	head := gitHead(i.root)
+	if i.meta == nil {
+		i.meta = &Meta{IndexVersion: IndexVersion}
+	}
+	i.meta.GitHead = head
+	i.meta.GeneratedAt = time.Now().UTC()
+	i.meta.Fingerprint = ComputeFingerprint(i.root)
+	dir, err := ProjectDir(i.root)
+	if err != nil {
+		return err
+	}
+	if err := SaveMeta(i.meta, dir); err != nil {
+		return err
+	}
+	i.forceStale = false
 	return nil
 }
 
@@ -207,6 +240,28 @@ func (i *Index) FindBridge(ctx context.Context, path string, line int, goMethod 
 		}
 	}
 	return FindBridgePath(g, frontend, goMethod)
+}
+
+// Root returns the workspace root path.
+func (i *Index) Root() string {
+	if i == nil {
+		return ""
+	}
+	return i.root
+}
+
+// MetaSnapshot returns a copy of index freshness metadata (may be nil).
+func (i *Index) MetaSnapshot() *Meta {
+	if i == nil {
+		return nil
+	}
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	if i.meta == nil {
+		return nil
+	}
+	cp := *i.meta
+	return &cp
 }
 
 // Status returns index stats.

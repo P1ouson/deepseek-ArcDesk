@@ -22,6 +22,7 @@ func TestCollectorRecordsTimingsAndReads(t *testing.T) {
 	s.Emit(event.Event{Kind: event.Text, Text: "hi"})
 	s.Emit(event.Event{Kind: event.ToolDispatch, Tool: event.Tool{Name: "read_file", Args: `{"path":"a.go","offset":0,"limit":250}`}})
 	s.Emit(event.Event{Kind: event.ToolResult, Tool: event.Tool{Name: "read_file", Args: `{"path":"a.go","offset":0,"limit":250}`, Output: "line\n"}})
+	s.Emit(event.Event{Kind: event.ToolDispatch, Tool: event.Tool{Name: "read_file", Args: `{"path":"a.go","offset":0,"limit":250}`}})
 	s.Emit(event.Event{Kind: event.ToolDispatch, Tool: event.Tool{Name: "read_file", Args: `{"path":"a.go","offset":250,"limit":250}`}})
 	s.Emit(event.Event{Kind: event.ToolDispatch, Tool: event.Tool{Name: "edit_file", Args: `{}`, ReadOnly: false}})
 	s.Emit(event.Event{
@@ -45,8 +46,8 @@ func TestCollectorRecordsTimingsAndReads(t *testing.T) {
 	if r.Timings.FirstActionMs == 0 && r.Timings.FirstReadMs == 0 {
 		t.Fatalf("timings not recorded: %+v", r.Timings)
 	}
-	if r.ToolUsage.ReadFileCalls != 2 {
-		t.Fatalf("read calls = %d, want 2", r.ToolUsage.ReadFileCalls)
+	if r.ToolUsage.ReadFileCalls != 3 {
+		t.Fatalf("read calls = %d, want 3", r.ToolUsage.ReadFileCalls)
 	}
 	if r.ReadPatterns.MaxPagingDepth < 1 {
 		t.Fatalf("expected paging depth, got %+v", r.ReadPatterns)
@@ -56,6 +57,12 @@ func TestCollectorRecordsTimingsAndReads(t *testing.T) {
 	}
 	if r.API.TotalAgentTurns != 1 {
 		t.Fatalf("turns = %d, want 1", r.API.TotalAgentTurns)
+	}
+	if r.ToolReuse.DuplicateCalls != 1 {
+		t.Fatalf("tool reuse duplicate calls = %d, want 1", r.ToolReuse.DuplicateCalls)
+	}
+	if r.ToolReuse.RepeatedKeys != 1 {
+		t.Fatalf("tool reuse repeated keys = %d, want 1", r.ToolReuse.RepeatedKeys)
 	}
 }
 

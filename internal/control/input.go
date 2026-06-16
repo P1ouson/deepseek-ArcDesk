@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"arcdesk/internal/harness"
-	"arcdesk/internal/skill"
 )
 
 // PlanModeMarker is prepended to every user turn while plan mode is on. It rides
@@ -103,7 +102,7 @@ func (c *Controller) RunSkill(input string) (sent string, found bool) {
 	name := strings.TrimPrefix(fields[0], "/")
 	for _, sk := range c.skills {
 		if sk.Name == name {
-			return skill.Render(sk, strings.Join(fields[1:], " ")), true
+			return renderSkillTurn(c.History(), sk, strings.Join(fields[1:], " ")), true
 		}
 	}
 	return "", false

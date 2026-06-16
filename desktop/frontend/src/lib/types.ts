@@ -42,6 +42,7 @@ export interface WireTool {
   err?: string;
   readOnly: boolean;
   truncated?: boolean;
+  cached?: boolean;
   partial?: boolean; // an early dispatch (name only) — a full one with args follows
   parentId?: string; // set on a sub-agent's calls — the parent `task` call's id
   fileDiff?: WireFileDiff;
@@ -59,6 +60,18 @@ export interface WireCacheDiagnostics {
   cacheHitTokens?: number;
 }
 
+export interface WireToolReuseStats {
+  turnCalls?: number;
+  turnDuplicates?: number;
+  turnCacheableCalls?: number;
+  turnCacheableDupes?: number;
+  sessionCalls?: number;
+  sessionDuplicates?: number;
+  sessionCacheableCalls?: number;
+  sessionCacheableDupes?: number;
+  sessionCacheHits?: number;
+}
+
 export interface WireUsage {
   promptTokens: number;
   completionTokens: number;
@@ -67,6 +80,7 @@ export interface WireUsage {
   cacheMissTokens: number;
   reasoningTokens?: number;
   cacheDiagnostics?: WireCacheDiagnostics;
+  toolReuse?: WireToolReuseStats;
   // Session-cumulative cache tokens — the status bar shows the aggregate
   // hit-rate (Σhit/Σ(hit+miss)), steadier than the single-turn cacheHitTokens.
   sessionCacheHitTokens: number;
@@ -196,6 +210,10 @@ export interface ContextPanelInfo {
   sessionCurrency?: string;
   // Deprecated compatibility alias. Prefer sessionCost + sessionCurrency.
   sessionCostUsd?: number;
+  toolReuseCalls?: number;
+  toolReuseDuplicates?: number;
+  toolReuseCacheableDupes?: number;
+  toolReuseCacheHits?: number;
   readFiles: ReadFileRecord[];
   changedFiles: ChangedFileInfo[];
 }
@@ -571,6 +589,10 @@ export interface KnowledgeEntry {
   hits: number;
   kind?: string;
   summary: string;
+  repoHead?: string;
+  currentRepoHead?: string;
+  provenanceStale?: boolean;
+  provenanceStaleReason?: string;
 }
 
 export interface KnowledgeView {

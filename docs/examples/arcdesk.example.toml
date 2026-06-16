@@ -101,7 +101,30 @@ compact_force_ratio = 0.9   # force compacting at this high-water mark
 # capture_requires_confirm   = false  # true = show Record/Ignore card instead of auto-write
 # index_in_system_prompt     = true
 # max_index_lines            = 30
+# ttl_days                   = 90      # auto-inject only within retention window
+# require_matching_head      = true    # skip lessons recorded on a different git HEAD
 # inject_on_message          = "off"   # off | debug_only
+
+# Session tool-result cache (P1): dedupe read-only tool executes within a turn/session.
+# [tool_cache]
+# enabled    = true
+# normalize  = true   # Phase-2 path alias collapse (./main.go ≡ main.go)
+
+# Workspace refresh orchestration (P4): git-diff path classification + meta_bump.
+# [workspace_refresh]
+# enabled = true
+
+# Plan cache (P5): reuse planner skeleton for matching intent + repo HEAD.
+# [plan_cache]
+# enabled = true
+
+# Prefix runtime (P7): DeepSeek KV prefix stability, prewarm, cache health, rumination, verify select.
+# [prefix_runtime]
+# enabled             = true
+# min_cache_hit_rate  = 0.4
+# prewarm_on_open     = true
+# rumination_scheduler = true
+# verify_select       = true
 
 # Environment awareness (P1): OS + Go/Node/Wails toolchain probing.
 # [env_aware]

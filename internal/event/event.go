@@ -119,6 +119,7 @@ type Tool struct {
 	// sub-agent's calls carry the parent `task` call's ID so a frontend can nest
 	// them under it. Empty for top-level calls.
 	ParentID string
+	Cached   bool // ToolResult: served from session tool-result cache
 	FileDiff
 }
 
@@ -193,6 +194,29 @@ type KnowledgeCapture struct {
 	Paths       []string // edited files
 }
 
+// ToolReuseStats reports duplicate (tool, args) patterns for local reuse
+// measurement. Turn* fields reset each user turn; Session* accumulate for the
+// agent session. Cacheable* counts read-only tools that could skip re-execution
+// once a tool-result cache exists.
+type ToolReuseStats struct {
+	TurnCalls            int
+	TurnDuplicates       int
+	TurnCacheableCalls   int
+	TurnCacheableDupes   int
+	SessionCalls         int
+	SessionDuplicates    int
+	SessionCacheableCalls int
+	SessionCacheableDupes int
+	// TurnNormalizedDupes / SessionNormalizedDupes count repeats found only after
+	// Phase-2 arg normalization (path aliases, default fields).
+	TurnNormalizedDupes    int
+	SessionNormalizedDupes int
+	// TurnCacheHits / SessionCacheHits count tool-result cache lookups (Phase 1).
+	TurnCacheHits        int
+	SessionCacheHits     int
+	SessionCacheMisses   int
+}
+
 // CacheDiagnostics describes whether and why the cacheable prefix changed since
 // the last turn. It rides on the Usage event so every frontend can show
 // cache-churn attribution.
@@ -218,6 +242,7 @@ type Event struct {
 	Usage            *provider.Usage   // Usage
 	Pricing          *provider.Pricing // Usage: for cost display (nil = omit cost)
 	CacheDiagnostics *CacheDiagnostics // Usage: cache-churn attribution (nil = N/A)
+	ToolReuse        *ToolReuseStats   // Usage / TurnDone: duplicate tool-call stats (nil = N/A)
 	// SessionHit/SessionMiss carry cumulative cache tokens across the whole
 	// session (Usage events only), so a frontend can show the aggregate hit-rate
 	// — which doesn't crater on a short turn or after compaction — alongside
@@ -229,8 +254,10 @@ type Event struct {
 	Approval     Approval   // ApprovalRequest
 	Ask          Ask        // AskRequest
 	KnowledgeCapture KnowledgeCapture // KnowledgeCaptureSuggest
-	Err          error      // TurnDone: non-nil on failure
-	Compaction   Compaction // Compaction
+	IntentClass      string     // TurnDone: canonical task intent (Phase 2)
+	IntentCanonical  string     // TurnDone: stable slug for routing/cache keys
+	Err              error      // TurnDone: non-nil on failure
+	Compaction       Compaction // Compaction
 	RetryAttempt int        // Retrying: 1-based attempt about to be made
 	RetryMax     int        // Retrying: total attempts before giving up
 }

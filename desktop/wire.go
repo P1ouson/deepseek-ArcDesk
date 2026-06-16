@@ -23,6 +23,7 @@ type wireEvent struct {
 	Ask          *wireAsk        `json:"ask,omitempty"`
 	KnowledgeCapture *wireKnowledgeCapture `json:"knowledgeCapture,omitempty"`
 	Compaction   *wireCompaction `json:"compaction,omitempty"`
+	ToolReuse    *wireToolReuseStats `json:"toolReuse,omitempty"`
 	Err          string          `json:"err,omitempty"`
 	RetryAttempt int             `json:"retryAttempt,omitempty"`
 	RetryMax     int             `json:"retryMax,omitempty"`
@@ -66,6 +67,7 @@ type wireTool struct {
 	Truncated bool   `json:"truncated,omitempty"`
 	Partial   bool   `json:"partial,omitempty"`
 	ParentID  string `json:"parentId,omitempty"`
+	Cached    bool   `json:"cached,omitempty"`
 	FileDiff  *wireFileDiff `json:"fileDiff,omitempty"`
 }
 
@@ -83,6 +85,7 @@ type wireUsage struct {
 	CacheMissTokens  int                   `json:"cacheMissTokens"`
 	ReasoningTokens  int                   `json:"reasoningTokens,omitempty"`
 	CacheDiagnostics *wireCacheDiagnostics `json:"cacheDiagnostics,omitempty"`
+	ToolReuse        *wireToolReuseStats   `json:"toolReuse,omitempty"`
 	// Session-cumulative cache tokens — the status line shows the aggregate
 	// hit-rate Σhit/Σ(hit+miss), steadier than the single-turn CacheHitTokens.
 	SessionCacheHitTokens  int     `json:"sessionCacheHitTokens"`
@@ -104,6 +107,19 @@ type wireCacheDiagnostics struct {
 	ToolSchemaTokens    int      `json:"toolSchemaTokens"`
 	CacheMissTokens     int      `json:"cacheMissTokens"`
 	CacheHitTokens      int      `json:"cacheHitTokens"`
+}
+
+type wireToolReuseStats struct {
+	TurnCalls             int `json:"turnCalls"`
+	TurnDuplicates        int `json:"turnDuplicates"`
+	TurnCacheableCalls    int `json:"turnCacheableCalls"`
+	TurnCacheableDupes    int `json:"turnCacheableDupes"`
+	SessionCalls          int `json:"sessionCalls"`
+	SessionDuplicates     int `json:"sessionDuplicates"`
+	SessionCacheableCalls int `json:"sessionCacheableCalls"`
+	SessionCacheableDupes    int `json:"sessionCacheableDupes"`
+	SessionCacheHits         int `json:"sessionCacheHits"`
+	SessionNormalizedDupes   int `json:"sessionNormalizedDupes"`
 }
 
 type wireApproval struct {
@@ -173,7 +189,7 @@ func toWire(e event.Event) wireEvent {
 			ID: e.Tool.ID, Name: e.Tool.Name, Args: e.Tool.Args,
 			Output: e.Tool.Output, Err: e.Tool.Err,
 			ReadOnly: e.Tool.ReadOnly, Truncated: e.Tool.Truncated,
-			Partial: e.Tool.Partial, ParentID: e.Tool.ParentID,
+			Partial: e.Tool.Partial, ParentID: e.Tool.ParentID, Cached: e.Tool.Cached,
 		}
 		if e.Tool.Diff != "" {
 			wt.FileDiff = &wireFileDiff{
@@ -191,6 +207,9 @@ func toWire(e event.Event) wireEvent {
 			}
 			if e.CacheDiagnostics != nil {
 				w.Usage.CacheDiagnostics = toWireCacheDiagnostics(e.CacheDiagnostics)
+			}
+			if e.ToolReuse != nil {
+				w.Usage.ToolReuse = toWireToolReuse(e.ToolReuse)
 			}
 			if e.Pricing != nil {
 				cost := e.Pricing.Cost(u)
@@ -223,6 +242,9 @@ func toWire(e event.Event) wireEvent {
 		if e.Err != nil {
 			w.Err = e.Err.Error()
 		}
+		if e.ToolReuse != nil {
+			w.ToolReuse = toWireToolReuse(e.ToolReuse)
+		}
 	case event.Retrying:
 		w.RetryAttempt = e.RetryAttempt
 		w.RetryMax = e.RetryMax
@@ -241,5 +263,23 @@ func toWireCacheDiagnostics(d *event.CacheDiagnostics) *wireCacheDiagnostics {
 		ToolSchemaTokens:    d.ToolSchemaTokens,
 		CacheMissTokens:     d.CacheMissTokens,
 		CacheHitTokens:      d.CacheHitTokens,
+	}
+}
+
+func toWireToolReuse(s *event.ToolReuseStats) *wireToolReuseStats {
+	if s == nil {
+		return nil
+	}
+	return &wireToolReuseStats{
+		TurnCalls:             s.TurnCalls,
+		TurnDuplicates:        s.TurnDuplicates,
+		TurnCacheableCalls:    s.TurnCacheableCalls,
+		TurnCacheableDupes:    s.TurnCacheableDupes,
+		SessionCalls:          s.SessionCalls,
+		SessionDuplicates:     s.SessionDuplicates,
+		SessionCacheableCalls: s.SessionCacheableCalls,
+		SessionCacheableDupes:  s.SessionCacheableDupes,
+		SessionCacheHits:       s.SessionCacheHits,
+		SessionNormalizedDupes: s.SessionNormalizedDupes,
 	}
 }

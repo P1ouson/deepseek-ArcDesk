@@ -26,8 +26,10 @@ type Entry struct {
 	Kind       string    `json:"kind,omitempty"`
 	Confidence string    `json:"confidence,omitempty"`
 	Hits       int       `json:"hits,omitempty"`
-	LastUsedAt time.Time `json:"last_used_at,omitempty"`
-	ID         string    `json:"id,omitempty"`
+	LastUsedAt           time.Time `json:"last_used_at,omitempty"`
+	ID                   string    `json:"id,omitempty"`
+	RepoHead             string    `json:"repo_head,omitempty"`
+	WorkspaceFingerprint string    `json:"workspace_fingerprint,omitempty"`
 }
 
 // Store appends and searches failure memory for a workspace.
@@ -81,6 +83,7 @@ func (s *Store) Record(e Entry) error {
 	if e.Signature == "" || e.Fix == "" {
 		return fmt.Errorf("signature and fix are required")
 	}
+	s.StampProvenance(&e)
 	if len(e.Error) > 2000 {
 		e.Error = e.Error[:1997] + "..."
 	}
@@ -224,11 +227,12 @@ func (s *Store) CompactDuplicates() error {
 }
 
 type scoredEntry struct {
-	e     Entry
-	score float64
+	e         Entry
+	score     float64
+	textScore float64
 }
 
-// RankedSearch scores entries for knowledge injection.
+// RankedSearch scores entries for knowledge injection (legacy callers; no provenance filter).
 func (s *Store) RankedSearch(query string, paths []string, limit int) ([]Entry, error) {
 	if s == nil {
 		return nil, fmt.Errorf("failure memory not configured")
@@ -264,26 +268,51 @@ func (s *Store) RankedSearch(query string, paths []string, limit int) ([]Entry, 
 	return out, nil
 }
 
+// RankedSearchWithContext scores entries and skips provenance-stale rows.
+func (s *Store) RankedSearchWithContext(ctx SearchContext, query string, paths []string, limit int) ([]Entry, error) {
+	if s == nil {
+		return nil, fmt.Errorf("failure memory not configured")
+	}
+	if limit <= 0 {
+		limit = 3
+	}
+	ctx = ctx.withDefaults()
+	entries, err := s.List(s.maxEntries)
+	if err != nil {
+		return nil, err
+	}
+	q := strings.ToLower(strings.TrimSpace(query))
+	var ranked []scoredEntry
+	for _, e := range entries {
+		NormalizeEntry(&e)
+		if !e.IsInjectable() {
+			continue
+		}
+		if st := e.ProvenanceStatus(ctx); !st.AutoInjectable {
+			continue
+		}
+		sc := scoreEntry(e, q, paths)
+		if sc <= 0 {
+			continue
+		}
+		ranked = append(ranked, scoredEntry{e: e, score: sc})
+	}
+	sortEntriesByScore(ranked)
+	if len(ranked) > limit {
+		ranked = ranked[:limit]
+	}
+	out := make([]Entry, len(ranked))
+	for i, r := range ranked {
+		out[i] = r.e
+	}
+	return out, nil
+}
+
 func scoreEntry(e Entry, query string, paths []string) float64 {
 	if !e.IsInjectable() {
 		return 0
 	}
-	q := strings.ToLower(strings.TrimSpace(query))
-	score := 0.0
-	if q != "" {
-		low := strings.ToLower(e.Signature + " " + e.Error + " " + e.Fix)
-		if strings.Contains(low, q) {
-			score += 0.5
-		}
-		for _, tok := range strings.Fields(query) {
-			if len(tok) < 2 {
-				continue
-			}
-			if strings.Contains(low, strings.ToLower(tok)) {
-				score += 0.25
-			}
-		}
-	}
+	score := scoreEntryText(e, query)
 	for _, p := range paths {
 		p = strings.ToLower(strings.TrimSpace(p))
 		if p == "" {
@@ -305,6 +334,29 @@ func scoreEntry(e Entry, query string, paths []string) float64 {
 		score += 0.1
 	} else if e.Confidence == ConfidenceDraft {
 		score *= 0.5
+	}
+	return score
+}
+
+func scoreEntryText(e Entry, query string) float64 {
+	if !e.IsInjectable() {
+		return 0
+	}
+	q := strings.ToLower(strings.TrimSpace(query))
+	score := 0.0
+	if q != "" {
+		low := strings.ToLower(e.Signature + " " + e.Error + " " + e.Fix)
+		if strings.Contains(low, q) {
+			score += 0.5
+		}
+		for _, tok := range strings.Fields(query) {
+			if len(tok) < 2 {
+				continue
+			}
+			if strings.Contains(low, strings.ToLower(tok)) {
+				score += 0.25
+			}
+		}
 	}
 	return score
 }

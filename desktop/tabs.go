@@ -2502,6 +2502,10 @@ type ContextPanelInfo struct {
 	SessionCost      float64           `json:"sessionCost"`
 	SessionCurrency  string            `json:"sessionCurrency,omitempty"`
 	SessionCostUsd   float64           `json:"sessionCostUsd,omitempty"`
+	ToolReuseCalls   int               `json:"toolReuseCalls"`
+	ToolReuseDupes   int               `json:"toolReuseDuplicates"`
+	ToolReuseCacheableDupes int        `json:"toolReuseCacheableDupes"`
+	ToolReuseCacheHits      int        `json:"toolReuseCacheHits"`
 	ReadFiles        []readFileRecord  `json:"readFiles"`
 	ChangedFiles     []ChangedFileInfo `json:"changedFiles"`
 }
@@ -2535,6 +2539,12 @@ func (a *App) ContextPanel(tabID string) ContextPanelInfo {
 		used, window := ctrl.ContextSnapshot()
 		info.UsedTokens = used
 		info.WindowTokens = window
+		reuse := ctrl.ToolReuseStats()
+		info.ToolReuseCalls = reuse.SessionCalls
+		info.ToolReuseDupes = reuse.SessionDuplicates
+		info.ToolReuseCacheableDupes = reuse.SessionCacheableDupes
+		info.ToolReuseCacheHits = reuse.SessionCacheHits
+		info.ToolReuseCacheHits = reuse.SessionCacheHits
 	}
 
 	if records := tab.readTelemetrySnapshot(); records != nil {

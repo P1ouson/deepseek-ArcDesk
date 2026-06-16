@@ -163,6 +163,12 @@ func MergeInto(dst *Entry, src Entry) {
 	if len(src.Paths) > 0 {
 		dst.Paths = append([]string(nil), src.Paths...)
 	}
+	if src.RepoHead != "" {
+		dst.RepoHead = src.RepoHead
+	}
+	if src.WorkspaceFingerprint != "" {
+		dst.WorkspaceFingerprint = src.WorkspaceFingerprint
+	}
 	if len(src.Tags) > 0 {
 		dst.Tags = append([]string(nil), src.Tags...)
 	}

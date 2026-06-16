@@ -28,12 +28,16 @@ import (
 	"arcdesk/internal/memory"
 	"arcdesk/internal/nilutil"
 	"arcdesk/internal/planner"
+	"arcdesk/internal/prefixruntime"
 	"arcdesk/internal/provider"
 	"arcdesk/internal/rollback"
 	"arcdesk/internal/runtime"
 	"arcdesk/internal/selfdebug"
 	"arcdesk/internal/tool"
+	"arcdesk/internal/toolcache"
+	"arcdesk/internal/toolstats"
 	"arcdesk/internal/verification"
+	"arcdesk/internal/verifyselect"
 )
 
 // maxToolOutputBytes caps a single tool result before it goes into the model's
@@ -324,6 +328,30 @@ type Agent struct {
 	// stormSig: a model keeps doing the same successful write, so there is no
 	// error for the failure-only storm breaker to see.
 	repeatSuccessCounts map[string]int
+
+	// toolReuse tracks duplicate (tool, args) dispatches for Phase-0 measurement.
+	toolReuse *toolstats.Tracker
+
+	// toolCache stores successful read-only tool results for the session (Phase 1).
+	toolCache        *toolcache.Cache
+	toolCacheEnabled bool
+	toolCacheKeyCtx  toolstats.KeyContext
+
+	// cacheInflight deduplicates concurrent cacheable calls with the same key.
+	cacheFlightMu sync.Mutex
+	cacheInflight map[string]*inflightTool
+
+	// Phase-7 prefix runtime: canonical provider messages, cache-health heal,
+	// rumination interrupts, and verify-aware check selection.
+	prefixRuntimeEnabled bool
+	prefixHealth         *prefixruntime.HealthMonitor
+	rumination           *prefixruntime.RuminationScheduler
+	verifySelectEnabled  bool
+}
+
+type inflightTool struct {
+	done chan struct{}
+	out  toolOutcome
 }
 
 // SetPlanMode flips the read-only gate. While true, executeOne refuses any
@@ -403,6 +431,76 @@ func (a *Agent) LastUsage() *provider.Usage { return a.lastUsage.Load() }
 // API call this session — the basis for the status line's aggregate hit-rate.
 func (a *Agent) SessionCache() (hit, miss int) {
 	return int(a.sessCacheHit.Load()), int(a.sessCacheMiss.Load())
+}
+
+// ToolReuseStats returns session-cumulative duplicate tool-call counters.
+func (a *Agent) ToolReuseStats() event.ToolReuseStats {
+	if a == nil || a.toolReuse == nil {
+		return event.ToolReuseStats{}
+	}
+	return toEventToolReuse(a.toolReuse.Session(), a.toolReuse.Turn(), a.toolCacheSnapshot())
+}
+
+func (a *Agent) toolCacheSnapshot() toolcache.Stats {
+	if a == nil || !a.toolCacheEnabled || a.toolCache == nil {
+		return toolcache.Stats{}
+	}
+	return a.toolCache.Snapshot()
+}
+
+func toEventToolReuse(sess, turn toolstats.Stats, cache toolcache.Stats) event.ToolReuseStats {
+	return event.ToolReuseStats{
+		TurnCalls:             turn.Calls,
+		TurnDuplicates:        turn.Duplicates,
+		TurnCacheableCalls:    turn.CacheableCalls,
+		TurnCacheableDupes:    turn.CacheableDupes,
+		SessionCalls:          sess.Calls,
+		SessionDuplicates:     sess.Duplicates,
+		SessionCacheableCalls: sess.CacheableCalls,
+		SessionCacheableDupes: sess.CacheableDupes,
+		TurnNormalizedDupes:   turn.NormalizedDupes,
+		SessionNormalizedDupes: sess.NormalizedDupes,
+		TurnCacheHits:         cache.TurnHits,
+		SessionCacheHits:      cache.SessionHits,
+		SessionCacheMisses:    cache.SessionMisses,
+	}
+}
+
+func (a *Agent) toolReuseSnapshot() *event.ToolReuseStats {
+	if a == nil || a.toolReuse == nil {
+		return nil
+	}
+	s := toEventToolReuse(a.toolReuse.Session(), a.toolReuse.Turn(), a.toolCacheSnapshot())
+	return &s
+}
+
+// BindToolCache attaches a shared session cache (used by boot for executor + sub-agents).
+func (a *Agent) BindToolCache(c *toolcache.Cache, enabled bool) {
+	if a == nil {
+		return
+	}
+	a.toolCache = c
+	a.toolCacheEnabled = enabled
+	if c != nil {
+		c.SetKeyContext(a.toolCacheKeyCtx)
+	}
+}
+
+func (a *Agent) applyToolCacheKeyContext(ctx toolstats.KeyContext) {
+	if a == nil {
+		return
+	}
+	a.toolCacheKeyCtx = ctx
+	if a.toolReuse != nil {
+		a.toolReuse.SetKeyContext(ctx)
+	}
+	if a.toolCache != nil {
+		a.toolCache.SetKeyContext(ctx)
+	}
+}
+
+func (a *Agent) toolCacheLookupKey(name, argsJSON string) string {
+	return toolstats.IntentKey(name, argsJSON, a.toolCacheKeyCtx)
 }
 
 // ContextWindow returns the configured context-window size in tokens. 0
@@ -498,6 +596,22 @@ type Options struct {
 
 	// RollbackHost enables structured rollback diff previews (wired by controller).
 	RollbackHost *rollback.Host
+
+	// ToolCache is an optional shared session cache. When ToolCacheEnabled and nil,
+	// New creates a private cache for this agent.
+	ToolCache *toolcache.Cache
+
+	// ToolCacheEnabled enables read-only tool result caching. nil/true = on, false = off.
+	ToolCacheEnabled *bool
+
+	// ToolCacheWorkDir is the workspace root for Phase-2 path normalization in cache keys.
+	ToolCacheWorkDir string
+
+	// ToolCacheNormalize enables Phase-2 arg normalization for cache/reuse keys. nil/true = on.
+	ToolCacheNormalize *bool
+
+	// PrefixRuntime configures Phase-7 KV prefix stability and schedulers.
+	PrefixRuntime config.PrefixRuntimeConfig
 }
 
 // New constructs an Agent. MaxSteps <= 0 means no cap — the run loop continues
@@ -531,6 +645,36 @@ func New(prov provider.Provider, tools *tool.Registry, session *Session, opts Op
 	hooks := opts.Hooks
 	if nilutil.IsNil(hooks) {
 		hooks = nil
+	}
+	toolCacheEnabled := opts.ToolCacheEnabled == nil || *opts.ToolCacheEnabled
+	toolCacheNormalize := opts.ToolCacheNormalize == nil || *opts.ToolCacheNormalize
+	keyCtx := toolstats.KeyContext{
+		WorkDir:   opts.ToolCacheWorkDir,
+		Normalize: toolCacheNormalize,
+	}
+	var toolCache *toolcache.Cache
+	if toolCacheEnabled {
+		toolCache = opts.ToolCache
+		if toolCache == nil {
+			toolCache = toolcache.New()
+		}
+		toolCache.SetKeyContext(keyCtx)
+	}
+	tracker := toolstats.NewTracker()
+	tracker.SetKeyContext(keyCtx)
+	prCfg := opts.PrefixRuntime
+	prefixOn := prCfg.ShouldEnable()
+	var prefixHealth *prefixruntime.HealthMonitor
+	var rumination *prefixruntime.RuminationScheduler
+	if prefixOn {
+		prefixHealth = prefixruntime.NewHealthMonitor(prefixruntime.Settings{
+			Enabled:          true,
+			MinHitRate:       prCfg.ResolvedMinCacheHitRate(),
+			MinStepsForAlert: 2,
+		})
+		if prCfg.RuminationEnabled() {
+			rumination = prefixruntime.NewRuminationScheduler(prefixruntime.RuminationSettings{Enabled: true})
+		}
 	}
 	return &Agent{
 		prov:               prov,
@@ -567,6 +711,15 @@ func New(prov provider.Provider, tools *tool.Registry, session *Session, opts Op
 		compactForceRatio:  opts.CompactForceRatio,
 		recentKeep:         opts.RecentKeep,
 		archiveDir:         opts.ArchiveDir,
+		toolReuse:          tracker,
+		toolCache:          toolCache,
+		toolCacheEnabled:   toolCacheEnabled,
+		toolCacheKeyCtx:    keyCtx,
+		cacheInflight:      make(map[string]*inflightTool),
+		prefixRuntimeEnabled: prefixOn,
+		prefixHealth:         prefixHealth,
+		rumination:           rumination,
+		verifySelectEnabled:  prefixOn && prCfg.VerifySelectEnabled(),
 	}
 }
 
@@ -583,6 +736,12 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 	// Keep lastVerifyFailure across turns so a later fix+pass (even in the next
 	// user message) can still trigger knowledge capture suggestions.
 	a.repeatSuccessCounts = nil
+	if a.toolReuse != nil {
+		a.toolReuse.ResetTurn()
+	}
+	if a.toolCache != nil {
+		a.toolCache.ResetTurn()
+	}
 	a.sink.Emit(event.Event{Kind: event.TurnStarted})
 	a.session.Add(provider.Message{Role: provider.RoleUser, Content: input})
 
@@ -606,9 +765,16 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 		a.lastPrefixShape = prefixShape
 		a.haveLastPrefixShape = true
 		if usage != nil && usage.TotalTokens > 0 {
+			reuse := a.toolReuseSnapshot()
 			a.sink.Emit(event.Event{Kind: event.Usage, Usage: usage, Pricing: a.pricing,
 				CacheDiagnostics: &cacheDiagnostics,
+				ToolReuse:        reuse,
 				SessionHit:       int(a.sessCacheHit.Load()), SessionMiss: int(a.sessCacheMiss.Load())})
+			if a.prefixHealth != nil {
+				if act := a.prefixHealth.RecordStep(usage, int(a.sessCacheHit.Load()), int(a.sessCacheMiss.Load())); act.Notice != "" {
+					a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: act.Notice})
+				}
+			}
 		}
 		if msg, ok := finishReasonMessage(usage); ok {
 			a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: msg})
@@ -625,6 +791,15 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 			ReasoningSignature: signature,
 			ToolCalls:          calls,
 		})
+
+		if len(calls) == 0 {
+			if hint := a.ruminationInterrupt(reasoning, text); hint != "" {
+				a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: "rumination interrupt: prompting for concrete action"})
+				a.session.Add(provider.Message{Role: provider.RoleUser, Content: hint})
+				a.maybeCompact(ctx, usage)
+				continue
+			}
+		}
 
 		if len(calls) == 0 {
 			if reason := a.finalReadinessFailure(); reason != "" {
@@ -1031,13 +1206,24 @@ func (a *Agent) verificationRetryContext() string {
 	if a == nil || a.evidence == nil || len(a.projectChecks) == 0 {
 		return ""
 	}
+	checks := a.projectChecks
+	if a.verifySelectEnabled && a.evidence != nil {
+		writer, ok := a.evidence.LatestSuccessfulWriterIndex()
+		if !ok {
+			writer = 0
+		}
+		paths := a.evidence.WrittenPathsAfter(writer)
+		plan := verification.NewPlan(checks, verification.Policy{})
+		selected := verifyselect.MinimumChecks(plan, paths)
+		checks = planChecksToInstruction(selected)
+	}
 	writer, ok := a.evidence.LatestSuccessfulWriterIndex()
 	if !ok {
 		writer = 0
 	}
 	failedCmd, stderr := a.latestVerifyFailureForRetry(writer)
 	if failedCmd == "" {
-		for _, check := range a.projectChecks {
+		for _, check := range checks {
 			cmd := strings.TrimSpace(check.Command)
 			if cmd == "" {
 				continue
@@ -1051,7 +1237,18 @@ func (a *Agent) verificationRetryContext() string {
 	if failedCmd == "" {
 		return ""
 	}
-	return verification.BuildRetryContext(a.projectChecks, failedCmd, stderr)
+	return verification.BuildRetryContext(checks, failedCmd, stderr)
+}
+
+func planChecksToInstruction(plan verification.Plan) []instruction.VerifyCheck {
+	out := make([]instruction.VerifyCheck, 0, len(plan.Checks))
+	for _, c := range plan.Checks {
+		out = append(out, instruction.VerifyCheck{
+			Command:  c.Command,
+			Category: string(c.Category),
+		})
+	}
+	return out
 }
 
 func (a *Agent) selfdebugInput(attempt int) selfdebug.Input {
@@ -1192,7 +1389,7 @@ func (a *Agent) stream(ctx context.Context, turn int) (string, string, string, [
 		a.sink.Emit(event.Event{Kind: event.Retrying, RetryAttempt: info.Attempt, RetryMax: info.Max})
 	})
 	ch, err := a.prov.Stream(ctx, provider.Request{
-		Messages:    a.session.Messages,
+		Messages:    a.providerMessages(),
 		Tools:       a.tools.Schemas(),
 		Temperature: a.temperature,
 	})
@@ -1273,6 +1470,20 @@ func (a *Agent) stream(ctx context.Context, turn int) (string, string, string, [
 	return text.String(), stored, signature, calls, usage, nil
 }
 
+func (a *Agent) providerMessages() []provider.Message {
+	if a == nil || !a.prefixRuntimeEnabled {
+		return a.session.Messages
+	}
+	return prefixruntime.ForProviderRequest(a.session.Messages)
+}
+
+func (a *Agent) ruminationInterrupt(reasoning, text string) string {
+	if a == nil || a.rumination == nil {
+		return ""
+	}
+	return a.rumination.ObserveStep(nil, reasoning, text)
+}
+
 func (a *Agent) capturePrefixShape(schemas []provider.ToolSchema) PrefixShape {
 	return CaptureShape(a.systemPrompt(), schemas, a.session.RewriteVersion())
 }
@@ -1308,6 +1519,9 @@ func (a *Agent) executeBatch(ctx context.Context, calls []provider.ToolCall) []s
 			}
 		}
 		a.sink.Emit(event.Event{Kind: event.ToolDispatch, Tool: ev})
+		if a.toolReuse != nil {
+			a.toolReuse.Record(c.Name, c.Arguments, ok && t.ReadOnly())
+		}
 	}
 
 	results := make([]string, len(calls))
@@ -1340,6 +1554,7 @@ func (a *Agent) executeBatch(ctx context.Context, calls []provider.ToolCall) []s
 			Err:       o.errMsg,
 			ReadOnly:  ok && t.ReadOnly(),
 			Truncated: o.truncated,
+			Cached:    o.cached,
 		}})
 		if o.truncated && o.truncMsg != "" {
 			a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: o.truncMsg})
@@ -1509,6 +1724,7 @@ type toolOutcome struct {
 	errMsg    string
 	truncated bool
 	truncMsg  string
+	cached    bool
 }
 
 // executeOne runs a single tool call. It is pure with respect to the event sink
@@ -1593,6 +1809,51 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 			}
 		}
 	}
+	if hit, out := a.tryToolCache(call, t); hit {
+		return out
+	}
+	if a.toolCacheEnabled && a.toolCache != nil && toolcache.Cacheable(call.Name, t.ReadOnly()) {
+		if out, shared := a.joinInflight(call, t); shared {
+			return out
+		}
+		a.toolCache.RecordMiss()
+	}
+	out := a.executeOneBody(ctx, call, t, constraintResult)
+	if a.toolCacheEnabled && a.toolCache != nil && toolcache.Cacheable(call.Name, t.ReadOnly()) {
+		a.finishInflight(call, out)
+	}
+	return out
+}
+
+func (a *Agent) joinInflight(call provider.ToolCall, t tool.Tool) (toolOutcome, bool) {
+	key := a.toolCacheLookupKey(call.Name, call.Arguments)
+	a.cacheFlightMu.Lock()
+	if ch, ok := a.cacheInflight[key]; ok {
+		a.cacheFlightMu.Unlock()
+		<-ch.done
+		if hit, out := a.tryToolCache(call, t); hit {
+			return out, true
+		}
+		return ch.out, true
+	}
+	ch := &inflightTool{done: make(chan struct{})}
+	a.cacheInflight[key] = ch
+	a.cacheFlightMu.Unlock()
+	return toolOutcome{}, false
+}
+
+func (a *Agent) finishInflight(call provider.ToolCall, out toolOutcome) {
+	key := a.toolCacheLookupKey(call.Name, call.Arguments)
+	a.cacheFlightMu.Lock()
+	if ch, ok := a.cacheInflight[key]; ok {
+		ch.out = out
+		delete(a.cacheInflight, key)
+		close(ch.done)
+	}
+	a.cacheFlightMu.Unlock()
+}
+
+func (a *Agent) executeOneBody(ctx context.Context, call provider.ToolCall, t tool.Tool, constraintResult constraint.Result) toolOutcome {
 	// Checkpoint the file this writer is about to change, so the turn can be
 	// rewound. Fires after all gating (the edit is cleared to run) and only for
 	// tools that can describe their change; a Preview error means the edit will
@@ -1684,7 +1945,42 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 			body = strings.TrimRight(body, "\n") + "\n\n" + hint
 		}
 	}
+	if a.toolCacheEnabled && a.toolCache != nil && toolcache.Cacheable(call.Name, t.ReadOnly()) {
+		a.toolCache.Put(call.Name, call.Arguments, toolcache.Entry{
+			Output: body, Truncated: truncMsg != "", TruncMsg: truncMsg,
+		})
+	}
+	if !t.ReadOnly() {
+		a.invalidateToolCache()
+	}
 	return toolOutcome{output: body, truncated: truncMsg != "", truncMsg: truncMsg}
+}
+
+func (a *Agent) tryToolCache(call provider.ToolCall, t tool.Tool) (bool, toolOutcome) {
+	if !a.toolCacheEnabled || a.toolCache == nil || !toolcache.Cacheable(call.Name, t.ReadOnly()) {
+		return false, toolOutcome{}
+	}
+	entry, ok := a.toolCache.Get(call.Name, call.Arguments)
+	if !ok {
+		return false, toolOutcome{}
+	}
+	if a.evidence != nil {
+		receipt := evidence.ReceiptFromToolCall(call.Name, json.RawMessage(call.Arguments), true, t.ReadOnly())
+		a.evidence.Record(receipt)
+		if receipt.Write {
+			a.noteCaptureFixPaths(receipt.Paths)
+		}
+	}
+	return true, toolOutcome{
+		output: entry.Output, errMsg: entry.ErrMsg,
+		truncated: entry.Truncated, truncMsg: entry.TruncMsg, cached: true,
+	}
+}
+
+func (a *Agent) invalidateToolCache() {
+	if a.toolCache != nil {
+		a.toolCache.InvalidateAll()
+	}
 }
 
 func (a *Agent) emitAutoTodoAdvance(call provider.ToolCall) {

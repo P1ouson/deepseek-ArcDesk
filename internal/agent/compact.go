@@ -71,6 +71,9 @@ Rules: be terse — bullet points and fragments, not prose. Preserve identifiers
 // configured fraction of the context window. It is a no-op when compaction is
 // disabled (no window) or usage is unavailable.
 func (a *Agent) maybeCompact(ctx context.Context, u *provider.Usage) {
+	if a.prefixHealth != nil && a.prefixHealth.FreezeCompaction() {
+		return
+	}
 	if a.contextWindow <= 0 || u == nil || u.PromptTokens == 0 {
 		return
 	}

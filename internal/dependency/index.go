@@ -169,6 +169,20 @@ func (i *Index) ResolveID(path string) (NodeID, error) {
 	return resolveID(g, path)
 }
 
+// MetaSnapshot returns a copy of index freshness metadata (may be nil).
+func (i *Index) MetaSnapshot() *Meta {
+	if i == nil {
+		return nil
+	}
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	if i.meta == nil {
+		return nil
+	}
+	cp := *i.meta
+	return &cp
+}
+
 // Status returns index statistics and health.
 func (i *Index) Status() (Stats, error) {
 	i.mu.RLock()
