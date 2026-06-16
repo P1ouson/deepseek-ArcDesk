@@ -1140,6 +1140,15 @@ func (a *App) RemoveWorkspace(dir string) error {
 		return fmt.Errorf("workspace path is required")
 	}
 	dir = normalizeProjectRoot(dir)
+	if err := a.closeProjectWorkspaceTabs(dir); err != nil {
+		return err
+	}
+	if err := a.trashWorkspaceSessions(dir); err != nil {
+		return err
+	}
+	if err := clearWorkspaceTopicMetadata(dir); err != nil {
+		return err
+	}
 	forgetWorkspace(dir)
 	if err := removeProject(dir); err != nil {
 		return err
@@ -1783,14 +1792,19 @@ func (a *App) skillsViewForTab(tab *WorkspaceTab) []SkillView {
 		}
 	}
 	projectTrusted := hook.IsTrusted(root, "")
-	st := skill.New(skill.Options{ProjectRoot: root, CustomPaths: custom, ProjectTrusted: projectTrusted, Stderr: io.Discard})
+	// List repo skills for the drawer even when untrusted; execution stays gated in boot.
+	st := skill.New(skill.Options{ProjectRoot: root, CustomPaths: custom, ProjectTrusted: true, Stderr: io.Discard})
 	list := st.List()
 	out := make([]SkillView, 0, len(list))
 	for _, sk := range list {
+		enabled := !disabled[sk.Name]
+		if sk.Scope == skill.ScopeProject && !projectTrusted {
+			enabled = false
+		}
 		out = append(out, SkillView{
 			Name: sk.Name, Description: sk.Description,
 			Scope: string(sk.Scope), RunAs: string(sk.RunAs),
-			Enabled: !disabled[sk.Name],
+			Enabled: enabled,
 		})
 	}
 	return out
@@ -1815,7 +1829,8 @@ func skillRootsViewForWorkspace(workspaceRoot string) []SkillRootView {
 		custom = cfg.SkillCustomPaths()
 	}
 	projectTrusted := hook.IsTrusted(root, "")
-	st := skill.New(skill.Options{ProjectRoot: root, CustomPaths: custom, DisableBuiltins: true, ProjectTrusted: projectTrusted, Stderr: io.Discard})
+	// Settings UI lists repo skills even when untrusted; execution stays gated in boot.
+	st := skill.New(skill.Options{ProjectRoot: root, CustomPaths: custom, DisableBuiltins: true, ProjectTrusted: true, Stderr: io.Discard})
 	counts := map[string]int{}
 	skillItems := map[string][]SkillRootSkillView{}
 	for _, sk := range st.List() {

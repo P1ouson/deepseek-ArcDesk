@@ -744,6 +744,49 @@ func TestRemoveWorkspaceUsesSharedProjectRegistryForCurrentProject(t *testing.T)
 	if got := app.ListProjectTree(); len(got) != 0 {
 		t.Fatalf("project tree after remove = %+v, want empty", got)
 	}
+	if len(app.tabs) != 0 {
+		t.Fatalf("tabs after remove = %d, want 0", len(app.tabs))
+	}
+}
+
+func TestRemoveWorkspaceClearsSessionsAndTopicMetadata(t *testing.T) {
+	isolateDesktopUserDirs(t)
+
+	projectRoot := t.TempDir()
+	topicID := "topic_remove_workspace"
+	if err := addProject(projectRoot, "Removable"); err != nil {
+		t.Fatalf("add project: %v", err)
+	}
+	if err := setTopicTitle(projectRoot, topicID, "Old chat"); err != nil {
+		t.Fatalf("set topic title: %v", err)
+	}
+	dir := config.SessionDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	sessionPath := writeTopicSession(t, dir, "remove-me.jsonl", topicID, "Old chat", projectRoot)
+
+	app := NewApp()
+	if err := app.RemoveWorkspace(projectRoot); err != nil {
+		t.Fatalf("remove workspace: %v", err)
+	}
+	if _, err := os.Stat(sessionPath); err == nil {
+		t.Fatalf("session file should be moved to trash, still at %s", sessionPath)
+	}
+	if got := loadTopicTitle(projectRoot, topicID); got != "" {
+		t.Fatalf("topic title should be cleared, got %q", got)
+	}
+
+	if err := addProject(projectRoot, "Removable"); err != nil {
+		t.Fatalf("re-add project: %v", err)
+	}
+	nodes := app.ListProjectTree()
+	if len(nodes) != 1 {
+		t.Fatalf("project tree len = %d, want 1", len(nodes))
+	}
+	if len(nodes[0].Children) != 0 {
+		t.Fatalf("re-added project should have no topics, got %#v", nodes[0].Children)
+	}
 }
 
 func TestRestoredProjectTabUsesStoredTopicTitle(t *testing.T) {
@@ -1191,6 +1234,7 @@ func TestTrashTopicMovesOpenSessionToTrash(t *testing.T) {
 		Ready:         true,
 		disabledMCP:   map[string]ServerView{},
 	}
+	defer openTab.Ctrl.Close()
 	otherTab := &WorkspaceTab{
 		ID:            "tab_other",
 		Scope:         "project",

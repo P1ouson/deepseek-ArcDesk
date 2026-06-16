@@ -1495,6 +1495,74 @@ func removeProject(root string) error {
 	return saveProjectsFile(f)
 }
 
+// closeProjectWorkspaceTabs shuts down every open tab bound to a project workspace.
+func (a *App) closeProjectWorkspaceTabs(workspaceRoot string) error {
+	workspaceRoot = normalizeProjectRoot(workspaceRoot)
+	if workspaceRoot == "" {
+		return nil
+	}
+	tabIDs := make([]string, 0)
+	a.mu.RLock()
+	for id, tab := range a.tabs {
+		if tab == nil || tab.Scope != "project" {
+			continue
+		}
+		if sessionWorkspaceMatches(workspaceRoot, tab.WorkspaceRoot) {
+			tabIDs = append(tabIDs, id)
+		}
+	}
+	a.mu.RUnlock()
+	for _, id := range tabIDs {
+		if err := a.CloseTab(id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// trashWorkspaceSessions moves saved project sessions for workspaceRoot into trash.
+func (a *App) trashWorkspaceSessions(workspaceRoot string) error {
+	workspaceRoot = normalizeProjectRoot(workspaceRoot)
+	if workspaceRoot == "" {
+		return nil
+	}
+	dir := config.SessionDir()
+	infos, err := agent.ListSessions(dir)
+	if err != nil {
+		return err
+	}
+	for _, info := range infos {
+		if strings.TrimSpace(info.Scope) != "project" {
+			continue
+		}
+		if !sessionWorkspaceMatches(workspaceRoot, info.WorkspaceRoot) {
+			continue
+		}
+		sessionPath, key, err := validateSessionPath(dir, info.Path)
+		if err != nil {
+			return err
+		}
+		if err := trashSessionArtifacts(dir, sessionPath, key); err != nil {
+			return err
+		}
+	}
+	agent.InvalidateSessionList(dir)
+	return nil
+}
+
+// clearWorkspaceTopicMetadata drops sidebar topic labels for a removed project so
+// re-adding the workspace does not resurrect old conversations.
+func clearWorkspaceTopicMetadata(workspaceRoot string) error {
+	workspaceRoot = normalizeProjectRoot(workspaceRoot)
+	if workspaceRoot == "" {
+		return nil
+	}
+	if err := saveTopicTitles(workspaceRoot, map[string]string{}); err != nil {
+		return err
+	}
+	return saveTopicTitleSources(workspaceRoot, map[string]string{})
+}
+
 func projectTitle(root string) string {
 	root = normalizeProjectRoot(root)
 	for _, p := range loadProjectsFile().Projects {
