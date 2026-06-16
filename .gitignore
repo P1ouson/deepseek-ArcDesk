@@ -62,6 +62,14 @@ Thumbs.db
 /.codex/
 /_rename-to-arcdesk.ps1
 reasonix.toml.bak*
+.benchmark-backup/
+.benchmark-backup-live/
+/desktop/benchmarks/benchmark-*.json
+/desktop/benchmarks/explore-trials-run.log
+/desktop/benchmarks/explore-trials-summary.json
+/desktop/benchmarks/toolcache-summary.json
+/desktop/benchmarks/toolcache-explore-summary.md
+**/.arcdesk/
 
 # Accidental `go test -o ./pkg` / coverage scratch at repo root
 /agent/
