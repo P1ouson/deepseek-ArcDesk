@@ -840,6 +840,7 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 				a.maybeCompact(ctx, usage)
 				continue
 			}
+			a.maybeCompact(ctx, usage)
 			return nil // model gave a final answer
 		}
 

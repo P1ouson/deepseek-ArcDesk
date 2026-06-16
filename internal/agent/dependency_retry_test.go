@@ -116,8 +116,9 @@ func TestVerifyRetryIncludesDependencyImpactEndToEnd(t *testing.T) {
 	}}
 
 	a := New(prov, reg, NewSession(""), Options{
-		ProjectChecks:   []instruction.VerifyCheck{{Command: "go test ./...", SourcePath: "AGENTS.md", Line: 3}},
-		DependencyIndex: idx,
+		ProjectChecks:            []instruction.VerifyCheck{{Command: "go test ./...", SourcePath: "AGENTS.md", Line: 3}},
+		VerifyEnforceFinalAnswer: true,
+		DependencyIndex:          idx,
 	}, event.Discard)
 
 	if err := a.Run(context.Background(), "edit alpha and verify"); err != nil {

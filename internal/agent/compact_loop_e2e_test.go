@@ -86,6 +86,7 @@ func compactionsPerTurn(t *testing.T, windowTok int, blob string, turns int) (pe
 	reg.Add(fatTool{blob: blob})
 
 	a, _ := newAgent(t, srv.URL, reg, windowTok, 4)
+	a.prefixHealth = nil // isolate compaction behavior from P7 prefix-health freeze
 	started := 0
 	a.sink = event.FuncSink(func(e event.Event) {
 		switch e.Kind {
