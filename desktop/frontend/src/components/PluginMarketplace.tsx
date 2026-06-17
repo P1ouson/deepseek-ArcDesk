@@ -72,6 +72,71 @@ function skillScopeLabel(scope: string, t: ReturnType<typeof useT>): string {
   }
 }
 
+function serverEndpoint(server: ServerView): string {
+  if (server.transport === "stdio") {
+    return [server.command, ...(server.args ?? [])].filter(Boolean).join(" ");
+  }
+  return server.url?.trim() ?? "";
+}
+
+function ServerInstalledDetail({
+  server,
+  t,
+}: {
+  server: ServerView;
+  t: ReturnType<typeof useT>;
+}) {
+  const endpoint = serverEndpoint(server);
+  const statusHint = serverStatusHint(server.status, t);
+  const hasToolList = Boolean(server.toolList?.length);
+
+  return (
+    <div className="extensions-studio__row-detail">
+      {statusHint ? <p className="extensions-studio__detail-hint">{statusHint}</p> : null}
+      {endpoint ? (
+        <div className="extensions-studio__detail-line">
+          <span>{t("plugins.endpoint")}</span>
+          <code>{endpoint}</code>
+        </div>
+      ) : server.builtIn ? (
+        <p className="extensions-studio__detail-hint">{t("plugins.detailBuiltIn")}</p>
+      ) : null}
+      {server.envKeys?.length ? (
+        <div className="extensions-studio__detail-line">
+          <span>{t("plugins.detailEnvKeys")}</span>
+          <code>{server.envKeys.join(", ")}</code>
+        </div>
+      ) : null}
+      {hasToolList ? (
+        <div className="extensions-studio__tools">
+          <div className="extensions-studio__tools-head">
+            <Wrench size={13} />
+            {t("plugins.toolsList")}
+          </div>
+          <ul>
+            {server.toolList!.map((tool) => (
+              <li key={tool.name}>
+                <strong>{tool.name}</strong>
+                <span>{tool.description}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : server.status === "connected" || server.status === "deferred" || server.status === "initializing" ? (
+        <p className="extensions-studio__detail-hint">
+          {server.tools > 0
+            ? t("plugins.detailToolsPending", { n: String(server.tools) })
+            : t("plugins.detailConnectForTools")}
+        </p>
+      ) : server.error ? (
+        <p className="extensions-studio__detail-hint extensions-studio__error">{server.error}</p>
+      ) : (
+        <p className="extensions-studio__detail-hint">{t("plugins.detailNoExtraInfo")}</p>
+      )}
+    </div>
+  );
+}
+
 function catalogEntryNeedsSetup(entry: MCPCatalogEntry): boolean {
   return Boolean(
     entry.envFields?.length ||
@@ -568,10 +633,6 @@ export function PluginMarketplace() {
           <div className="extensions-studio__list">
             {filteredServers.map((server) => {
               const expanded = expandedServers.has(server.name);
-              const endpoint =
-                server.transport === "stdio"
-                  ? [server.command, ...(server.args ?? [])].filter(Boolean).join(" ")
-                  : server.url ?? "";
               const showConnect = server.status === "deferred" || server.status === "initializing" || server.status === "disabled";
               const showRetry = server.status === "failed";
               const showDisable =
@@ -641,30 +702,7 @@ export function PluginMarketplace() {
                     </div>
                   </div>
                   <MotionUnfold open={expanded} className="extensions-studio__row-detail-wrap">
-                    <div className="extensions-studio__row-detail">
-                      {endpoint ? (
-                        <div className="extensions-studio__detail-line">
-                          <span>{t("plugins.endpoint")}</span>
-                          <code>{endpoint}</code>
-                        </div>
-                      ) : null}
-                      {server.toolList?.length ? (
-                        <div className="extensions-studio__tools">
-                          <div className="extensions-studio__tools-head">
-                            <Wrench size={13} />
-                            {t("plugins.toolsList")}
-                          </div>
-                          <ul>
-                            {server.toolList.map((tool) => (
-                              <li key={tool.name}>
-                                <strong>{tool.name}</strong>
-                                <span>{tool.description}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                    </div>
+                    <ServerInstalledDetail server={server} t={t} />
                   </MotionUnfold>
                 </article>
               );

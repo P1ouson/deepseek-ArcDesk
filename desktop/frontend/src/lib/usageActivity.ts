@@ -241,4 +241,13 @@ export function buildUsageChart(buckets: UsageDayBucket[], days = 14): UsageChar
   return points;
 }
 
+/** Pixel height for usage chart bars (matches `.usage-chart__bars` area). */
+export const USAGE_CHART_BAR_MAX_PX = 148;
+
+export function usageChartBarHeightPx(tokens: number, maxTokens: number): number {
+  if (tokens <= 0) return 4;
+  const max = Math.max(maxTokens, 1);
+  return Math.max(8, Math.round((tokens / max) * USAGE_CHART_BAR_MAX_PX));
+}
+
 export const USAGE_ACTIVITY_UPDATE_EVENT = UPDATE_EVENT;

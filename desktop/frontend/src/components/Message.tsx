@@ -221,10 +221,12 @@ export const AssistantMessage = memo(function AssistantMessage({
       setReasoningOpen(true);
       return;
     }
-    if (!item.streaming || hasText) {
+    // Collapse only when the stream ends — not when answer text arrives mid-stream
+    // (reasoning + text interleave would otherwise flicker open/closed).
+    if (!item.streaming && hasReasoning) {
       setReasoningOpen(false);
     }
-  }, [thinkingActive, item.streaming, hasText]);
+  }, [thinkingActive, item.streaming, hasReasoning]);
 
   return (
     <div className="msg msg--assistant">

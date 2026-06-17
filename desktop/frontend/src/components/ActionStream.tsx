@@ -317,15 +317,15 @@ export const ThinkingBlockView = memo(function ThinkingBlockView({
   const hasTools = block.entries.length > 0;
   const [open, setOpen] = useState(active);
 
-  // Auto-expand while the block is active; collapse only when the turn finishes — avoids
-  // fold/unfold flicker between tool rounds when active briefly drops to false.
+  // Auto-expand while the block is active; collapse only when the agent turn fully
+  // finishes — avoids fold/unfold flicker between tool rounds or text/reasoning interleave.
   useEffect(() => {
     if (active) setOpen(true);
   }, [active]);
 
   useEffect(() => {
-    if (block.complete && !active) setOpen(false);
-  }, [block.complete, active]);
+    if (!block.turnInProgress && block.complete) setOpen(false);
+  }, [block.turnInProgress, block.complete]);
 
   if (!hasReasoning && !hasTools) return null;
 

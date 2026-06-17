@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   Check,
   ChevronDown,
-  ChevronUp,
+  ChevronLeft,
   FileText,
   Folder,
   FolderX,
@@ -16,30 +16,27 @@ import { app } from "../lib/bridge";
 import { confirmAction } from "../lib/confirmAction";
 import { getLocale, useT } from "../lib/i18n";
 import type { FileEntry } from "../lib/types";
+import {
+  isPathUnderRoot,
+  normalizeWritePath,
+  parentWritePath,
+  pathsEqual,
+} from "../lib/writePaths";
 import { getRecentWorkspacePaths, recordRecentWorkspace } from "../lib/workspaceRecents";
 import { isNoWriteWorkspace, NO_WORKSPACE_VALUE } from "../lib/writeWorkspace";
 import { closeStudioSelect, openStudioSelect } from "../lib/studioSelectRegistry";
 import { AnchoredPopover } from "./AnchoredPopover";
 import { FileTypeIcon } from "./FileTypeIcon";
-import { MotionUnfold } from "./MotionUnfold";
 import { Tooltip } from "./Tooltip";
 
 const PICK_WORKSPACE_VALUE = "__pick_workspace__";
 const PICK_FILE_VALUE = "__pick_file__";
 
 function WriteFileListPane({ browsePath, children }: { browsePath: string; children: ReactNode }) {
-  const [open, setOpen] = useState(true);
-
-  useEffect(() => {
-    setOpen(false);
-    const frame = requestAnimationFrame(() => setOpen(true));
-    return () => cancelAnimationFrame(frame);
-  }, [browsePath]);
-
   return (
-    <MotionUnfold open={open} className="write-studio__file-list-unfold">
+    <div key={browsePath} className="write-studio__file-list-scroll">
       {children}
-    </MotionUnfold>
+    </div>
   );
 }
 
@@ -58,23 +55,12 @@ function baseName(path: string): string {
   return path.replace(/[/\\]+$/, "").split(/[/\\]/).filter(Boolean).pop() ?? path;
 }
 
-function normalizePath(path: string): string {
-  return path.replace(/\\/g, "/").replace(/\/+$/, "");
-}
-
-function isDirectChild(entryPath: string, parentPath: string): boolean {
-  const parent = normalizePath(parentPath);
-  const entry = normalizePath(entryPath);
-  if (entry === parent || !entry.startsWith(`${parent}/`)) return false;
-  const rel = entry.slice(parent.length + 1);
-  return rel.length > 0 && !rel.includes("/");
-}
-
 function isWriteListHiddenFile(name: string): boolean {
   const base = name.trim();
   if (!base) return true;
   if (base.startsWith("~$")) return true;
   if (base.startsWith("~WRL") || base.startsWith("~WRD")) return true;
+  if (base.startsWith(".")) return true;
   return false;
 }
 
@@ -108,30 +94,32 @@ export function WriteSidebar({
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const closeWorkspaceMenu = useCallback(() => setWorkspaceMenuOpen(false), []);
   const [entries, setEntries] = useState<FileEntry[]>([]);
-  const [browsePath, setBrowsePath] = useState(workspaceRoot);
+  const [browsePath, setBrowsePathState] = useState(() => normalizeWritePath(workspaceRoot));
   const [busy, setBusy] = useState(false);
   const noWorkspace = isNoWriteWorkspace(workspaceRoot);
 
+  const setBrowsePath = useCallback((path: string) => {
+    setBrowsePathState(normalizeWritePath(path));
+  }, []);
+
   const recentWorkspaces = useMemo(() => {
-    const current = normalizePath(workspaceRoot);
+    const current = normalizeWritePath(workspaceRoot);
     return getRecentWorkspacePaths()
-      .filter((path) => normalizePath(path) !== current)
+      .filter((path) => normalizeWritePath(path) !== current)
       .slice(0, 5);
   }, [workspaceRoot]);
 
   useEffect(() => {
     setBrowsePath(workspaceRoot);
-  }, [workspaceRoot]);
+  }, [setBrowsePath, workspaceRoot]);
 
   useEffect(() => {
     if (!selectedPath || noWorkspace) return;
-    const file = normalizePath(selectedPath);
-    const root = normalizePath(workspaceRoot);
-    if (file === root || file.startsWith(`${root}/`)) {
-      const parent = file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : root;
-      setBrowsePath(parent || root);
-    }
-  }, [noWorkspace, selectedPath, workspaceRoot]);
+    const file = normalizeWritePath(selectedPath);
+    const root = normalizeWritePath(workspaceRoot);
+    if (!isPathUnderRoot(file, root)) return;
+    setBrowsePath(parentWritePath(file));
+  }, [noWorkspace, selectedPath, setBrowsePath, workspaceRoot]);
 
   useEffect(() => {
     if (!workspaceMenuOpen) return;
@@ -146,31 +134,29 @@ export function WriteSidebar({
     }
     setBusy(true);
     try {
-      const listed = await app.ListWriteFiles(workspaceRoot).catch(() => [] as FileEntry[]);
+      const listed = await app.ListWriteDir(workspaceRoot, browsePath).catch(() => [] as FileEntry[]);
       setEntries(listed);
     } finally {
       setBusy(false);
     }
-  }, [noWorkspace, workspaceRoot]);
+  }, [browsePath, noWorkspace, workspaceRoot]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  const visibleEntries = useMemo(() => {
-    const dirs = entries.filter((entry) => entry.isDir && isDirectChild(entry.path, browsePath));
-    const files = entries.filter(
-      (entry) => !entry.isDir && isDirectChild(entry.path, browsePath) && !isWriteListHiddenFile(entry.name),
-    );
-    dirs.sort((a, b) => a.name.localeCompare(b.name));
-    files.sort((a, b) => (b.modTime ?? 0) - (a.modTime ?? 0) || a.name.localeCompare(b.name));
-    return [...dirs, ...files];
-  }, [browsePath, entries]);
+  const visibleEntries = useMemo(
+    () => entries.filter((entry) => !isWriteListHiddenFile(entry.name)),
+    [entries],
+  );
 
   const breadcrumbParts = useMemo(() => {
-    const root = normalizePath(workspaceRoot);
-    const current = normalizePath(browsePath);
-    if (current === root) return [{ path: root, label: baseName(root) || t("write.sidebar.currentFolder") }];
+    const root = normalizeWritePath(workspaceRoot);
+    const current = normalizeWritePath(browsePath);
+    if (pathsEqual(current, root)) return [{ path: root, label: baseName(root) || t("write.sidebar.currentFolder") }];
+    if (!isPathUnderRoot(current, root)) {
+      return [{ path: root, label: baseName(root) || t("write.sidebar.currentFolder") }];
+    }
     const rel = current.slice(root.length + 1);
     const parts = [{ path: root, label: baseName(root) || t("write.sidebar.currentFolder") }];
     let acc = root;
@@ -182,10 +168,19 @@ export function WriteSidebar({
   }, [browsePath, t, workspaceRoot]);
 
   useEffect(() => {
-    if (selectedPath || visibleEntries.every((entry) => entry.isDir)) return;
+    if (noWorkspace) return;
+    const current = normalizeWritePath(browsePath);
+    if (!selectedPath) {
+      if (visibleEntries.every((entry) => entry.isDir)) return;
+      const firstFile = visibleEntries.find((entry) => !entry.isDir);
+      if (firstFile) onSelectFile(firstFile.path);
+      return;
+    }
+    const selected = normalizeWritePath(selectedPath);
+    if (pathsEqual(parentWritePath(selected), current)) return;
     const firstFile = visibleEntries.find((entry) => !entry.isDir);
-    if (firstFile) onSelectFile(firstFile.path);
-  }, [onSelectFile, selectedPath, visibleEntries]);
+    onSelectFile(firstFile?.path ?? "");
+  }, [browsePath, noWorkspace, onSelectFile, selectedPath, visibleEntries]);
 
   const createDraft = async () => {
     const stamp = new Date().toISOString().slice(0, 10);
@@ -196,7 +191,7 @@ export function WriteSidebar({
       if (!picked?.trim()) return;
       path = picked.trim();
     } else {
-      path = `${normalizePath(browsePath)}/${name}`;
+      path = `${normalizeWritePath(browsePath)}/${name}`;
     }
     await app.WriteWriteFile(path, `# ${t("write.defaultDocTitle")}\n\n`);
     await reload();
@@ -209,7 +204,7 @@ export function WriteSidebar({
       setBrowsePath(path);
       return;
     }
-    if (dirty && selectedPath && path !== selectedPath) {
+    if (dirty && selectedPath && !pathsEqual(path, selectedPath)) {
       const ok = await confirmAction({ title: t("write.unsavedLeaveTitle"), message: t("write.unsavedLeave") });
       if (!ok) return;
     }
@@ -226,17 +221,17 @@ export function WriteSidebar({
     await app.DeleteWriteFile(path);
     await reload();
     onFilesChanged?.();
-    if (selectedPath === path) onSelectFile("");
+    if (selectedPath && pathsEqual(selectedPath, path)) onSelectFile("");
   };
 
   const renameDraft = async (path: string) => {
     const nextName = window.prompt(t("write.sidebar.renamePrompt"), baseName(path));
     if (!nextName?.trim() || nextName.trim() === baseName(path)) return;
-    const nextPath = `${normalizePath(browsePath)}/${nextName.trim()}`;
+    const nextPath = `${normalizeWritePath(browsePath)}/${nextName.trim()}`;
     await app.RenameWriteFile(path, nextPath);
     await reload();
     onFilesChanged?.();
-    if (selectedPath === path) onSelectFile(nextPath);
+    if (selectedPath && pathsEqual(selectedPath, path)) onSelectFile(nextPath);
   };
 
   const switchWorkspaceRoot = async (nextRoot: string) => {
@@ -267,14 +262,17 @@ export function WriteSidebar({
   };
 
   const goUp = () => {
-    const root = normalizePath(workspaceRoot);
-    const current = normalizePath(browsePath);
-    if (current === root) return;
-    const parent = current.slice(0, current.lastIndexOf("/"));
+    const root = normalizeWritePath(workspaceRoot);
+    const current = normalizeWritePath(browsePath);
+    if (pathsEqual(current, root)) return;
+    const parent = parentWritePath(current);
     setBrowsePath(parent || root);
   };
 
   const currentFolderName = noWorkspace ? t("write.sidebar.noFolder") : baseName(workspaceRoot) || workspaceRoot;
+  const rootPath = normalizeWritePath(workspaceRoot);
+  const currentBrowsePath = normalizeWritePath(browsePath);
+  const canGoUp = !noWorkspace && !pathsEqual(currentBrowsePath, rootPath);
 
   return (
     <aside className="write-sidebar write-studio__sidebar">
@@ -381,12 +379,14 @@ export function WriteSidebar({
             </button>
           </span>
         ))}
-        {normalizePath(browsePath) !== normalizePath(workspaceRoot) ? (
-          <button type="button" className="write-studio__breadcrumb-up" onClick={goUp} aria-label={t("write.sidebar.goUp")}>
-            <ChevronUp size={13} />
-          </button>
-        ) : null}
       </nav>
+      ) : null}
+
+      {canGoUp ? (
+        <button type="button" className="write-studio__back-btn" onClick={goUp}>
+          <ChevronLeft size={14} />
+          <span>{t("write.sidebar.goUp")}</span>
+        </button>
       ) : null}
 
       <button type="button" className="write-studio__new-btn" onClick={() => void createDraft()}>
@@ -405,12 +405,14 @@ export function WriteSidebar({
               onClick={() => requestSelect(entry.path, true)}
             >
               <Folder size={14} className="write-studio__file-ico" />
-              <span className="write-studio__file-name">{entry.name}</span>
+              <Tooltip label={entry.name}>
+                <span className="write-studio__file-name">{entry.name}</span>
+              </Tooltip>
             </button>
           ) : (
             <div
               key={entry.path}
-              className={`write-studio__file-row${selectedPath === entry.path ? " write-studio__file-row--active" : ""}`}
+              className={`write-studio__file-row${selectedPath && pathsEqual(selectedPath, entry.path) ? " write-studio__file-row--active" : ""}`}
             >
               <button
                 type="button"
@@ -418,8 +420,12 @@ export function WriteSidebar({
                 onClick={() => requestSelect(entry.path, false)}
               >
                 <FileTypeIcon name={entry.name} isDir={false} className="write-studio__file-ico" />
-                <span className="write-studio__file-name">{entry.name}</span>
-                {entry.modTime ? <span className="write-studio__file-time">{formatModTime(entry.modTime)}</span> : null}
+                <span className="write-studio__file-copy">
+                  <Tooltip label={entry.name}>
+                    <span className="write-studio__file-name">{entry.name}</span>
+                  </Tooltip>
+                  {entry.modTime ? <span className="write-studio__file-time">{formatModTime(entry.modTime)}</span> : null}
+                </span>
               </button>
               <Tooltip label={t("write.sidebar.renameDraft")}>
                 <button
@@ -447,7 +453,7 @@ export function WriteSidebar({
         {!visibleEntries.length ? (
           <div className="write-sidebar__empty">
             <Folder size={16} />
-            <span>{noWorkspace ? t("write.sidebar.noFolderEmpty") : t("write.sidebar.empty")}</span>
+            <span>{noWorkspace ? t("write.sidebar.noFolderEmpty") : canGoUp ? t("write.sidebar.emptyFolder") : t("write.sidebar.empty")}</span>
             {noWorkspace ? (
               <button type="button" className="btn btn--primary btn--small write-sidebar__empty-btn" onClick={() => void createDraft()}>
                 {t("write.sidebar.newDraft")}

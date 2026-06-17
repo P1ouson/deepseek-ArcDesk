@@ -56,6 +56,8 @@ export interface MessageTimelineProps {
   showWorkspaceMesh?: boolean;
   /** Fired when the user scrolls away from / back to the bottom (for transcript priority). */
   onPinnedToBottomChange?: (pinned: boolean) => void;
+  /** Controller turn flag — keeps thinking blocks expanded between tool/model round gaps. */
+  turnActive?: boolean;
 }
 
 function CompactionBlock({ item }: { item: Extract<Item, { kind: "compaction" }> }) {
@@ -201,6 +203,7 @@ export function MessageTimeline({
   workspacePath,
   showWorkspaceMesh = false,
   onPinnedToBottomChange,
+  turnActive = false,
 }: MessageTimelineProps) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -285,8 +288,8 @@ export function MessageTimeline({
   }, [items, userTurn]);
 
   const rows = useMemo(
-    () => buildTimelineRows(items, subcallsByParent, pinnedToBottom ? live : undefined),
-    [items, subcallsByParent, live, pinnedToBottom],
+    () => buildTimelineRows(items, subcallsByParent, pinnedToBottom ? live : undefined, turnActive),
+    [items, subcallsByParent, live, pinnedToBottom, turnActive],
   );
   const empty = items.length === 0 && !pendingUser;
 

@@ -10,9 +10,11 @@ import {
   loadUsageActivity,
   summarizeUsageActivity,
   USAGE_ACTIVITY_UPDATE_EVENT,
+  usageChartBarHeightPx,
   type UsageChartPoint,
 } from "../lib/usageActivity";
 import type { BalanceInfo, CapabilitiesView } from "../lib/types";
+import { fetchSettingsBalance } from "../lib/settingsBalance";
 
 function UsageActivityChart({
   points,
@@ -45,7 +47,7 @@ function UsageActivityChart({
         ) : null}
         <div className="usage-chart__bars">
           {points.map((point) => {
-            const height = point.tokens > 0 ? Math.max(8, Math.round((point.tokens / max) * 100)) : 4;
+            const heightPx = usageChartBarHeightPx(point.tokens, max);
             const active = hoveredDate === point.date;
             return (
               <div
@@ -60,7 +62,7 @@ function UsageActivityChart({
                   <div className="usage-chart__bar-wrap">
                     <div
                       className={`usage-chart__bar${point.tokens > 0 ? "" : " usage-chart__bar--empty"}`}
-                      style={{ height: `${height}%` }}
+                      style={{ height: `${heightPx}px` }}
                     />
                   </div>
                 </button>
@@ -84,10 +86,16 @@ function StatCard({ label, value, hint }: { label: string; value: string; hint?:
   );
 }
 
-export function UsageInsightsSettings() {
+export function UsageInsightsSettings({
+  activeTabId,
+  sessionBalance,
+}: {
+  activeTabId?: string;
+  sessionBalance?: BalanceInfo;
+}) {
   const t = useT();
   const [loading, setLoading] = useState(true);
-  const [balance, setBalance] = useState<BalanceInfo | null>(null);
+  const [balance, setBalance] = useState<BalanceInfo | null>(sessionBalance ?? null);
   const [caps, setCaps] = useState<CapabilitiesView | null>(null);
   const [buckets, setBuckets] = useState(() => loadUsageActivity());
   const currency = "CNY";
@@ -96,7 +104,7 @@ export function UsageInsightsSettings() {
     setLoading(true);
     try {
       const [balanceRes, capsRes] = await Promise.all([
-        app.Balance().catch(() => null),
+        fetchSettingsBalance(activeTabId, sessionBalance),
         app.Capabilities().catch(() => ({ servers: [], skills: [], skillRoots: [] })),
       ]);
       setBalance(balanceRes);
@@ -105,7 +113,13 @@ export function UsageInsightsSettings() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeTabId, sessionBalance]);
+
+  useEffect(() => {
+    if (sessionBalance?.available && sessionBalance.display) {
+      setBalance(sessionBalance);
+    }
+  }, [sessionBalance]);
 
   useEffect(() => {
     void refresh();

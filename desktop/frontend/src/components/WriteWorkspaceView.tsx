@@ -22,7 +22,7 @@ import type { ComposerWriteContext } from "../lib/types";
 import type { WriteTurn } from "../lib/writeConversation";
 import { latestWriteAssistant } from "../lib/writeConversation";
 import { exportDocxFile, exportHtmlFile, exportMarkdownFile, exportPdfFile } from "../lib/writeExport";
-import { isWordDocumentPath } from "../lib/writeDocument";
+import { getWritePreviewKind, isWordDocumentPath } from "../lib/writeDocument";
 import { writeActionPromptKey } from "../lib/writePrompts";
 import { basename, parentPath } from "../lib/workspaceFilePreview";
 import { closeStudioSelect, openStudioSelect } from "../lib/studioSelectRegistry";
@@ -57,6 +57,10 @@ const QUICK_ACTION_KEYS = [
 const VIEW_MODES: WriteViewMode[] = ["source", "preview"];
 const APPLY_MODES: WriteApplyMode[] = ["selection", "append", "replace"];
 const AUTO_SAVE_MS = 2500;
+
+function normalizePlainTextPreview(text: string): string {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
 
 function countWritingStats(text: string): { chars: number; words: number; readingMin: number } {
   const trimmed = text.trim();
@@ -102,6 +106,7 @@ export function WriteWorkspaceView({
   const agentReply = latestAssistant?.text ?? "";
   const agentReplyStreaming = latestAssistant?.streaming ?? false;
   const wordDocument = isWordDocumentPath(filePath);
+  const previewKind = getWritePreviewKind(filePath);
 
   const setDirtyState = useCallback(
     (next: boolean) => {
@@ -440,11 +445,15 @@ export function WriteWorkspaceView({
                 </div>
               ) : null}
               {showPreview ? (
-                <div className={`write-workspace__preview write-studio__preview${viewMode === "preview" ? " write-studio__preview--live" : ""}${wordDocument && previewHtml ? " write-studio__preview--word" : ""}`}>
-                  {wordDocument && previewHtml ? (
+                <div className={`write-workspace__preview write-studio__preview${viewMode === "preview" ? " write-studio__preview--live" : ""}${previewKind === "word" && previewHtml ? " write-studio__preview--word" : ""}${previewKind === "plain" ? " write-studio__preview--plain" : ""}`}>
+                  {previewKind === "word" && previewHtml ? (
                     <div className="write-studio__word-preview" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+                  ) : previewKind === "markdown" ? (
+                    <div className="write-studio__markdown-preview">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || t("write.previewEmpty")}</ReactMarkdown>
+                    </div>
                   ) : (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || t("write.previewEmpty")}</ReactMarkdown>
+                    <pre className="write-studio__plain-preview">{normalizePlainTextPreview(content) || t("write.previewEmpty")}</pre>
                   )}
                 </div>
               ) : null}

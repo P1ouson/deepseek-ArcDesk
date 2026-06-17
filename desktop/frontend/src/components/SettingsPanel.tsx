@@ -20,6 +20,7 @@ import { useT } from "../lib/i18n";
 import type { AppMode } from "../lib/appMode";
 import type { RightDockTab } from "./Topbar";
 import type { SettingsView } from "../lib/types";
+import type { BalanceInfo } from "../lib/types";
 import { UsageInsightsSettings } from "./UsageInsightsSettings";
 import { SettingsPageShell } from "./settingsPrimitives";
 import { normalizeSettingsView } from "./settings/normalizeSettingsView";
@@ -52,6 +53,8 @@ const UpdatesSection = lazy(() =>
 
 export interface SettingsPageProps {
   onChanged: () => void;
+  activeTabId?: string;
+  sessionBalance?: BalanceInfo;
   onComposerPrompt?: (text: string) => void;
   onModeChange?: (mode: AppMode) => void;
   onOpenHistory?: () => void;
@@ -109,6 +112,8 @@ function settingsTabIcon(id: SettingsTab) {
 // SettingsPage is the full-page settings surface (Codex / Claude Code style).
 export function SettingsPage({
   onChanged,
+  activeTabId,
+  sessionBalance,
   onComposerPrompt,
   onOpenHistory,
   onOpenMemory,
@@ -226,7 +231,7 @@ export function SettingsPage({
                     />
                   )}
                   {tab === "models" && <ModelsServicesSection s={s} busy={busy} apply={apply} />}
-                  {tab === "usage" && <UsageInsightsSettings />}
+                  {tab === "usage" && <UsageInsightsSettings activeTabId={activeTabId} sessionBalance={sessionBalance} />}
                   {tab === "agent" && (
                     <AgentSection
                       s={s}

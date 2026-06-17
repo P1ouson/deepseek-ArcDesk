@@ -67,6 +67,21 @@ describe("buildTimelineRows thinking blocks", () => {
     expect(answer.item.reasoning).toBe("");
   });
 
+  it("keeps thinking block in-progress during tool round gaps when turnActive", () => {
+    const items: Item[] = [
+      { kind: "user", id: "u1", text: "hi" },
+      assistant("a1", "", "thinking"),
+      tool("t1", "done"),
+    ];
+
+    const rows = buildTimelineRows(items, new Map(), undefined, true);
+    const block = rows.find((r) => r.kind === "thinking-block");
+    expect(block?.kind).toBe("thinking-block");
+    if (block?.kind !== "thinking-block") throw new Error("expected thinking block");
+    expect(block.block.turnInProgress).toBe(true);
+    expect(block.block.complete).toBe(false);
+  });
+
   it("places thinking block before the answer instead of separate tool rows", () => {
     const items: Item[] = [
       { kind: "user", id: "u1", text: "hi" },

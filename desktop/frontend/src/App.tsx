@@ -48,11 +48,13 @@ import type { ComposerInsertRequest, ComposerWriteContext, KnowledgeView, Memory
 import { recordRecentWorkspace } from "./lib/workspaceRecents";
 import { basename } from "./lib/workspaceFilePreview";
 import {
+  activeCodeWorkspaceRoot,
   clearStoredCodeWorkspaceRoot,
   getStoredCodeWorkspaceRoot,
   getStoredComposerNoWorkspace,
   isProjectLikeCodeWorkspaceRoot,
   isUsableCodeWorkspaceRoot,
+  planCodeWorkspaceReconcile,
   sameWorkspaceRoot,
   setStoredCodeWorkspaceRoot,
   setStoredComposerNoWorkspace,
@@ -1191,6 +1193,24 @@ export default function App() {
   }, [state.meta?.ready, activeTab?.workspaceRoot]);
 
   useEffect(() => {
+    if (!state.meta?.ready) return;
+    const action = planCodeWorkspaceReconcile(activeTab, tabMetas, getStoredCodeWorkspaceRoot());
+    if (action.kind === "syncToActive") {
+      if (!sameWorkspaceRoot(getStoredCodeWorkspaceRoot(), action.path)) {
+        setStoredCodeWorkspaceRoot(action.path);
+        setComposerNoWorkspace(false);
+        setStoredComposerNoWorkspace(false);
+      }
+      return;
+    }
+    if (action.kind === "clearOrphan" && getStoredCodeWorkspaceRoot()) {
+      clearStoredCodeWorkspaceRoot();
+      setComposerNoWorkspace(true);
+      setStoredComposerNoWorkspace(true);
+    }
+  }, [state.meta?.ready, activeTab, tabMetas]);
+
+  useEffect(() => {
     if (!state.meta?.ready || codeWorkspaceRestoredRef.current) return;
     codeWorkspaceRestoredRef.current = true;
     void syncActiveTab(false);
@@ -1219,6 +1239,7 @@ export default function App() {
     }
     if (prev === "write" && appMode !== "write") {
       void restoreCodeTab();
+      return;
     }
     if (appMode === "code" && prev !== "code" && !composerNoWorkspace) {
       const stored = getStoredCodeWorkspaceRoot();
@@ -1343,6 +1364,7 @@ export default function App() {
   }, [refreshProjectsAndTabs]);
 
   const workspaceRoot = activeTab?.workspaceRoot || activeTab?.cwd || state.meta?.cwd || ".";
+  const activeProjectRoot = activeCodeWorkspaceRoot(activeTab);
   const composerCwd =
     appMode === "write"
       ? isNoWriteWorkspace(writeWorkspaceRoot)
@@ -1352,13 +1374,11 @@ export default function App() {
           : undefined
       : composerNoWorkspace
         ? NO_WORKSPACE_VALUE
-        : state.meta?.cwd;
+        : activeProjectRoot ?? (activeTab?.scope === "global" ? NO_WORKSPACE_VALUE : state.meta?.cwd);
   const composerWorkspaceNone =
     appMode === "write" ? isNoWriteWorkspace(writeWorkspaceRoot) : composerNoWorkspace;
   const topbarWorkspacePath =
-    chatMode && !composerNoWorkspace
-      ? activeTab?.workspaceRoot || getStoredCodeWorkspaceRoot() || undefined
-      : undefined;
+    chatMode && !composerNoWorkspace ? activeProjectRoot : undefined;
   const showTopbarWorkspace = isUsableCodeWorkspaceRoot(topbarWorkspacePath);
   const workspaceDisplayName =
     activeTab?.workspaceName?.trim() ||
@@ -1695,6 +1715,7 @@ export default function App() {
                     workspaceName={showTopbarWorkspace ? workspaceDisplayName : undefined}
                     workspacePath={showTopbarWorkspace ? topbarWorkspacePath : undefined}
                     showWorkspaceMesh={showWorkspaceBackdrop}
+                    turnActive={state.running && state.turnActive}
                   />
                   </>
                 ) : (
@@ -1702,6 +1723,7 @@ export default function App() {
                     mode={appMode}
                     workspaceRoot={workspaceRoot}
                     activeTabId={activeTabId}
+                    sessionBalance={state.balance}
                     activeTabLabel={activeTab?.topicTitle?.trim() || topicTitle(activeTab)}
                     activeWorkspaceName={activeTab?.workspaceName}
                     writeWorkspaceRoot={writeWorkspaceRoot}
@@ -1817,11 +1839,17 @@ export default function App() {
                         onDismissKnowledgeCapture={() => void dismissKnowledgeCapture()}
                       />
                       {composerAgentRunning ? (
-                        <TurnProgressLine
-                          running={state.running}
-                          turnStartAt={state.turnStartAt}
-                          items={state.items}
-                        />
+                        decisionPending && pendingDecisionLabel ? (
+                          <div className="turn-progress turn-progress--decision" role="status" aria-live="polite">
+                            <span className="turn-progress__label">{pendingDecisionLabel}</span>
+                          </div>
+                        ) : (
+                          <TurnProgressLine
+                            running={state.running}
+                            turnStartAt={state.turnStartAt}
+                            items={state.items}
+                          />
+                        )
                       ) : null}
                       <FloatingComposer
                         key={appMode === "write" ? "write" : "code"}

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import type { AppMode } from "../lib/appMode";
-import type { ComposerWriteContext, KnowledgeView } from "../lib/types";
+import type { ComposerWriteContext, KnowledgeView, BalanceInfo } from "../lib/types";
 import type { WriteTurn } from "../lib/writeConversation";
 import type { RightDockTab } from "./Topbar";
 import { ConnectPhoneView } from "./ConnectPhoneView";
@@ -28,6 +28,7 @@ export interface ModeWorkspaceCenterProps {
   mode: AppMode;
   workspaceRoot: string;
   activeTabId?: string;
+  sessionBalance?: BalanceInfo;
   activeTabLabel?: string;
   activeWorkspaceName?: string;
   writeWorkspaceRoot?: string;
@@ -139,6 +140,7 @@ export function ModeWorkspaceCenter({
   mode,
   workspaceRoot,
   activeTabId,
+  sessionBalance,
   activeTabLabel,
   activeWorkspaceName,
   writeWorkspaceRoot = "",
@@ -218,6 +220,8 @@ export function ModeWorkspaceCenter({
       return (
         <Suspense fallback={<ModeCenterFallback />}>
           <SettingsPage
+          activeTabId={activeTabId}
+          sessionBalance={sessionBalance}
           onComposerPrompt={onComposerPrompt}
           onChanged={() => onSettingsChanged?.()}
           onOpenHistory={onOpenHistory}

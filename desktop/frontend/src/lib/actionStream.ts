@@ -139,7 +139,8 @@ export function thinkingBlockIsActive(block: ThinkingBlock): boolean {
   return block.entries.some((entry) => entry.kind === "tool" && entry.item.status === "running");
 }
 
-function isTurnInProgress(items: Item[], live?: LiveStream): boolean {
+function isTurnInProgress(items: Item[], live?: LiveStream, turnActive = false): boolean {
+  if (turnActive) return true;
   if (live) return true;
   for (const it of items) {
     if (it.kind === "assistant" && it.streaming) return true;
@@ -221,6 +222,7 @@ export function buildTimelineRows(
   items: Item[],
   subcallsByParent: Map<string, ToolItem[]>,
   live?: LiveStream,
+  turnActive = false,
 ): TimelineRow[] {
   const rows: TimelineRow[] = [];
   let thinking: ThinkingDraft | null = null;
@@ -268,7 +270,7 @@ export function buildTimelineRows(
       liveReasoning && !draft.reasoningParts.some((part) => part.trim() === liveReasoning)
         ? [reasoning, liveReasoning].filter(Boolean).join("\n\n")
         : reasoning;
-    const turnInProgress = isTurnInProgress(items, live);
+    const turnInProgress = isTurnInProgress(items, live, turnActive);
 
     rows.push({
       kind: "thinking-block",

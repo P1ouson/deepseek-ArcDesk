@@ -1,4 +1,5 @@
 import { stringStore } from "./localStorageStore";
+import type { TabMeta } from "./types";
 
 export const NO_WORKSPACE_VALUE = "__no_workspace__";
 
@@ -80,4 +81,41 @@ export function sameWorkspaceRoot(a: string | undefined | null, b: string | unde
   const left = (a ?? "").trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
   const right = (b ?? "").trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
   return left !== "" && left === right;
+}
+
+/** Workspace bound to the active project tab — never a stale localStorage fallback. */
+export function activeCodeWorkspaceRoot(tab: TabMeta | undefined): string | undefined {
+  if (!tab || tab.scope !== "project") return undefined;
+  const root = tab.workspaceRoot?.trim();
+  return isUsableCodeWorkspaceRoot(root) ? root : undefined;
+}
+
+export type CodeWorkspaceReconcile =
+  | { kind: "noop" }
+  | { kind: "syncToActive"; path: string }
+  | { kind: "clearOrphan" };
+
+/** Align persisted composer workspace with the restored session on startup. */
+export function planCodeWorkspaceReconcile(
+  activeTab: TabMeta | undefined,
+  openTabs: TabMeta[],
+  storedRoot: string,
+): CodeWorkspaceReconcile {
+  const activeRoot = activeCodeWorkspaceRoot(activeTab);
+  if (activeRoot) {
+    if (!sameWorkspaceRoot(storedRoot, activeRoot)) {
+      return { kind: "syncToActive", path: activeRoot };
+    }
+    return { kind: "noop" };
+  }
+  if (!isUsableCodeWorkspaceRoot(storedRoot)) {
+    return { kind: "noop" };
+  }
+  const storedStillOpen = openTabs.some(
+    (tab) => tab.scope === "project" && sameWorkspaceRoot(tab.workspaceRoot, storedRoot),
+  );
+  if (!storedStillOpen) {
+    return { kind: "clearOrphan" };
+  }
+  return { kind: "noop" };
 }

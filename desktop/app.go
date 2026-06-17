@@ -1936,6 +1936,11 @@ func withCodegraphConfig(v ServerView, c config.CodegraphConfig) ServerView {
 	v.AutoStart = c.ShouldAutoStart()
 	v.Tier = c.ResolvedTier()
 	v.AuthStatus = mcpdiag.AuthNone
+	if path := strings.TrimSpace(c.Path); path != "" {
+		v.Command = path
+	} else {
+		v.Command = "codegraph"
+	}
 	return v
 }
 
@@ -3981,6 +3986,105 @@ func (a *App) ListWriteFiles(workspaceRoot string) []FileEntry {
 		result = append(result, item.val)
 	}
 	return result
+}
+
+func writePathUnderRoot(path, root string) bool {
+	path = filepath.Clean(path)
+	root = filepath.Clean(root)
+	if goruntime.GOOS == "windows" {
+		path = strings.ToLower(path)
+		root = strings.ToLower(root)
+	}
+	if path == root {
+		return true
+	}
+	return strings.HasPrefix(path, root+string(os.PathSeparator))
+}
+
+func resolveWriteBrowseDir(workspaceRoot, dirPath string) (root, target string, ok bool) {
+	root = strings.TrimSpace(workspaceRoot)
+	if root == "" {
+		root = "."
+	}
+	if absRoot, err := filepath.Abs(root); err == nil {
+		root = absRoot
+	}
+	target = strings.TrimSpace(dirPath)
+	if target == "" {
+		target = root
+	}
+	if absTarget, err := filepath.Abs(target); err == nil {
+		target = absTarget
+	}
+	if !writePathUnderRoot(target, root) {
+		target = root
+	}
+	info, err := os.Stat(target)
+	if err != nil || !info.IsDir() {
+		return root, root, false
+	}
+	return root, target, true
+}
+
+// ListWriteDir returns immediate children of dirPath within workspaceRoot for the write UI.
+func (a *App) ListWriteDir(workspaceRoot, dirPath string) []FileEntry {
+	_, target, ok := resolveWriteBrowseDir(workspaceRoot, dirPath)
+	if !ok {
+		return nil
+	}
+	keepExt := map[string]struct{}{
+		".md": {}, ".markdown": {}, ".mdx": {}, ".txt": {}, ".rst": {}, ".adoc": {}, ".org": {},
+		".docx": {},
+	}
+	ignore := map[string]struct{}{
+		".git": {}, ".arcdesk": {}, "node_modules": {}, "dist": {}, "build": {}, ".wails": {},
+	}
+	items, err := os.ReadDir(target)
+	if err != nil {
+		return nil
+	}
+	out := make([]FileEntry, 0, len(items))
+	for _, item := range items {
+		name := item.Name()
+		if isWriteListHiddenFile(name) {
+			continue
+		}
+		path := filepath.Join(target, name)
+		info, statErr := item.Info()
+		var modTime int64
+		if statErr == nil {
+			modTime = info.ModTime().UnixMilli()
+		}
+		if item.IsDir() {
+			if _, skip := ignore[name]; skip {
+				continue
+			}
+			out = append(out, FileEntry{Path: path, Name: name, IsDir: true, ModTime: modTime})
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(name))
+		if _, ok := keepExt[ext]; !ok {
+			continue
+		}
+		var size int64
+		if statErr == nil {
+			size = info.Size()
+		}
+		out = append(out, FileEntry{Path: path, Name: name, IsDir: false, Size: size, ModTime: modTime})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].IsDir != out[j].IsDir {
+			return out[i].IsDir && !out[j].IsDir
+		}
+		if out[i].IsDir {
+			return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+		}
+		if out[i].ModTime != out[j].ModTime {
+			return out[i].ModTime > out[j].ModTime
+		}
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out
 }
 
 // ReadWriteFile reads a document from disk for the write workspace UI.

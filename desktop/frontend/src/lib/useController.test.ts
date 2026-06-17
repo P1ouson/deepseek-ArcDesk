@@ -44,6 +44,28 @@ describe("useController reducer", () => {
     expect(shouldBlockConcurrentSend(state)).toBe(true);
   });
 
+  it("clears pending approval when the user stops the turn", () => {
+    let state = controllerApplyWireEvent(controllerInitialState, {
+      kind: "approval_request",
+      approval: { id: "1", tool: "write_file", subject: "report.md" },
+    });
+    state = controllerReducer(state, { type: "cancelTurn" });
+    expect(state.approval).toBeUndefined();
+    expect(state.running).toBe(false);
+  });
+
+  it("clears pending approval after a discarded turn finishes", () => {
+    let state = controllerApplyWireEvent(controllerInitialState, {
+      kind: "approval_request",
+      approval: { id: "1", tool: "write_file", subject: "report.md" },
+    });
+    state = controllerReducer(state, { type: "cancelTurn" });
+    state = controllerApplyWireEvent(state, { kind: "turn_done" });
+    expect(state.approval).toBeUndefined();
+    expect(state.running).toBe(false);
+    expect(state.discardTurn).toBe(false);
+  });
+
   it("reverts optimistic send when backend emits agent_busy code notice", () => {
     let state = controllerReducer(controllerInitialState, { type: "user", text: "queued" });
     state = controllerApplyWireEvent(state, {

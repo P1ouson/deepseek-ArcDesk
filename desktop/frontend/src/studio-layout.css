@@ -916,7 +916,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--chat-bg);
+  background: transparent;
 }
 
 .workbench--studio .workbench__center > .connect-compact,
@@ -1054,28 +1054,24 @@
   align-self: stretch;
 }
 
-.workbench--studio.workbench--write-mode .workbench__main {
-  background: var(--bg-elev);
-  background-image: none;
-}
-
-.workbench--studio:not(.workbench--write-mode) .workbench__main {
-  background-color: var(--code-canvas-bg, var(--chat-bg));
-  background-image:
+.workbench--studio {
+  --studio-canvas-grid-image:
     radial-gradient(ellipse 120% 80% at 50% -20%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 58%),
     linear-gradient(color-mix(in srgb, var(--fg) 3.2%, transparent) 1px, transparent 1px),
     linear-gradient(90deg, color-mix(in srgb, var(--fg) 3.2%, transparent) 1px, transparent 1px);
-  background-size: 100% 100%, 32px 32px, 32px 32px;
-  background-position: center top, center center, center center;
+  --studio-canvas-grid-size: 100% 100%, 32px 32px, 32px 32px;
+  --studio-canvas-grid-position: center top, center center, center center;
 }
 
-.workbench--studio:not(.workbench--write-mode) .workbench__center {
+.workbench--studio .workbench__main {
+  background-color: var(--code-canvas-bg, var(--chat-bg));
+  background-image: var(--studio-canvas-grid-image);
+  background-size: var(--studio-canvas-grid-size);
+  background-position: var(--studio-canvas-grid-position);
+}
+
+.workbench--studio .workbench__center {
   background: transparent;
-}
-
-/* ========== Canvas / messages ========== */
-.workbench--studio.workbench--write-mode .workbench__center {
-  background: var(--chat-bg);
 }
 
 .workbench--studio .timeline {
@@ -1614,7 +1610,7 @@
   gap: 0;
   padding: 0;
   overflow: hidden;
-  background: var(--chat-bg);
+  background: transparent;
 }
 
 .workbench--studio .mode-center--write {
@@ -1820,6 +1816,14 @@
   color: var(--accent);
 }
 
+.workbench--studio .write-studio__file-list-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .workbench--studio .write-studio__file-list-unfold {
   flex: 1 1 auto;
   min-height: 0;
@@ -1832,17 +1836,25 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .workbench--studio .write-studio__file-list {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
+  align-content: flex-start;
+  justify-content: flex-start;
   gap: 2px;
   margin: 0 -4px;
   padding: 0 4px;
+}
+
+.workbench--studio .write-studio__file-list > * {
+  flex: 0 0 auto;
 }
 
 .workbench--studio .write-studio__file-row {
@@ -1860,7 +1872,7 @@
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 8px 10px;
   border: 0;
@@ -1871,10 +1883,19 @@
   font-size: 12px;
 }
 
+.workbench--studio .write-studio__file-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .workbench--studio .write-studio__file-ico,
 .workbench--studio .write-studio__file-btn .files-panel__ico {
   flex: 0 0 auto;
   flex-shrink: 0;
+  margin-top: 2px;
 }
 
 .workbench--studio .write-studio__file-row--active .write-studio__file-btn {
@@ -1886,14 +1907,19 @@
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.35;
 }
 
 .workbench--studio .write-studio__file-time {
   flex: 0 0 auto;
   font-size: 10px;
   color: var(--fg-faint);
+  line-height: 1.2;
 }
 
 .workbench--studio .write-studio__file-delete {
@@ -2614,6 +2640,65 @@
   color: var(--fg-faint);
 }
 
+.workbench--studio .write-studio__back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  color: var(--fg-dim);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.workbench--studio .write-studio__back-btn:hover {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border-soft));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 40%, var(--bg-soft));
+}
+
+.workbench--studio .write-studio__file-btn--parent {
+  color: var(--fg-dim);
+  font-weight: 600;
+}
+
+.workbench--studio .write-studio__preview--plain {
+  padding: 18px 20px;
+}
+
+.workbench--studio .write-studio__plain-preview {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+}
+
+.workbench--studio .write-studio__markdown-preview {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--fg);
+}
+
+.workbench--studio .write-studio__markdown-preview p {
+  margin: 0 0 0.85em;
+}
+
+.workbench--studio .write-studio__markdown-preview pre {
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: normal;
+}
+
 .workbench--studio .write-studio__file-btn--dir {
   width: 100%;
 }
@@ -2795,7 +2880,7 @@
   grid-template-columns: 240px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   gap: 0;
-  background: var(--chat-bg);
+  background: transparent;
 }
 
 
@@ -3513,9 +3598,26 @@
   width: 100%;
 }
 
+.workbench--studio .extensions-studio__row-detail-wrap.motion-unfold--open .motion-unfold__inner {
+  overflow: visible;
+}
+
 .workbench--studio .extensions-studio__row-detail {
-  padding: 0 14px 12px 44px;
+  padding: 10px 14px 12px 44px;
   border-top: 1px solid var(--border-soft);
+}
+
+.workbench--studio .extensions-studio__detail-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--fg-dim);
+}
+
+.workbench--studio .extensions-studio__detail-hint + .extensions-studio__detail-line,
+.workbench--studio .extensions-studio__detail-hint + .extensions-studio__tools,
+.workbench--studio .extensions-studio__detail-line + .extensions-studio__tools {
+  margin-top: 10px;
 }
 
 .workbench--studio .extensions-studio__detail-line {
@@ -3868,7 +3970,7 @@
   gap: 0;
   height: 100%;
   min-height: 0;
-  background: var(--chat-bg);
+  background: transparent;
 }
 
 .workbench--studio .knowledge-studio__sidebar {
@@ -4001,7 +4103,7 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--bg-soft);
+  background: transparent;
 }
 
 .workbench--studio .knowledge-studio__toolbar {

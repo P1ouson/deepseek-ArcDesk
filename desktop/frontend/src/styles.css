@@ -649,10 +649,17 @@ a[href] { cursor: pointer; }
 }
 
 .workbench__composer-zone .composer-meta__model-effort .modelsw__label {
-  max-width: 140px;
+  max-width: none;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.workbench__composer-zone .composer-meta__model-effort .composer-meta__control--model {
+  min-width: 84px;
+  max-width: min(200px, 55%);
 }
 
 .workbench__resizer {
@@ -1736,12 +1743,41 @@ button:disabled:active,
 .composer-meta__model-effort {
   display: inline-flex;
   align-items: stretch;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  max-width: 100%;
   margin-left: auto;
   border: 1px solid var(--border);
   border-radius: var(--button-radius);
   background: color-mix(in srgb, var(--bg-elev-2) 84%, transparent);
   overflow: hidden;
+}
+.composer-meta__model-effort .composer-meta__control--model {
+  flex: 1 1 auto;
+  min-width: 96px;
+  max-width: min(240px, 58%);
+  overflow: hidden;
+}
+.composer-meta__model-effort .composer-meta__control--effort {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.composer-meta__model-effort .modelsw__trigger {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  justify-content: flex-start;
+}
+.composer-meta__model-effort .modelsw__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-meta__model-effort .modelsw__kind,
+.composer-meta__model-effort .modelsw__trigger > svg:last-child {
+  flex-shrink: 0;
 }
 .composer-meta__model-effort .composer-meta__control {
   height: auto;
@@ -1756,6 +1792,13 @@ button:disabled:active,
 }
 .composer-meta__model-effort .effortsw .effortsw__trigger {
   border-left: 1px solid var(--border-soft);
+  max-width: 100%;
+  min-width: 0;
+}
+.composer-meta__model-effort .effortsw .modelsw__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .composer-meta__model-effort .modelsw__trigger:hover,
 .composer-meta__model-effort .effortsw__trigger:hover {
@@ -6365,6 +6408,14 @@ button:disabled:active,
   color: color-mix(in srgb, #16a34a 75%, var(--fg-muted));
 }
 
+.context-panel__cache-step-note {
+  margin: 8px 0 0;
+  grid-column: 1 / -1;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--fg-muted);
+}
+
 .context-panel__tokens-empty {
   margin: 0;
   font-size: 11px;
@@ -8138,7 +8189,7 @@ button:disabled:active,
   padding: 0;
   overflow: hidden;
   box-sizing: border-box;
-  background: var(--bg-elev);
+  background: transparent;
 }
 .connect-compact__head {
   display: flex;
@@ -8490,7 +8541,7 @@ button:disabled:active,
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: var(--chat-bg);
+  background: transparent;
 }
 .settings-studio__sidebar {
   display: flex;
@@ -8523,7 +8574,7 @@ button:disabled:active,
 .settings-studio__nav-copy strong { font-size: 13px; font-weight: 650; line-height: 1.2; }
 .settings-studio__nav-copy small { font-size: 10px; line-height: 1.3; color: var(--fg-faint); }
 .settings-studio__nav-item--active .settings-studio__nav-copy small { color: color-mix(in srgb, var(--accent) 70%, var(--fg-faint)); }
-.settings-studio__main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-soft); }
+.settings-studio__main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: transparent; }
 .settings-studio__scroll {
   flex: 1 1 auto;
   min-height: 0;

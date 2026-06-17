@@ -288,6 +288,7 @@ export interface AppBindings {
   TrashTopic(topicID: string): Promise<void>;
   ContextPanel(tabID: string): Promise<ContextPanelInfo>;
   ListWriteFiles(workspaceRoot: string): Promise<FileEntry[]>;
+  ListWriteDir(workspaceRoot: string, dirPath: string): Promise<FileEntry[]>;
   ReadWriteFile(path: string): Promise<string>;
   ReadWriteFilePreview(path: string): Promise<string>;
   WriteWriteFile(path: string, content: string): Promise<void>;
@@ -2447,6 +2448,50 @@ guessing; keep changes minimal and correct; briefly summarize what you did.`,
         }
       }
       return entries;
+    },
+    async ListWriteDir(workspaceRoot: string, dirPath: string) {
+      const root = (workspaceRoot || "/workspace").replace(/[/\\]+$/, "");
+      const parent = (dirPath || root).replace(/\\/g, "/").replace(/\/+$/, "");
+      const parentKey = parent.toLowerCase();
+      const all = await (async () => {
+        const entries: FileEntry[] = [];
+        const seenDirs = new Set<string>();
+        for (const path of Object.keys(mockWriteFiles)) {
+          if (!path.startsWith(root + "/") && path !== root) continue;
+          const rel = path.slice(root.length + 1);
+          const parts = rel.split("/");
+          let current = root;
+          for (let i = 0; i < parts.length - 1; i++) {
+            current = `${current}/${parts[i]}`;
+            if (!seenDirs.has(current)) {
+              seenDirs.add(current);
+              entries.push({ path: current, name: parts[i]!, isDir: true, modTime: Date.now() - 18_400_000 });
+            }
+          }
+          entries.push({
+            path,
+            name: baseName(path),
+            isDir: false,
+            size: mockWriteFiles[path]!.length,
+            modTime: Date.now() - 3_600_000,
+          });
+        }
+        for (const dir of mockWriteDirs) {
+          if (!dir.startsWith(root + "/")) continue;
+          if (!seenDirs.has(dir)) {
+            seenDirs.add(dir);
+            entries.push({ path: dir, name: baseName(dir), isDir: true, modTime: Date.now() - 18_400_000 });
+          }
+        }
+        return entries;
+      })();
+      return all.filter((entry) => {
+        const entryPath = entry.path.replace(/\\/g, "/");
+        if (entryPath.toLowerCase() === parentKey) return false;
+        if (!entryPath.toLowerCase().startsWith(`${parentKey}/`)) return false;
+        const rel = entryPath.slice(parent.length + 1);
+        return rel.length > 0 && !rel.includes("/");
+      });
     },
     async ReadWriteFile(path: string) {
       if (!(path in mockWriteFiles)) throw new Error(`file not found: ${path}`);

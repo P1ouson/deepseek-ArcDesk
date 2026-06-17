@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currencySymbol, formatMoney, formatTokens } from "./formatMoney";
+import { currencySymbol, formatMoney, formatTokens, normalizeCurrency } from "./formatMoney";
 
 describe("formatMoney", () => {
   it("formats CNY amounts", () => {
@@ -14,6 +14,12 @@ describe("formatMoney", () => {
   it("returns zero placeholder for missing amounts", () => {
     expect(formatMoney(undefined, "CNY")).toBe("¥0.0000");
     expect(formatMoney(-1, "CNY")).toBe("¥0.0000");
+  });
+
+  it("normalizes legacy typo currency 楼 to CNY", () => {
+    expect(normalizeCurrency("楼")).toBe("CNY");
+    expect(formatMoney(1.5, "楼")).not.toContain("楼");
+    expect(formatMoney(1.5, "楼")).toMatch(/1\.50/);
   });
 });
 

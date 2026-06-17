@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, GitBranch } from "lucide-react";
 import { asArray } from "../lib/array";
 import { app } from "../lib/bridge";
-import { formatMoney, formatTokens } from "../lib/formatMoney";
-import { sessionCacheRate, stepCacheRate } from "../lib/cacheRate";
+import { formatMoney, formatTokens, normalizeCurrency } from "../lib/formatMoney";
+import { sessionCacheRate } from "../lib/cacheRate";
 import { estimatePromptCacheSavingsPct } from "../lib/cacheEconomy";
 import { useT, type Translator } from "../lib/i18n";
 import type { DictKey } from "../locales/en";
@@ -77,7 +77,7 @@ function contextHealth(usagePct: number, cachePct: number, readCount: number): H
 }
 
 function fmtPct(pct: string | null): string {
-  return pct != null ? `${pct}%` : "—";
+  return pct != null ? `${pct}%` : "?";
 }
 
 function TokenUsageCard({ usage, info }: { usage?: WireUsage; info: ContextPanelInfo | null }) {
@@ -93,11 +93,11 @@ function TokenUsageCard({ usage, info }: { usage?: WireUsage; info: ContextPanel
   const stepDenom = stepHit + stepMiss;
   const sessDenom = sessHit + sessMiss;
   const hasUsage = total > 0 || prompt > 0 || completion > 0;
-  const hasCache = stepDenom > 0 || sessDenom > 0;
-  const stepPct = stepCacheRate(usage) ?? (stepDenom > 0 ? ((stepHit / stepDenom) * 100).toFixed(1) : null);
+  const hasCache = sessDenom > 0;
+  const stepPct = stepDenom > 0 ? ((stepHit / stepDenom) * 100).toFixed(1) : null;
   const sessionPct = sessionCacheRate(usage) ?? (sessDenom > 0 ? ((sessHit / sessDenom) * 100).toFixed(1) : null);
-  const stepBarHit = stepDenom > 0 ? Math.round((stepHit / stepDenom) * 100) : 0;
-  const cacheTokensForSavings = sessDenom > 0 ? { hit: sessHit, miss: sessMiss } : stepDenom > 0 ? { hit: stepHit, miss: stepMiss } : null;
+  const sessBarHit = sessDenom > 0 ? Math.round((sessHit / sessDenom) * 100) : 0;
+  const cacheTokensForSavings = sessDenom > 0 ? { hit: sessHit, miss: sessMiss } : null;
   const savingsPct = cacheTokensForSavings
     ? estimatePromptCacheSavingsPct(cacheTokensForSavings.hit, cacheTokensForSavings.miss)
     : null;
@@ -113,13 +113,13 @@ function TokenUsageCard({ usage, info }: { usage?: WireUsage; info: ContextPanel
       : null;
 
   const rows: Array<{ label: string; value: string }> = [
-    { label: t("context.prompt"), value: hasUsage ? formatTokens(prompt) : "—" },
-    { label: t("context.completion"), value: hasUsage ? formatTokens(completion) : "—" },
+    { label: t("context.prompt"), value: hasUsage ? formatTokens(prompt) : "?" },
+    { label: t("context.completion"), value: hasUsage ? formatTokens(completion) : "?" },
   ];
   if (reasoning > 0) {
     rows.push({ label: t("context.reasoning"), value: formatTokens(reasoning) });
   }
-  rows.push({ label: t("context.total"), value: hasUsage ? formatTokens(total) : "—" });
+  rows.push({ label: t("context.total"), value: hasUsage ? formatTokens(total) : "?" });
 
   return (
     <section className="dock-panel__card context-panel__tokens">
@@ -141,51 +141,49 @@ function TokenUsageCard({ usage, info }: { usage?: WireUsage; info: ContextPanel
 
       <header className="context-panel__tokens-head context-panel__tokens-head--cache">
         <h3 className="context-panel__tokens-title">{t("context.cacheTokens")}</h3>
+        <span className="context-panel__tokens-sub">{t("context.sessionCacheSubtitle")}</span>
       </header>
 
       {!hasCache ? (
         <p className="context-panel__tokens-empty">{t("context.noUsageYet")}</p>
       ) : (
         <>
-          {stepDenom > 0 && (
-            <div
-              className="context-panel__cache-bar"
-              role="img"
-              aria-label={`${t("context.cacheStepRate")} ${stepPct ?? "0"}%`}
-            >
-              <div className="context-panel__cache-bar-hit" style={{ width: `${stepBarHit}%` }} />
-              <div className="context-panel__cache-bar-miss" style={{ width: `${100 - stepBarHit}%` }} />
-            </div>
-          )}
+          <div
+            className="context-panel__cache-bar"
+            role="img"
+            aria-label={`${t("context.cacheSessionRate")} ${sessionPct ?? "0"}%`}
+          >
+            <div className="context-panel__cache-bar-hit" style={{ width: `${sessBarHit}%` }} />
+            <div className="context-panel__cache-bar-miss" style={{ width: `${100 - sessBarHit}%` }} />
+          </div>
 
           <div className="context-panel__token-grid">
             <div className="context-panel__token-row">
               <span className="context-panel__token-label context-panel__token-label--hit">{t("context.cacheHitTokens")}</span>
-              <strong>{formatTokens(stepDenom > 0 ? stepHit : sessHit)}</strong>
+              <strong>{formatTokens(sessHit)}</strong>
             </div>
             <div className="context-panel__token-row">
               <span className="context-panel__token-label context-panel__token-label--miss">{t("context.cacheMissTokens")}</span>
-              <strong>{formatTokens(stepDenom > 0 ? stepMiss : sessMiss)}</strong>
+              <strong>{formatTokens(sessMiss)}</strong>
+            </div>
+            <div className="context-panel__token-row">
+              <span>{t("context.cacheSessionRate")}</span>
+              <strong>{fmtPct(sessionPct)}</strong>
+            </div>
+            <div className="context-panel__token-row context-panel__token-row--muted">
+              <span>{t("context.cacheSessionTokens")}</span>
+              <strong>
+                {formatTokens(sessHit)} / {formatTokens(sessDenom)}
+              </strong>
             </div>
             {stepDenom > 0 && (
-              <div className="context-panel__token-row">
-                <span>{t("context.cacheStepRate")}</span>
-                <strong>{fmtPct(stepPct)}</strong>
-              </div>
-            )}
-            {sessDenom > 0 && (
-              <>
-                <div className="context-panel__token-row">
-                  <span>{t("context.cacheSessionRate")}</span>
-                  <strong>{fmtPct(sessionPct)}</strong>
-                </div>
-                <div className="context-panel__token-row context-panel__token-row--muted">
-                  <span>{t("context.cacheSessionTokens")}</span>
-                  <strong>
-                    {formatTokens(sessHit)} / {formatTokens(sessDenom)}
-                  </strong>
-                </div>
-              </>
+              <p className="context-panel__cache-step-note">
+                {t("context.cacheLatestStepNote", {
+                  hit: formatTokens(stepHit),
+                  miss: formatTokens(stepMiss),
+                  pct: fmtPct(stepPct),
+                })}
+              </p>
             )}
             {savingsPct != null && savingsPct > 0 && (
               <p className="context-panel__cache-savings">
@@ -329,10 +327,14 @@ export function ContextPanel({
 
   const usedTokens = context?.used && context.used > 0 ? context.used : info?.usedTokens ?? 0;
   const windowTokens = context?.window && context.window > 0 ? context.window : info?.windowTokens ?? 0;
-  const cacheHitTokens = usage?.cacheHitTokens && usage.cacheHitTokens > 0 ? usage.cacheHitTokens : info?.cacheHitTokens ?? 0;
-  const cacheMissTokens = usage?.cacheMissTokens && usage.cacheMissTokens > 0 ? usage.cacheMissTokens : info?.cacheMissTokens ?? 0;
+  const cacheHitTokens = usage?.sessionCacheHitTokens && usage.sessionCacheHitTokens > 0
+    ? usage.sessionCacheHitTokens
+    : info?.cacheHitTokens ?? 0;
+  const cacheMissTokens = usage?.sessionCacheMissTokens && usage.sessionCacheMissTokens > 0
+    ? usage.sessionCacheMissTokens
+    : info?.cacheMissTokens ?? 0;
   const cost = sessionCost && sessionCost > 0 ? sessionCost : info?.sessionCost ?? info?.sessionCostUsd ?? 0;
-  const currency = sessionCurrency || info?.sessionCurrency || usage?.currency || "CNY";
+  const currency = normalizeCurrency(sessionCurrency || info?.sessionCurrency || usage?.currency || "CNY");
   const readFiles = asArray(info?.readFiles);
   const changedFiles = asArray(info?.changedFiles);
 
@@ -455,7 +457,7 @@ export function ContextPanel({
               <div className="context-panel__kv">
                 <div className="context-panel__kv-row">
                   <span>{t("context.model")}</span>
-                  <strong>{modelLabel || "—"}</strong>
+                  <strong>{modelLabel || "?"}</strong>
                 </div>
                 <div className="context-panel__kv-row">
                   <span>{t("context.runMode")}</span>
@@ -587,7 +589,7 @@ function GitOverviewCard({
 
       <div className="context-panel__git-branch">
         <span className="context-panel__git-branch-label">{t("context.gitBranch")}</span>
-        <strong>{loading && !branch ? "…" : branch || "—"}</strong>
+        <strong>{loading && !branch ? "?" : branch || "?"}</strong>
       </div>
 
       <p className="context-panel__git-note">{summary}</p>

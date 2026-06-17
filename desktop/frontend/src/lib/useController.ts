@@ -23,6 +23,7 @@ import { notifyBackgroundTabDecision } from "./agentNotifications";
 import { notifyKnowledgeRecorded, notifyTabMetasChanged } from "./events";
 import { t } from "./i18n";
 import { recordCompactionActivity, recordUsageActivity } from "./usageActivity";
+import { normalizeCurrency } from "./formatMoney";
 import { installRuntimeObserve } from "./runtimeObserve";
 import type {
   BalanceInfo,
@@ -346,7 +347,18 @@ function flushPendingUser(s: State): State {
 
 function applyEvent(s: State, e: WireEvent): State {
   if (s.discardTurn) {
-    if (e.kind === "turn_done") return { ...s, discardTurn: false, running: false, turnActive: false, currentAssistant: undefined, live: undefined };
+    if (e.kind === "turn_done") {
+      return {
+        ...s,
+        discardTurn: false,
+        running: false,
+        turnActive: false,
+        currentAssistant: undefined,
+        live: undefined,
+        approval: undefined,
+        ask: undefined,
+      };
+    }
     return s;
   }
   if (s.pendingUser !== undefined && e.kind !== "turn_started" && e.kind !== "turn_done") {
@@ -465,7 +477,7 @@ function applyEvent(s: State, e: WireEvent): State {
       const turnTokens = s.turnTokens + (e.usage?.completionTokens ?? 0);
       const usageCost = e.usage?.cost ?? e.usage?.costUsd ?? 0;
       const sessionCost = s.sessionCost + usageCost;
-      const sessionCurrency = e.usage?.currency || s.sessionCurrency || "¥";
+      const sessionCurrency = normalizeCurrency(e.usage?.currency || s.sessionCurrency || "¥");
       return { ...s, usage: e.usage, context: { ...s.context, used }, turnTokens, sessionCost, sessionCurrency };
     }
     case "notice": {
@@ -632,6 +644,9 @@ function reducer(s: State, a: Action): State {
         continueActive: false,
         continueTargetId: undefined,
         retry: undefined,
+        approval: undefined,
+        ask: undefined,
+        knowledgeCapture: undefined,
       };
     }
     case "reset": return { ...initialState, meta: s.meta, context: { ...s.context, used: 0 }, balance: s.balance, effort: s.effort, jobs: s.jobs };
