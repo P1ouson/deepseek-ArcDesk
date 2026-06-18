@@ -12,7 +12,8 @@ Pop-Location
 
 Write-Host "==> Wails desktop exe" -ForegroundColor Cyan
 Push-Location $DesktopRoot
-wails build
+# Frontend already built above — skip Wails' second npm/vite pass (~30s saved, avoids duplicate work).
+wails build -s
 Pop-Location
 
 $exe = Join-Path $DesktopRoot "build\bin\arcdesk-desktop.exe"

@@ -141,13 +141,13 @@ func TestConnectConfiguredMCPServerMissing(t *testing.T) {
 }
 
 func TestExplainErrorAllKinds(t *testing.T) {
-	if got := explainError(agent.ErrEmptyModelResponse); got == nil || got.Error() == "" {
+	if got := ExplainError(agent.ErrEmptyModelResponse); got == nil || got.Error() == "" {
 		t.Fatal("empty model response")
 	}
-	if got := explainError(&provider.AuthError{Status: 401, KeyEnv: "DEEPSEEK_API_KEY"}); got == nil {
+	if got := ExplainError(&provider.AuthError{Status: 401, KeyEnv: "DEEPSEEK_API_KEY"}); got == nil {
 		t.Fatal("auth error")
 	}
-	if got := explainError(&provider.APIError{Status: 500, Body: "internal"}); got == nil {
+	if got := ExplainError(&provider.APIError{Status: 500, Body: "internal"}); got == nil {
 		t.Fatal("unknown status should pass through")
 	}
 }

@@ -24,6 +24,17 @@ export const en = {
   "boot.hydrateFailed": "Failed to load session data. Retry or restart the app.",
   "common.open": "Open",
   "common.operationFailed": "Operation failed: {msg}",
+  "errors.requestCanceled": "Request canceled.",
+  "errors.requestTimeout": "Request timed out. Please retry.",
+  "errors.network": "Could not reach the API. Check the base URL, network, and proxy settings.",
+  "errors.streamInterrupted": "Connection to the model was interrupted. Please retry.",
+  "errors.auth": "Authentication failed (HTTP 401): your API key is missing, wrong, or expired.",
+  "errors.balance": "Insufficient balance (HTTP 402): your account is out of credit.",
+  "errors.rateLimited": "Rate limit reached (HTTP 429): too many requests. Please retry shortly.",
+  "errors.server": "Server error (HTTP 500): the provider hit an internal fault. Please retry later.",
+  "errors.busy": "Server busy (HTTP 503): the provider is overloaded. Please retry shortly.",
+  "errors.badRequest": "Malformed request (HTTP 400): the request body was rejected.",
+  "errors.unprocessable": "Invalid parameters (HTTP 422): a request parameter was rejected.",
 
   // top bar
   "topbar.history": "History",

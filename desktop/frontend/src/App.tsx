@@ -1,11 +1,11 @@
-import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { ShellExpandProvider, useShellExpand } from "./lib/shellExpand";
 import { clearLegacyLangPref, normalizeLangPref, readLegacyLangPref, t, useI18n, useT } from "./lib/i18n";
 import { useController } from "./lib/useController";
 import { app, onProjectTreeChanged, onScheduleTask } from "./lib/bridge";
 import { logBridgeError } from "./lib/logBridgeError";
-import { toErrorMessage } from "./lib/errors";
+import { humanizeUserError, toErrorMessage } from "./lib/errors";
 import { IPC_ONBOARDING_TIMEOUT_MS, withIPCTimeout } from "./lib/ipc";
 import { findDevPreviewTrigger, isCancellableAgentWork } from "./lib/agentActivity";
 import { isComposerSendDisabled } from "./lib/composerSendGate";
@@ -694,17 +694,10 @@ export default function App() {
     }
   }, [activeTabId, notice, state.running, t, todoItem?.args, todos.length]);
 
-  // useDeferredValue lets React prioritise Composer input (high-priority) over
-  // Transcript re-renders (low-priority) during streaming. When a keystroke
-  // and a transcript update collide, the keystroke is processed immediately
-  // and the transcript re-render is deferred to idle time.
-  const deferredItems = useDeferredValue(state.items);
-  const deferredLive = useDeferredValue(state.live);
-  const [timelinePinnedToBottom, setTimelinePinnedToBottom] = useState(true);
-  // Keep transcript immediate while the user reads history; defer only when pinned
-  // to the bottom during an active turn (composer stays responsive).
-  const timelineItems = state.running && timelinePinnedToBottom ? deferredItems : state.items;
-  const timelineLive = state.running && timelinePinnedToBottom ? deferredLive : state.live;
+  // Transcript uses immediate items so tool calls and thinking blocks appear in real
+  // Timeline uses live items directly so thinking/tools update as events arrive.
+  const timelineItems = state.items;
+  const timelineLive = state.live;
   const showBootLoading =
     !activeTabId &&
     state.meta?.ready === false &&
@@ -1276,14 +1269,20 @@ export default function App() {
 
   const startNewTopic = useCallback(async (freshSession = false) => {
     setAppMode("code");
-    let scope: "global" | "project" = activeTab?.scope === "global" ? "global" : "project";
+    let scope: "global" | "project" =
+      !activeTab || activeTab.scope === "global" ? "global" : "project";
     let workspaceRoot = scope === "global" ? "" : (activeTab?.workspaceRoot?.trim() || getStoredCodeWorkspaceRoot() || "");
     if (scope === "project" && !isUsableCodeWorkspaceRoot(workspaceRoot)) {
-      const picked = await switchFolder();
-      if (!picked) return;
-      workspaceRoot = picked;
-      scope = "project";
-      await refreshTabMetas();
+      if (!activeTab) {
+        scope = "global";
+        workspaceRoot = "";
+      } else {
+        const picked = await switchFolder();
+        if (!picked) return;
+        workspaceRoot = picked;
+        scope = "project";
+        await refreshTabMetas();
+      }
     }
     if (state.meta?.ready !== true) {
       notice(t("sidebar.newSessionNotReady"), "warn");
@@ -1299,6 +1298,7 @@ export default function App() {
       notice(t("sidebar.newSessionNotReady"), "warn");
     }
   }, [
+    activeTab,
     activeTab?.scope,
     activeTab?.workspaceRoot,
     handleOpenTopic,
@@ -1659,7 +1659,7 @@ export default function App() {
           ) : null}
 
           {state.meta?.startupErr && (
-            <div className="banner banner--error">{t("topbar.startupError", { msg: state.meta.startupErr })}</div>
+            <div className="banner banner--error">{t("topbar.startupError", { msg: humanizeUserError(state.meta.startupErr, t) })}</div>
           )}
 
           <UpdateBanner />
@@ -1709,7 +1709,6 @@ export default function App() {
                     onContinueGeneration={continueGeneration}
                     continueDisabled={state.messageAction != null || (state.running && !state.continueActive)}
                     onRewind={(turn, scope) => void rewind(turn, scope)}
-                    onPinnedToBottomChange={setTimelinePinnedToBottom}
                     showConnectionRecovery={showConnectionRecovery}
                     onOpenConnectionSetup={openOnboardingManual}
                     workspaceName={showTopbarWorkspace ? workspaceDisplayName : undefined}

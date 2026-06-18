@@ -134,8 +134,12 @@ type Messages struct {
 	ShellModeHint       string // status line hint when input starts with !
 
 	// agent turn lifecycle (desktop + CLI share via event.Notice / turn_done).
-	AgentBusy          string // concurrent Send while a turn is in flight
-	AgentEmptyResponse string // provider stream finished with no content or tool calls
+	AgentBusy              string // concurrent Send while a turn is in flight
+	AgentEmptyResponse     string // provider stream finished with no content or tool calls
+	AgentRequestCanceled   string // user stopped the turn or the request context was canceled
+	AgentRequestTimeout    string // provider request or stream timed out
+	AgentNetworkError      string // TCP/TLS/DNS failure reaching the provider
+	AgentStreamInterrupted string // mid-stream connection drop (EOF/reset)
 
 	// slash command + sub-command descriptions shown in the menu (CLI and desktop
 	// share these via i18n.M, so both frontends localize identically).

@@ -417,7 +417,7 @@ func (c *Controller) runGuarded(body func(ctx context.Context) error) {
 		}
 		c.sink.Emit(event.Event{
 			Kind:            event.TurnDone,
-			Err:             explainError(err),
+			Err:             ExplainError(err),
 			ToolReuse:       c.toolReuseSnapshot(),
 			IntentClass:     c.turnIntentClass(),
 			IntentCanonical: c.turnIntentCanonical(),

@@ -9,7 +9,7 @@ import { assistantSeedText } from "./responseTruncation";
 import { asArray } from "./array";
 import { app, onEvent, onReady, onTabsShell } from "./bridge";
 import { sameWorkspaceRoot } from "./composerWorkspace";
-import { toErrorMessage } from "./errors";
+import { humanizeUserError, toErrorMessage } from "./errors";
 import { logBridgeError } from "./logBridgeError";
 import {
   BOOT_READY_MAX_POLLS,
@@ -277,7 +277,7 @@ function shouldForceClearTurnWatchdog(
 /** Suppress a late backend stream error after the UI already force-stopped the turn. */
 function isStaleStreamDoneErr(state: Pick<State, "running" | "turnActive">, err?: string): boolean {
   if (!err || state.running || state.turnActive) return false;
-  return /read stream: unexpected EOF|read stream:.*EOF/i.test(err);
+  return /read stream: unexpected EOF|read stream:.*EOF|Connection to the model was interrupted|与模型的连接中断/i.test(err);
 }
 
 function historyItemsFromMessages(messages: HistoryMessage[], seq: number): { items: Item[]; nextSeq: number } {
@@ -534,7 +534,8 @@ function applyEvent(s: State, e: WireEvent): State {
         if (it.kind === "tool" && it.status === "running") return { ...it, status: "stopped" as const };
         return it;
       });
-      const errText = e.err && !isStaleStreamDoneErr(s, e.err) ? e.err : undefined;
+      const errText =
+        e.err && !isStaleStreamDoneErr(s, e.err) ? humanizeUserError(e.err) : undefined;
       const items: Item[] = errText
         ? [...finalized, { kind: "notice", id: `e${s.seq}`, level: "warn", text: errText }]
         : finalized;
@@ -858,22 +859,6 @@ export function useController() {
   const activeTabIdRef = useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
 
-  const streamBufRef = useRef<{ tabId: string; text: string; reasoning: string } | null>(null);
-  const streamRafRef = useRef<number>(0);
-
-  const flushStreamBuf = useCallback(() => {
-    streamRafRef.current = 0;
-    const buf = streamBufRef.current;
-    if (!buf) return;
-    streamBufRef.current = null;
-    if (!buf.text && !buf.reasoning) return;
-    dispatchTo(buf.tabId, {
-      type: "stream_delta",
-      text: buf.text || undefined,
-      reasoning: buf.reasoning || undefined,
-    });
-  }, [dispatchTo]);
-
   const loadSessionData = useCallback(async () => {
     if (activeTabIdRef.current) {
       const tabId = activeTabIdRef.current;
@@ -893,21 +878,14 @@ export function useController() {
       if (!targetTabId) return;
 
       if (e.kind === "text" || e.kind === "reasoning") {
-        let buf = streamBufRef.current;
-        if (!buf || buf.tabId !== targetTabId) {
-          flushStreamBuf();
-          buf = { tabId: targetTabId, text: "", reasoning: "" };
-        }
-        if (e.kind === "text") buf.text += e.text ?? "";
-        else buf.reasoning += e.reasoning ?? "";
-        streamBufRef.current = buf;
-        if (!streamRafRef.current) {
-          streamRafRef.current = requestAnimationFrame(flushStreamBuf);
-        }
+        dispatchTo(targetTabId, {
+          type: "stream_delta",
+          text: e.kind === "text" ? e.text : undefined,
+          reasoning: e.kind === "reasoning" ? e.reasoning : undefined,
+        });
         return;
       }
 
-      flushStreamBuf();
       dispatchTo(targetTabId, { type: "event", e });
       if (e.kind === "turn_started" || e.kind === "turn_done") {
         notifyTabMetasChanged();
@@ -947,21 +925,21 @@ export function useController() {
           app.BalanceForTab(targetTabId),
           app.EffortForTab(targetTabId),
           app.JobsForTab(targetTabId),
-        ]).then(([context, balance, effort, jobs]) => {
+          app.CheckpointsForTab(targetTabId),
+        ]).then(([context, balance, effort, jobs, checkpoints]) => {
           dispatchTo(targetTabId, { type: "context", context });
           dispatchTo(targetTabId, { type: "balance", balance });
           dispatchTo(targetTabId, { type: "effort", effort });
           dispatchTo(targetTabId, { type: "jobs", jobs: asArray(jobs) });
+          dispatchTo(targetTabId, { type: "checkpoints", checkpoints: asArray(checkpoints) });
         }).catch((err) => logBridgeError("turn_done.refresh", err));
       }
     });
 
     return () => {
       off();
-      if (streamRafRef.current) cancelAnimationFrame(streamRafRef.current);
-      flushStreamBuf();
     };
-  }, [dispatchTo, flushStreamBuf]);
+  }, [dispatchTo]);
 
   useEffect(() => {
     const offReady = onReady(() => {
@@ -1098,43 +1076,13 @@ export function useController() {
 
   const reportFailure = useCallback((err: unknown) => {
     if (!activeTabId) return;
-    const msg = toErrorMessage(err);
+    const msg = toErrorMessage(err, "", t);
     dispatchTo(activeTabId, {
       type: "local_notice",
       level: "warn",
       text: t("common.operationFailed", { msg: msg || "unknown" }),
     });
   }, [activeTabId, dispatchTo]);
-
-  const send = useCallback((displayText: string, submitText = displayText) => {
-    if (!activeTabId) return;
-    const cur = stateRef.current;
-    if (shouldBlockConcurrentSend(cur)) {
-      notice(t("composer.agentBusy"), "warn");
-      return;
-    }
-    const tabId = activeTabId;
-    const display = displayText.trim();
-    const submit = submitText.trim();
-
-    const launch = () => {
-      dispatchTo(tabId, { type: "user", text: displayText });
-      void (display !== submit
-        ? app.SubmitDisplayToTab(tabId, display, submit)
-        : app.SubmitToTab(tabId, submit)
-      ).catch((err) => {
-        dispatchTo(tabId, { type: "unsend" });
-        reportFailure(err);
-      });
-    };
-
-    if (cur.continueActive) {
-      dispatchTo(tabId, { type: "cancelTurn" });
-      void app.CancelTab(tabId).catch(() => undefined).finally(launch);
-      return;
-    }
-    launch();
-  }, [activeTabId, dispatchTo, notice, reportFailure]);
 
   const continueGeneration = useCallback((assistantId: string) => {
     if (!activeTabId) return;
@@ -1485,6 +1433,52 @@ export function useController() {
       return undefined;
     }
   }, [loadSessionDataForTab, rememberTabTitles]);
+
+  const ensureActiveTab = useCallback(async (): Promise<string | undefined> => {
+    const current = activeTabIdRef.current;
+    if (current) return current;
+    try {
+      const topic = await app.CreateTopic("global", "", "", "continue");
+      const meta = await openGlobalTab(topic.id);
+      return meta?.id;
+    } catch (err) {
+      reportFailure(err);
+      return undefined;
+    }
+  }, [openGlobalTab, reportFailure]);
+
+  const send = useCallback((displayText: string, submitText = displayText) => {
+    void (async () => {
+      const tabId = await ensureActiveTab();
+      if (!tabId) return;
+
+      const cur = statesRef.current.get(tabId) ?? stateRef.current;
+      if (shouldBlockConcurrentSend(cur)) {
+        notice(t("composer.agentBusy"), "warn");
+        return;
+      }
+      const display = displayText.trim();
+      const submit = submitText.trim();
+
+      const launch = () => {
+        dispatchTo(tabId, { type: "user", text: displayText });
+        void (display !== submit
+          ? app.SubmitDisplayToTab(tabId, display, submit)
+          : app.SubmitToTab(tabId, submit)
+        ).catch((err) => {
+          dispatchTo(tabId, { type: "unsend" });
+          reportFailure(err);
+        });
+      };
+
+      if (cur.continueActive) {
+        dispatchTo(tabId, { type: "cancelTurn" });
+        void app.CancelTab(tabId).catch(() => undefined).finally(launch);
+        return;
+      }
+      launch();
+    })();
+  }, [dispatchTo, ensureActiveTab, notice, reportFailure, t]);
 
   const closeTab = useCallback(async (tabId: string) => {
     try {

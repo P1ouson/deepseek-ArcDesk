@@ -51,6 +51,10 @@ export const ShellCommandCard = memo(function ShellCommandCard({ item }: { item:
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
+    if (running) setOpen(true);
+  }, [running]);
+
+  useEffect(() => {
     if (!shellExpand) return;
     return shellExpand.register(item.id, () => setOpen((v) => !v));
   }, [item.id, shellExpand]);
@@ -81,7 +85,7 @@ export const ShellCommandCard = memo(function ShellCommandCard({ item }: { item:
         <div className="shell-card__body">
           {command ? <div className="shell-card__cmd">{command}</div> : null}
           {hasBody ? (
-            <CodeViewer flat value={body} maxHeight={320} language={item.error ? undefined : "plaintext"} />
+            <CodeViewer flat copy={false} value={body} maxHeight={320} language={item.error ? undefined : "plaintext"} />
           ) : running ? (
             <div className="shell-card__waiting">{t("shellCard.waiting")}</div>
           ) : null}

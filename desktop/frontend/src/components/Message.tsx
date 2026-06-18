@@ -125,6 +125,9 @@ function MessageRewindMenu({
     );
   };
 
+  const conversationDisabled = actionDisabledReason("conversation");
+  const codeDisabled = actionDisabledReason("code");
+
   if (!onRewind) return null;
 
   return (
@@ -146,7 +149,15 @@ function MessageRewindMenu({
       {open && (
         <div className="rewind__menu rewind__menu--up">
           {rewindDisabled && <div className="rewind__menu-hint">{t("rewind.disabledRunning")}</div>}
-          {!rewindDisabled && !checkpoint && <div className="rewind__menu-hint">{t("rewind.disabledNoCheckpoint")}</div>}
+          {!rewindDisabled && !checkpoint && (
+            <div className="rewind__menu-hint">{t("rewind.disabledNoCheckpoint")}</div>
+          )}
+          {!rewindDisabled && checkpoint && conversationDisabled && !codeDisabled && (
+            <div className="rewind__menu-hint">{conversationDisabled}</div>
+          )}
+          {!rewindDisabled && checkpoint && codeDisabled && !conversationDisabled && (
+            <div className="rewind__menu-hint">{codeDisabled}</div>
+          )}
           {renderAction("conversation")}
           {renderAction("code")}
           {renderAction("both", true)}
@@ -214,7 +225,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   const resolvedCopyText = (copyText ?? item.text).trim();
   const showCopy = showTurnActions && resolvedCopyText.length > 0;
   const showActions =
-    showTurnActions && !item.streaming && hasText && (showCopy || showContinue || canRewind);
+    showTurnActions && !item.streaming && (showCopy || showContinue || canRewind);
 
   useEffect(() => {
     if (thinkingActive) {
@@ -251,7 +262,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         <div className="msg__body">
           {item.streaming ? (
             <div className="msg__stream">
-              <Markdown text={item.text} />
+              <Markdown text={item.text} streaming />
               <span className="cursor" />
             </div>
           ) : (

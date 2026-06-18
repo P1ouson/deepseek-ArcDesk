@@ -704,7 +704,7 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 	}()
 	if kitErr != nil {
 		a.mu.Lock()
-		tab.StartupErr = kitErr.Error()
+		tab.StartupErr = userFacingMsg(kitErr)
 		tab.Ready = true
 		a.mu.Unlock()
 		a.emitReady(wailsCtx)
@@ -716,7 +716,7 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 		cfg, err = config.LoadForRoot(root)
 		if err != nil {
 			a.mu.Lock()
-			tab.StartupErr = err.Error()
+			tab.StartupErr = userFacingMsg(err)
 			tab.Ready = true
 			a.mu.Unlock()
 			a.emitReady(wailsCtx)
@@ -760,7 +760,7 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 	if err != nil {
 		a.releaseWorkspaceKitForTab(tab)
 		a.mu.Lock()
-		tab.StartupErr = err.Error()
+		tab.StartupErr = userFacingMsg(err)
 		tab.Ready = true
 		a.mu.Unlock()
 		a.emitReady(wailsCtx)

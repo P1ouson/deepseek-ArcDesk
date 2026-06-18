@@ -98,7 +98,7 @@ func (a *App) ConnectProviderAPI(baseURL, apiKey string) (ProviderConnectResult,
 
 	models, err := validateOpenAICompatibleAPI(ctx, client, base, apiKey)
 	if err != nil {
-		return out, fmt.Errorf("validate: %w", err)
+		return out, userFacingErr(fmt.Errorf("validate: %w", err))
 	}
 
 	cfg, _ := config.Load()

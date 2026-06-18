@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import { ChevronDown, Info } from "lucide-react";
 import { MotionUnfold } from "./MotionUnfold";
 import { buildTimelineRows, isShellTimelineTool } from "../lib/actionStream";
+import { deriveTurnAssistantActions } from "../lib/turnAssistantActions";
 import type { TimelineRow as BuiltTimelineRow } from "../lib/actionStream";
 import { truncatedAssistantIds } from "../lib/responseTruncation";
 import type { Item, LiveStream } from "../lib/useController";
@@ -255,43 +256,25 @@ export function MessageTimeline({
 
   const truncatedAssistants = useMemo(() => truncatedAssistantIds(items), [items]);
 
-  const turnAssistantActions = useMemo(() => {
-    const copyTextByAssistantId = new Map<string, string>();
-    const showActionsByAssistantId = new Map<string, boolean>();
-    let turn: number | undefined;
-    const chunks: string[] = [];
-    let lastTextAssistantId: string | undefined;
-
-    const flush = () => {
-      if (lastTextAssistantId && chunks.length > 0) {
-        copyTextByAssistantId.set(lastTextAssistantId, chunks.join("\n\n"));
-        showActionsByAssistantId.set(lastTextAssistantId, true);
-      }
-      chunks.length = 0;
-      lastTextAssistantId = undefined;
+  const { rows, turnAssistantActions } = useMemo(() => {
+    const built = buildTimelineRows(items, subcallsByParent, live, turnActive);
+    return {
+      rows: built,
+      turnAssistantActions: deriveTurnAssistantActions(items, subcallsByParent, live, turnActive, built),
     };
-
-    for (const it of items) {
-      if (it.kind === "user") {
-        flush();
-        turn = userTurn.get(it.id);
-      } else if (it.kind === "assistant" && turn != null) {
-        const text = it.text.trim();
-        if (text) {
-          chunks.push(text);
-          lastTextAssistantId = it.id;
-        }
-      }
-    }
-    flush();
-    return { copyTextByAssistantId, showActionsByAssistantId };
-  }, [items, userTurn]);
-
-  const rows = useMemo(
-    () => buildTimelineRows(items, subcallsByParent, pinnedToBottom ? live : undefined, turnActive),
-    [items, subcallsByParent, live, pinnedToBottom, turnActive],
-  );
+  }, [items, subcallsByParent, live, turnActive]);
   const empty = items.length === 0 && !pendingUser;
+
+  /** Scroll anchor when pinned: grows with live text, reasoning, and running tool output. */
+  const contentGrowthKey = useMemo(() => {
+    if (!pinnedToBottom) return 0;
+    let key = (live?.text?.length ?? 0) + (live?.reasoning?.length ?? 0);
+    for (const it of items) {
+      if (it.kind === "tool") key += (it.output?.length ?? 0) + (it.status === "running" ? 1 : 0);
+      else if (it.kind === "assistant" && it.streaming) key += it.text.length + it.reasoning.length;
+    }
+    return key;
+  }, [items, live, pinnedToBottom]);
 
   const rowKey = (row: BuiltTimelineRow) => {
     if (row.kind === "thinking-block") return row.block.id;
@@ -372,8 +355,7 @@ export function MessageTimeline({
   }, [
     totalRows,
     rows.length,
-    pinnedToBottom ? live?.text?.length : 0,
-    pinnedToBottom ? live?.reasoning?.length : 0,
+    contentGrowthKey,
     empty,
     pendingUser,
     pinnedToBottom,
@@ -388,7 +370,7 @@ export function MessageTimeline({
           block={row.block}
           workspaceRoot={workspaceRoot}
           onOpenFile={onOpenActionFile}
-          live={pinnedToBottom ? live : undefined}
+          live={live}
         />
       ) : row.kind === "action-segment" ? (
         <ActionSegmentView
@@ -399,7 +381,7 @@ export function MessageTimeline({
       ) : (
         <TimelineRow
           item={row.item}
-          live={pinnedToBottom ? live : undefined}
+          live={live}
           userTurn={userTurn}
           assistantTurn={assistantTurn}
           checkpointsByTurn={checkpointsByTurn}

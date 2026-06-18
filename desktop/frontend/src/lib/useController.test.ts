@@ -167,6 +167,7 @@ describe("stale stream errors", () => {
   it("suppresses unexpected EOF after the UI already stopped the turn", () => {
     const idle = { running: false, turnActive: false };
     expect(isStaleStreamDoneErr(idle, "deepseek-flash: read stream: unexpected EOF")).toBe(true);
+    expect(isStaleStreamDoneErr(idle, "Connection to the model was interrupted. Please retry.")).toBe(true);
     expect(isStaleStreamDoneErr({ running: true, turnActive: true }, "deepseek-flash: read stream: unexpected EOF")).toBe(false);
   });
 

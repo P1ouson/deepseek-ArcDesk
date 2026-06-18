@@ -23,7 +23,7 @@
 
 /* ========== Messages & reasoning ========== */
 .reasoning {
-  margin: 8px 0 10px;
+  margin: 8px 0 14px;
   border-left: 2px solid var(--border-soft);
   padding-left: 12px;
 }
@@ -105,7 +105,7 @@
 }
 
 .thinking-block__meta {
-  margin: 2px 0 0 18px;
+  margin: 2px 0 4px 18px;
   font-size: 12px;
   line-height: 1.4;
   color: var(--fg-faint);
@@ -198,21 +198,34 @@
 }
 
 .shell-card__body {
-  padding: 0 12px 12px;
+  padding: 10px 12px 12px;
 }
 
 .shell-card__cmd {
-  margin: 0 0 8px;
-  padding: 8px 10px;
+  margin: 6px 0 10px;
+  padding: 10px 12px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-soft) 88%, var(--bg-elev));
-  border: 1px solid var(--border-soft);
+  background: var(--shell-cmd-bg);
+  border: 1px solid var(--shell-cmd-border);
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.45;
   color: var(--fg-dim);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.shell-card__body .code-block--flat {
+  margin: 0;
+}
+
+.shell-card__body .code-block--flat .code-block__body > .code,
+.shell-card__body .code-block--flat .code-block__body > .code--with-lines,
+.shell-card__body .code-block--flat .code-block__body > .code--loading {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  padding: 8px 10px;
 }
 
 .shell-card__waiting {
@@ -244,6 +257,9 @@
   align-items: center;
   gap: 6px;
   margin-top: 8px;
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
 }
 
 .msg__actions-spacer {
@@ -263,6 +279,7 @@
   line-height: 1;
   cursor: pointer;
   white-space: nowrap;
+  pointer-events: auto;
 }
 
 .msg__continue:hover:not(:disabled) {

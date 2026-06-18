@@ -291,6 +291,13 @@ export function buildTimelineRows(
     resetThinking();
   };
 
+  /** Emit tool work before the next assistant narration so timeline order matches execution. */
+  const flushPendingTools = () => {
+    if (thinking && thinking.tools.length > 0) {
+      flushThinking();
+    }
+  };
+
   for (let index = 0; index < items.length; index++) {
     const item = items[index]!;
     if (item.kind === "user") {
@@ -341,6 +348,7 @@ export function buildTimelineRows(
       }
 
       if (interim && hasText) {
+        flushPendingTools();
         if (hasReasoning) {
           appendReasoning({ ...item, reasoning, streaming }, isLive);
         }

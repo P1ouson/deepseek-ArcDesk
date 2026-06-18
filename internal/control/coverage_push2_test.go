@@ -416,10 +416,10 @@ func TestReadFileRefLargeAndBinary(t *testing.T) {
 }
 
 func TestExplainErrorAndClampRunes(t *testing.T) {
-	if got := explainError(nil); got != nil {
+	if got := ExplainError(nil); got != nil {
 		t.Fatal("nil error")
 	}
-	if got := explainError(&provider.APIError{Status: 400, Body: `{"error":{"message":"context too long"}}`}); got == nil {
+	if got := ExplainError(&provider.APIError{Status: 400, Body: `{"error":{"message":"context too long"}}`}); got == nil {
 		t.Fatal("expected api error message")
 	}
 	if got := clampRunes("hello", 3); !strings.HasPrefix(got, "hel") {

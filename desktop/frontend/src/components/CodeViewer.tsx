@@ -14,6 +14,8 @@ export interface EditorProps {
   flat?: boolean;
   /** Chat-style header: language label + copy / download / run. */
   toolbar?: boolean;
+  /** Show floating copy control (default true). */
+  copy?: boolean;
   lineNumbers?: boolean;
 }
 
@@ -31,7 +33,7 @@ export interface EditorProps {
 const Impl = lazy(() => import("./editors/HljsCode"));
 
 export function CodeViewer(props: EditorProps) {
-  const { flat, toolbar, lineNumbers, maxHeight } = props;
+  const { flat, toolbar, lineNumbers, maxHeight, copy = true } = props;
   const t = useT();
   const bodyRef = useRef<HTMLDivElement>(null);
   const [overflowing, setOverflowing] = useState(false);
@@ -74,7 +76,7 @@ export function CodeViewer(props: EditorProps) {
       style={toolbar && maxHeight ? { maxHeight } : undefined}
     >
       {toolbar ? <CodeBlockToolbar value={props.value} language={props.language} /> : null}
-      {!toolbar ? <CopyButton text={props.value} className="code-block__copy" /> : null}
+      {!toolbar && copy ? <CopyButton text={props.value} className="code-block__copy" /> : null}
       <div
         ref={bodyRef}
         className="code-block__body"

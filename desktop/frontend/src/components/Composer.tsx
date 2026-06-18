@@ -1599,7 +1599,7 @@ export function Composer({
               </button>
             </div>
           ) : null}
-          <div className="composer-meta__model-effort">
+          <div className={`composer-meta__model-effort${hasEffort ? "" : " composer-meta__model-effort--solo"}`}>
             <div className="composer-meta__control composer-meta__control--model" ref={modelAnchorRef}>
               <ModelSwitcherTrigger
                 label={modelLabelFromRef(modelLabel)}

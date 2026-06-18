@@ -79,7 +79,7 @@ async function executeDesktopSendRoute(route: DesktopSendRoute, deps: DesktopSen
           void deps.runCodeReview("standard", "all", paths);
         })
         .catch((err) => {
-          deps.notice(deps.t("common.operationFailed", { msg: toErrorMessage(err) }), "warn");
+          deps.notice(deps.t("common.operationFailed", { msg: toErrorMessage(err, "", deps.t) }), "warn");
         });
       return;
     case "openSdd":

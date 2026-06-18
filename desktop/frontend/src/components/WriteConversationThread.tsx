@@ -26,11 +26,16 @@ export function WriteConversationThread({
   const t = useT();
   const endRef = useRef<HTMLDivElement>(null);
   const compact = variant === "sidebar";
+  const streaming = turns.some((turn) => turn.streaming);
+  const tailLen =
+    turns.length > 0
+      ? (turns[turns.length - 1]?.text.length ?? 0) + (turns[turns.length - 1]?.reasoning?.length ?? 0)
+      : 0;
 
   useEffect(() => {
     if (variant !== "panel") return;
-    endRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [turns, variant]);
+    endRef.current?.scrollIntoView({ block: "end", behavior: streaming ? "auto" : "smooth" });
+  }, [turns, variant, streaming, tailLen]);
 
   if (!turns.length) {
     return (
@@ -62,13 +67,13 @@ export function WriteConversationThread({
             <p className="write-conversation__preview">{previewText(turn.text, 72)}</p>
           ) : turn.role === "assistant" ? (
             <div className="write-conversation__body write-conversation__body--md">
-              <Markdown text={turn.text || t("write.assistantStreaming")} />
+              <Markdown text={turn.text || t("write.assistantStreaming")} streaming={turn.streaming} />
             </div>
           ) : (
             <p className="write-conversation__body">{turn.text}</p>
           )}
           {!compact && turn.reasoning?.trim() ? (
-            <details className="write-conversation__reasoning">
+            <details className="write-conversation__reasoning" open={turn.streaming || undefined}>
               <summary>{t("write.reasoningTitle")}</summary>
               <div className="write-conversation__reasoning-body">{turn.reasoning}</div>
             </details>

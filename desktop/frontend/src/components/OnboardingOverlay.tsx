@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useT } from "../lib/i18n";
 import { app, openExternal } from "../lib/bridge";
+import { humanizeUserError } from "../lib/errors";
 import { logBridgeError } from "../lib/logBridgeError";
 import { normalizeProviderBaseUrl } from "./settings/modelUtils";
 
@@ -88,23 +89,23 @@ export function OnboardingOverlay({
       onComplete();
     } catch (e) {
       const raw = e instanceof Error ? e.message : String(e);
-      const msg = raw.replace(/^validate:\s*/i, "").replace(/^fetch models:\s*/i, "");
-      if (/cancelled/i.test(msg)) {
+      const msg = humanizeUserError(raw, t);
+      if (/cancelled/i.test(raw)) {
         setError(t("onboarding.error.cancelled"));
-      } else if (/status\s*401|status\s*403|unauthorized|invalid key/i.test(msg)) {
+      } else if (/status\s*401|status\s*403|unauthorized|invalid key|HTTP 401/i.test(msg)) {
         setError(t("onboarding.error.invalid"));
-      } else if (/status\s*404|invalid url/i.test(msg) && /chat\/completions\/models/i.test(msg)) {
+      } else if (/status\s*404|invalid url/i.test(raw) && /chat\/completions\/models/i.test(raw)) {
         setError(t("settings.models.relayBaseUrlError"));
-      } else if (/decode response|unexpected end of json|invalid character/i.test(msg)) {
+      } else if (/decode response|unexpected end of json|invalid character/i.test(raw)) {
         setError(t("onboarding.error.parse", { detail: msg }));
-      } else if (/network|unreachable|timeout|dial tcp|connection refused|no such host/i.test(msg)) {
+      } else if (/Could not reach the API|无法连接 API|network|unreachable|timeout|dial tcp|connection refused|no such host/i.test(msg)) {
         setError(t("onboarding.error.network"));
-      } else if (/base url is required/i.test(msg)) {
+      } else if (/base url is required/i.test(raw)) {
         setError(t("onboarding.error.baseUrlRequired"));
-      } else if (/empty model list/i.test(msg)) {
+      } else if (/empty model list/i.test(raw)) {
         setError(t("onboarding.error.emptyModels"));
       } else {
-        setError(msg || t("onboarding.error.unknown"));
+        setError(msg || t("onboarding.error.unknown", { msg: raw }));
       }
       setState("error");
       keyInputRef.current?.focus();

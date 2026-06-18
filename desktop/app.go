@@ -1336,7 +1336,7 @@ func (a *App) BalanceForTab(tabID string) BalanceInfo {
 	}
 	b, err := ctrl.Balance(a.ctx)
 	if err != nil {
-		return BalanceInfo{Err: err.Error()}
+		return BalanceInfo{Err: userFacingMsg(err)}
 	}
 	if b == nil {
 		return BalanceInfo{} // provider declares no balance endpoint
@@ -2980,7 +2980,7 @@ func (a *App) SetModelForTab(tabID, name string) error {
 	}
 	name = entry.Name + "/" + entry.Model
 	if err := cfg.Validate(name); err != nil {
-		return fmt.Errorf("cannot switch model: %w", err)
+		return userFacingErr(fmt.Errorf("cannot switch model: %w", err))
 	}
 	effortOverride := cloneStringPtr(tab.effort)
 	if effortOverride != nil {

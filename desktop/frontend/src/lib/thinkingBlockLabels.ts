@@ -151,7 +151,7 @@ export function deriveThinkingBlockHint(block: ThinkingBlock, t: Translator): st
     }
   }
 
-  if (!active && tools.length >= 2) {
+  if (!active && tools.length >= 1) {
     return summarizeThinkingBlockStats(tools, t);
   }
 

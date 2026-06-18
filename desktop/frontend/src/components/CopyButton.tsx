@@ -21,13 +21,33 @@ export function CopyButton({
   const t = useT();
   const [copied, setCopied] = useState(false);
   const copy = async () => {
+    const write = async () => {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+      throw new Error("clipboard unavailable");
+    };
     try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
+      await write();
     } catch {
-      /* clipboard unavailable */
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        if (!ok) return;
+      } catch {
+        return;
+      }
     }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
   };
   const iconSize = variant === "tool" ? 15 : 13;
   const btnClass = variant === "tool" ? "msg-tool-btn motion-surface" : "copybtn";

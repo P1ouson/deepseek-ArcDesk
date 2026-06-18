@@ -648,17 +648,10 @@ export function useWorkbenchDock(deps: WorkbenchDockDeps) {
 
   const openActionFilePreview = useCallback(
     (req: ActionFileOpenRequest) => {
-      if (filePreviewPath === null) {
-        previewWidthUserSizedRef.current = false;
-      }
-      setPreviewColumnExpanded(false);
-      setFilePreviewComposerOpen(false);
-      setFilePreviewPath(req.path);
-      setFilePreviewDiff(req.diff ?? null);
-      openPreviewColumn("file");
-      setPreviewColumnOpen(true);
+      openFilePreview(req.path, "files");
+      if (req.diff) setFilePreviewDiff(req.diff);
     },
-    [filePreviewPath, openPreviewColumn],
+    [openFilePreview],
   );
 
   const openPreviewBrowser = useCallback(() => {

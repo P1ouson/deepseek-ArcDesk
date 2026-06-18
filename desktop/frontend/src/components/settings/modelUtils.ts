@@ -1,4 +1,5 @@
 import { asArray } from "../../lib/array";
+import { humanizeUserError } from "../../lib/errors";
 import type { Translator } from "../../lib/i18n";
 import { modelLabelFromRef, modelShortLabel } from "../../lib/modelLabel";
 import type { ProviderView, SettingsView } from "../../lib/types";
@@ -66,7 +67,7 @@ export function modelRef(providerName: string, modelId: string): string {
 }
 
 export function formatModelFetchError(raw: string, relayMode: boolean, t: Translator): string {
-  const msg = raw.replace(/^fetch models:\s*/i, "").replace(/^validate:\s*/i, "").trim();
+  const msg = humanizeUserError(raw, t);
   if (
     relayMode &&
     /status\s*401|status\s*403|无效的令牌|未提供令牌|unauthorized|invalid.*token/i.test(msg)
@@ -85,7 +86,7 @@ export function formatModelFetchError(raw: string, relayMode: boolean, t: Transl
   ) {
     return t("settings.models.relayNetworkError");
   }
-  return msg.replace(/^request failed:\s*/i, "").trim() || raw;
+  return msg || raw;
 }
 
 export function looksLikeStalePresetModels(models: string[]): boolean {

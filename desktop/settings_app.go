@@ -492,7 +492,7 @@ func (a *App) rebuild() error {
 	ctrl, _, err := a.buildControllerForTab(tab, buildCtx, model, cloneStringPtr(tab.effort))
 	if err != nil {
 		a.mu.Lock()
-		tab.StartupErr = err.Error()
+		tab.StartupErr = userFacingMsg(err)
 		tab.Ready = true
 		a.mu.Unlock()
 		a.emitReady(a.ctx)
@@ -644,7 +644,7 @@ func (a *App) SyncProviderModels(providerName string) (ProviderModelsResult, err
 			"ok":       true,
 		})
 	}
-	return out, err
+	return out, userFacingErr(err)
 }
 
 // SaveProvider adds or updates a provider. A single model fills `model`; several

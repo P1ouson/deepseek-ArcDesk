@@ -161,34 +161,78 @@ describe("buildTimelineRows thinking blocks", () => {
     ];
 
     const rows = buildTimelineRows(items, new Map());
-    expect(rowKinds(rows)).toEqual(["user", "assistant", "assistant", "assistant", "thinking", "assistant"]);
+    expect(rowKinds(rows)).toEqual([
+      "user",
+      "assistant",
+      "thinking",
+      "assistant",
+      "thinking",
+      "assistant",
+      "thinking",
+      "assistant",
+    ]);
 
     const preface = rows[1];
     expect(preface?.kind).toBe("single");
     if (preface?.kind !== "single" || preface.item.kind !== "assistant") throw new Error("expected preface");
     expect(preface.item.text).toBe("帮你找一下文件里的训练数据。");
 
-    const mid1 = rows[2];
+    const firstTools = rows[2];
+    expect(firstTools?.kind).toBe("thinking-block");
+    if (firstTools?.kind !== "thinking-block") throw new Error("expected thinking block");
+    expect(firstTools.block.entries).toHaveLength(1);
+    expect(firstTools.block.reasoning).toContain("round 1 thought");
+
+    const mid1 = rows[3];
     expect(mid1?.kind).toBe("single");
     if (mid1?.kind !== "single" || mid1.item.kind !== "assistant") throw new Error("expected mid narration");
     expect(mid1.item.text).toBe("探索结果出来了，我去看关键文件。");
 
-    const mid2 = rows[3];
+    const secondTools = rows[4];
+    expect(secondTools?.kind).toBe("thinking-block");
+    if (secondTools?.kind !== "thinking-block") throw new Error("expected thinking block");
+    expect(secondTools.block.entries).toHaveLength(1);
+    expect(secondTools.block.reasoning).toContain("round 2 thought");
+
+    const mid2 = rows[5];
     expect(mid2?.kind).toBe("single");
     if (mid2?.kind !== "single" || mid2.item.kind !== "assistant") throw new Error("expected mid narration");
     expect(mid2.item.text).toBe("找到了，我来读取。");
 
-    const block = rows[4];
-    expect(block?.kind).toBe("thinking-block");
-    if (block?.kind !== "thinking-block") throw new Error("expected thinking block");
-    expect(block.block.entries).toHaveLength(3);
-    expect(block.block.reasoning).toContain("round 1 thought");
-    expect(block.block.reasoning).not.toContain("帮你找一下文件里的训练数据。");
+    const thirdTools = rows[6];
+    expect(thirdTools?.kind).toBe("thinking-block");
+    if (thirdTools?.kind !== "thinking-block") throw new Error("expected thinking block");
+    expect(thirdTools.block.entries).toHaveLength(1);
+    expect(thirdTools.block.reasoning).toContain("round 3 thought");
 
-    const answer = rows[5];
+    const answer = rows[7];
     expect(answer?.kind).toBe("single");
     if (answer?.kind !== "single" || answer.item.kind !== "assistant") throw new Error("expected assistant");
     expect(answer.item.text).toBe("训练用了 3 小时，样本 12000 条。");
+  });
+
+  it("shows tool work before later narration when files are read mid-turn", () => {
+    const items: Item[] = [
+      { kind: "user", id: "u1", text: "continue" },
+      assistant("a1", "好的，按优先级表来，下一步做 P1。"),
+      tool("t1"),
+      tool("t2"),
+      tool("t3"),
+      assistant("a2", "现在我清楚了当前 watcher 的逻辑。改造思路："),
+    ];
+
+    const rows = buildTimelineRows(items, new Map());
+    expect(rowKinds(rows)).toEqual(["user", "assistant", "thinking", "assistant"]);
+
+    const thinking = rows[2];
+    expect(thinking?.kind).toBe("thinking-block");
+    if (thinking?.kind !== "thinking-block") throw new Error("expected thinking block");
+    expect(thinking.block.entries).toHaveLength(3);
+
+    const answer = rows[3];
+    expect(answer?.kind).toBe("single");
+    if (answer?.kind !== "single" || answer.item.kind !== "assistant") throw new Error("expected assistant");
+    expect(answer.item.text).toContain("改造思路");
   });
 
   it("shows background job completion notices immediately instead of batching at turn end", () => {
@@ -228,14 +272,20 @@ describe("buildTimelineRows thinking blocks", () => {
     ];
 
     const rows = buildTimelineRows(items, new Map());
-    expect(rowKinds(rows)).toEqual(["user", "assistant", "thinking", "notice", "assistant"]);
+    expect(rowKinds(rows)).toEqual(["user", "assistant", "thinking", "notice", "thinking", "assistant"]);
 
     const thinking = rows[2];
     expect(thinking?.kind).toBe("thinking-block");
     if (thinking?.kind !== "thinking-block") throw new Error("expected thinking block");
     expect(thinking.block.entries).toHaveLength(2);
 
-    const answer = rows[4];
+    const trailingReasoning = rows[4];
+    expect(trailingReasoning?.kind).toBe("thinking-block");
+    if (trailingReasoning?.kind !== "thinking-block") throw new Error("expected trailing thinking block");
+    expect(trailingReasoning.block.entries).toHaveLength(0);
+    expect(trailingReasoning.block.reasoning).toContain("thought 2");
+
+    const answer = rows[5];
     expect(answer?.kind).toBe("single");
     if (answer?.kind !== "single" || answer.item.kind !== "assistant") throw new Error("expected assistant");
     expect(answer.item.text).toBe("入口在 common/config。");

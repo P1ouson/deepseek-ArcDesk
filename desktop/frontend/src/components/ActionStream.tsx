@@ -33,11 +33,9 @@ export interface ActionFileOpenRequest {
 
 function ActionFileLinks({
   files,
-  running,
   onOpenFile,
 }: {
   files: ActionFileRef[];
-  running: boolean;
   onOpenFile?: (req: ActionFileOpenRequest) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -47,7 +45,7 @@ function ActionFileLinks({
   if (resolved.length === 0) return null;
 
   const primary = resolved[0]!;
-  const clickable = !running && !!onOpenFile;
+  const clickable = !!onOpenFile && resolved.length > 0;
 
   const openPrimary = () => {
     if (!clickable) return;
@@ -144,10 +142,13 @@ const ActionToolRow = memo(function ActionToolRow({
   const subject = context ? "" : subjectLabel(item);
   const hasFileLinks = files.length > 0;
   const hasDetails = !!(item.output || item.error || (item.args && !hasFileLinks && !context));
-  const expandable = hasDetails && !running;
+  const expandable = hasDetails;
+
+  useEffect(() => {
+    if (running && (item.output || item.error)) setDetailOpen(true);
+  }, [running, item.output, item.error]);
 
   const handleFileOpen = (req: ActionFileOpenRequest) => {
-    if (running) return;
     if (isWriteTool(item.name) && item.fileDiff?.diff) {
       onOpenFile?.({ path: req.path, diff: item.fileDiff });
       return;
@@ -162,7 +163,7 @@ const ActionToolRow = memo(function ActionToolRow({
       <div className="action-row__main">
         <span className="action-row__verb">{verb}</span>
         {hasFileLinks ? (
-          <ActionFileLinks files={files} running={running} onOpenFile={handleFileOpen} />
+          <ActionFileLinks files={files} onOpenFile={handleFileOpen} />
         ) : subject ? (
           <span className="action-row__subject">{subject}</span>
         ) : context ? (
@@ -315,17 +316,13 @@ export const ThinkingBlockView = memo(function ThinkingBlockView({
       : block.reasoning;
   const hasReasoning = displayReasoning.trim().length > 0;
   const hasTools = block.entries.length > 0;
-  const [open, setOpen] = useState(active);
+  const [open, setOpen] = useState(() => active || hasTools);
 
-  // Auto-expand while the block is active; collapse only when the agent turn fully
-  // finishes — avoids fold/unfold flicker between tool rounds or text/reasoning interleave.
+  // Auto-expand while the block is active; keep user-expanded state after the turn
+  // finishes so tool calls and reasoning stay visible (do not auto-collapse).
   useEffect(() => {
     if (active) setOpen(true);
   }, [active]);
-
-  useEffect(() => {
-    if (!block.turnInProgress && block.complete) setOpen(false);
-  }, [block.turnInProgress, block.complete]);
 
   if (!hasReasoning && !hasTools) return null;
 

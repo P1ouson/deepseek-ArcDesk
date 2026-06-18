@@ -25,6 +25,17 @@ export const zh: Record<DictKey, string> = {
   "boot.hydrateFailed": "加载会话数据失败。请重试或重启应用。",
   "common.open": "打开",
   "common.operationFailed": "操作失败：{msg}",
+  "errors.requestCanceled": "请求已取消。",
+  "errors.requestTimeout": "请求超时，请重试。",
+  "errors.network": "无法连接 API，请检查 Base URL、网络和代理设置。",
+  "errors.streamInterrupted": "与模型的连接中断，请重试。",
+  "errors.auth": "认证失败 (HTTP 401)：API key 缺失、错误或已过期。",
+  "errors.balance": "余额不足 (HTTP 402)：账户余额不足，请前往充值后重试。",
+  "errors.rateLimited": "请求速率达到上限 (HTTP 429)：请求过于频繁，请稍后再试。",
+  "errors.server": "服务器故障 (HTTP 500)：服务端内部错误，请稍后再试。",
+  "errors.busy": "服务器繁忙 (HTTP 503)：服务端负载过高，请稍后再试。",
+  "errors.badRequest": "请求格式错误 (HTTP 400)：请求体被拒绝。",
+  "errors.unprocessable": "参数错误 (HTTP 422)：某个请求参数被拒绝。",
 
   // 顶栏
   "topbar.history": "历史",
