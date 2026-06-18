@@ -1776,11 +1776,39 @@ func (c *Config) Provider(name string) (*ProviderEntry, bool) {
 	return nil, false
 }
 
+// resolveProviderModelRef splits ref into provider + model when the model id itself
+// may contain "/" (e.g. relay ids like "z-ai/glm-5.2-free"). Longest provider
+// name match wins so "deepseek-flash/foo" does not bind to provider "deepseek".
+func (c *Config) resolveProviderModelRef(ref string) (*ProviderEntry, string, bool) {
+	var best *ProviderEntry
+	var bestModel string
+	for i := range c.Providers {
+		p := &c.Providers[i]
+		prefix := p.Name + "/"
+		if !strings.HasPrefix(ref, prefix) {
+			continue
+		}
+		model := ref[len(prefix):]
+		if model == "" || !p.HasModel(model) {
+			continue
+		}
+		if best == nil || len(p.Name) > len(best.Name) {
+			best = p
+			bestModel = model
+		}
+	}
+	if best == nil {
+		return nil, "", false
+	}
+	cp := *best
+	return &cp, bestModel, true
+}
+
 // ResolveModel resolves a model reference to a provider entry whose Model is the
 // selected model string (a copy, so the config's lists stay intact). It accepts:
-//   - "provider/model" 鈥?that exact model under that provider;
-//   - a provider name   鈥?the provider's default model;
-//   - a bare model name 鈥?the (first) provider that lists it.
+//   - "provider/model" — that exact model under that provider (model may contain "/");
+//   - a provider name   — the provider's default model;
+//   - a bare model name — the (first) provider that lists it.
 //
 // The returned entry is ready to build a provider from (NewProvider reads .Model),
 // so a single "vendor with many models" entry yields one instance per model
@@ -1790,13 +1818,9 @@ func (c *Config) ResolveModel(ref string) (*ProviderEntry, bool) {
 	if ref == "" {
 		return nil, false
 	}
-	// "provider/model"
-	if prov, model, ok := strings.Cut(ref, "/"); ok {
-		if e, found := c.Provider(prov); found && e.HasModel(model) {
-			cp := *e
-			cp.Model = model
-			return &cp, true
-		}
+	if e, model, ok := c.resolveProviderModelRef(ref); ok {
+		e.Model = model
+		return e, true
 	}
 	// a provider name 鈫?its default model
 	if e, found := c.Provider(ref); found {

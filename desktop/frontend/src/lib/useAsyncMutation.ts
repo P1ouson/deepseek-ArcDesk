@@ -18,7 +18,6 @@ export function useAsyncMutation() {
       await fn();
     } catch (e) {
       setErr(toErrorMessage(e));
-      throw e;
     } finally {
       setBusy(false);
     }

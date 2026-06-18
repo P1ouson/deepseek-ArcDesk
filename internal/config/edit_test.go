@@ -318,6 +318,22 @@ func TestResolveModelPreservesProviderEffort(t *testing.T) {
 	}
 }
 
+func TestResolveModelWithSlashInModelID(t *testing.T) {
+	c := Default()
+	c.Providers = []ProviderEntry{{
+		Name: "deepseek-flash", Kind: "openai", BaseURL: "https://relay.example/v1",
+		Models: []string{"z-ai/glm-5.2-free", "deepseek-v4-flash"}, Default: "deepseek-v4-flash",
+		APIKeyEnv: "DEEPSEEK_API_KEY",
+	}}
+	e, ok := c.ResolveModel("deepseek-flash/z-ai/glm-5.2-free")
+	if !ok {
+		t.Fatal("ResolveModel did not find deepseek-flash/z-ai/glm-5.2-free")
+	}
+	if e.Name != "deepseek-flash" || e.Model != "z-ai/glm-5.2-free" {
+		t.Fatalf("resolved entry = %+v", e)
+	}
+}
+
 func TestRemoveProvider(t *testing.T) {
 	c := Default()
 	c.Agent.PlannerModel = "deepseek-pro"
