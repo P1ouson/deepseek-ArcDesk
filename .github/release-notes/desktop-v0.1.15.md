@@ -15,6 +15,7 @@
 ### 修复
 
 - **设置页保存** — 修复中转站模型 ID 含 `/`（如 `z-ai/glm-5.2-free`）时保存 URL/API 触发 `unknown model` 并 rebuild 失败的问题
+- **切回官方 API** — 从中转站切回 DeepSeek 官方后，若 tab 仍挂着旧模型，保存 Key 时自动回退到当前可用模型，不再 rebuild 失败
 - **设置页报错** — 保存失败时在设置页显示错误横幅，不再弹出 `[unhandledrejection]`
 
 ---
