@@ -1448,6 +1448,7 @@ export const zh: Record<DictKey, string> = {
   "settings.models.relayHint": "中转站模式：填写网关地址（通常带 /v1，如 https://apihub.agnes-ai.com/v1）。保存 Key 后会自动拉取可用模型列表。",
   "settings.models.relayAuthError": "中转站返回无效令牌 (401)。请检查：① Base URL 以 /v1 结尾；② 密钥填中转站「令牌」（不是 DeepSeek 官方 key）；③ 密钥不要带 Bearer 前缀；④ 账户有余额且令牌已启用。",
   "settings.models.relayBaseUrlError": "Base URL 应填到 /v1 为止（如 https://apihub.agnes-ai.com/v1），不要包含 /chat/completions，程序会自动拼接接口路径。",
+  "settings.models.relayNetworkError": "无法连接中转站（连接被关闭或超时）。请检查：① Base URL 以 /v1 结尾；② 网络/代理设置；③ 中转站是否可用；然后重新获取模型列表。",
   "settings.models.relayMode": "当前为中转站 / 代理 API",
   "settings.models.baseUrlPlaceholder": "https://api.deepseek.com 或 https://你的中转/v1",
   "settings.models.fetchTitle": "模型列表",

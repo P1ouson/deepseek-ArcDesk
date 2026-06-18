@@ -94,6 +94,27 @@ func TestDedupeModelInfosPreservesCurrentSelection(t *testing.T) {
 	}
 }
 
+func TestBuildModelInfosIncludesCurrentModelWhenListEmpty(t *testing.T) {
+	isolateDesktopUserDirs(t)
+	t.Setenv("DEEPSEEK_API_KEY", "sk-test")
+
+	cfg := config.Default()
+	cfg.Providers[0].BaseURL = "https://relay.example.com/v1"
+	if err := cfg.SaveTo(config.UserConfigPath()); err != nil {
+		t.Fatal(err)
+	}
+	config.InvalidateConfigCache("")
+
+	cur := "deepseek-flash/deepseek-v4-flash"
+	got := buildModelInfos(cfg, cur)
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want current model only: %+v", len(got), got)
+	}
+	if got[0].Ref != cur || !got[0].Current {
+		t.Fatalf("got %+v, want current %q", got[0], cur)
+	}
+}
+
 func TestCommandsIncludesEffortNotThinking(t *testing.T) {
 	app := NewApp()
 	cmds := app.Commands()
@@ -1385,5 +1406,24 @@ func TestSetMCPServerEnabledDisableWithoutController(t *testing.T) {
 	}
 	if github.Status != "disabled" {
 		t.Fatalf("status = %q, want disabled", github.Status)
+	}
+}
+
+func TestApplyConfigChangeWithoutActiveTab(t *testing.T) {
+	isolateDesktopUserDirs(t)
+	app := NewApp()
+	err := app.applyConfigChange(func(c *config.Config) error {
+		c.Agent.MaxSteps = 42
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("applyConfigChange without active tab: %v", err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Agent.MaxSteps != 42 {
+		t.Fatalf("MaxSteps = %d, want 42 persisted", cfg.Agent.MaxSteps)
 	}
 }

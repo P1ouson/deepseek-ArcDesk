@@ -1312,7 +1312,10 @@ export function useController() {
   const compact = useCallback(() => { app.Compact().catch(reportFailure); }, [reportFailure]);
 
   const setModel = useCallback(async (name: string) => {
-    if (!activeTabId) return;
+    if (!activeTabId) {
+      reportFailure(new Error("no active workspace tab"));
+      return;
+    }
     try {
       await app.SetModelForTab(activeTabId, name);
     } catch (err) {

@@ -1447,6 +1447,7 @@ export const en = {
   "settings.models.relayHint": "Relay mode: enter your gateway URL (usually with /v1, e.g. https://apihub.agnes-ai.com/v1). Models sync after you save the API key.",
   "settings.models.relayAuthError": "Relay returned invalid token (401). Check: ① base URL ends with /v1; ② use the relay token (not an upstream provider key); ③ do not include a Bearer prefix; ④ account has balance and the token is enabled.",
   "settings.models.relayBaseUrlError": "Base URL should end at /v1 (e.g. https://apihub.agnes-ai.com/v1). Do not include /chat/completions — the app adds that path automatically.",
+  "settings.models.relayNetworkError": "Could not reach the relay (connection closed or timed out). Check: ① base URL ends with /v1; ② network/proxy settings; ③ the relay is up; then try fetching again.",
   "settings.models.relayMode": "Relay / proxy API active",
   "settings.models.baseUrlPlaceholder": "https://api.deepseek.com or https://your-relay/v1",
   "settings.models.fetchTitle": "Model list",

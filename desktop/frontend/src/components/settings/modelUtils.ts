@@ -79,7 +79,13 @@ export function formatModelFetchError(raw: string, relayMode: boolean, t: Transl
   ) {
     return t("settings.models.relayBaseUrlError");
   }
-  return msg || raw;
+  if (
+    relayMode &&
+    /eof|connection reset|broken pipe|tls:|timeout|dial tcp|i\/o timeout|network is unreachable/i.test(msg)
+  ) {
+    return t("settings.models.relayNetworkError");
+  }
+  return msg.replace(/^request failed:\s*/i, "").trim() || raw;
 }
 
 export function looksLikeStalePresetModels(models: string[]): boolean {

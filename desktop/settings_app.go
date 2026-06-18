@@ -392,9 +392,14 @@ func (a *App) applyConfigChange(mutate func(*config.Config) error) error {
 		return err
 	}
 	config.InvalidateConfigCache("")
-	if tab := a.activeTab(); tab != nil {
-		a.invalidateWorkspaceKitForRoot(tab.Scope, tab.WorkspaceRoot)
+	tab := a.activeTab()
+	if tab == nil {
+		// Settings/onboarding can run with no workspace tab open; persist config
+		// and defer controller rebuild until a tab is active (ConnectProviderAPI
+		// uses the same pattern).
+		return nil
 	}
+	a.invalidateWorkspaceKitForRoot(tab.Scope, tab.WorkspaceRoot)
 	return a.rebuild()
 }
 
@@ -652,11 +657,19 @@ func (a *App) SaveProvider(p ProviderView) error {
 			SupportedEfforts: p.SupportedEfforts,
 			DefaultEffort:    p.DefaultEffort,
 		}
+		if existing, ok := c.Provider(p.Name); ok {
+			e.Model = existing.Model
+			e.Models = existing.Models
+			e.Default = existing.Default
+			e.Effort = existing.Effort
+		}
 		if len(p.Models) > 0 {
 			e.Model = p.Models[0] // also satisfies validateProvider's model requirement
 			if len(p.Models) > 1 {
 				e.Models = p.Models
 				e.Default = p.Default
+			} else {
+				e.Models = nil
 			}
 		}
 		config.ApplyDeepSeekProviderEndpoints(&e)
@@ -699,8 +712,10 @@ func (a *App) SetProviderKey(apiKeyEnv, value string) error {
 	if err := upsertDotEnv(apiKeyEnv, value); err != nil {
 		return err
 	}
-	if err := a.rebuild(); err != nil {
-		return err
+	if tab := a.activeTab(); tab != nil {
+		if err := a.rebuild(); err != nil {
+			return err
+		}
 	}
 	go a.refreshProviderModelsAsync(apiKeyEnv)
 	return nil

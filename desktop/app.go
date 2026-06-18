@@ -2832,13 +2832,15 @@ func (a *App) ModelsForTab(tabID string) []ModelInfo {
 }
 
 func buildModelInfos(cfg *config.Config, curModel string) []ModelInfo {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
 	out := make([]ModelInfo, 0)
 	for i := range cfg.Providers {
 		p := &cfg.Providers[i]
 		if !p.Configured() {
 			continue
 		}
-		for _, m := range p.ListedModels() {
+		for _, m := range p.SwitchableModels(ctx) {
 			if strings.TrimSpace(m) == "" {
 				continue
 			}
@@ -2851,7 +2853,33 @@ func buildModelInfos(cfg *config.Config, curModel string) []ModelInfo {
 			})
 		}
 	}
+	out = ensureCurrentModelInfo(out, cfg, curModel)
 	return dedupeModelInfos(out)
+}
+
+// ensureCurrentModelInfo keeps the active tab model visible in the switcher when
+// GET /models has not succeeded yet (relay EOF, first launch, etc.).
+func ensureCurrentModelInfo(in []ModelInfo, cfg *config.Config, curModel string) []ModelInfo {
+	curModel = strings.TrimSpace(curModel)
+	if curModel == "" {
+		return in
+	}
+	for _, m := range in {
+		if m.Ref == curModel {
+			return in
+		}
+	}
+	entry, ok := cfg.ResolveModel(curModel)
+	if !ok || !entry.Configured() {
+		return in
+	}
+	ref := entry.Name + "/" + entry.Model
+	return append(in, ModelInfo{
+		Ref:      ref,
+		Provider: entry.Name,
+		Model:    entry.Model,
+		Current:  true,
+	})
 }
 
 func (a *App) refreshProviderModelsAsync(apiKeyEnv string) {
@@ -2934,7 +2962,7 @@ func (a *App) SetModelForTab(tabID, name string) error {
 	}
 	tab := a.tabByID(tabID)
 	if tab == nil {
-		return nil
+		return fmt.Errorf("no active workspace tab")
 	}
 	if name == tab.model {
 		return nil

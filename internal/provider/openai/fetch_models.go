@@ -29,45 +29,71 @@ func FetchModelsHTTP(ctx context.Context, client *http.Client, baseURL, apiKey s
 	}
 	url := modelsListURL(baseURL)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("fetch models: build request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+apikey.Normalize(apiKey))
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fetch models: request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxModelsResponseBytes))
-	if err != nil {
-		return nil, fmt.Errorf("fetch models: read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("fetch models: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	var result struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("fetch models: decode response: %w", err)
-	}
-
-	ids := make([]string, 0, len(result.Data))
-	for _, m := range result.Data {
-		if m.ID != "" {
-			ids = append(ids, m.ID)
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("fetch models: request failed: %w", ctx.Err())
+			case <-time.After(300 * time.Millisecond):
+			}
 		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("fetch models: build request: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+apikey.Normalize(apiKey))
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			if attempt == 0 && isRetryableModelsFetchErr(err) {
+				continue
+			}
+			return nil, fmt.Errorf("fetch models: request failed: %w", err)
+		}
+
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxModelsResponseBytes))
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("fetch models: read response: %w", readErr)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("fetch models: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		var result struct {
+			Data []struct {
+				ID string `json:"id"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, fmt.Errorf("fetch models: decode response: %w", err)
+		}
+
+		ids := make([]string, 0, len(result.Data))
+		for _, m := range result.Data {
+			if m.ID != "" {
+				ids = append(ids, m.ID)
+			}
+		}
+		sort.Strings(ids)
+		return ids, nil
 	}
-	sort.Strings(ids)
-	return ids, nil
+	return nil, fmt.Errorf("fetch models: request failed: %w", lastErr)
+}
+
+func isRetryableModelsFetchErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "eof") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "broken pipe")
 }
 
 func modelsListURL(baseURL string) string {
