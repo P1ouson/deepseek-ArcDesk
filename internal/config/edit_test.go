@@ -334,6 +334,21 @@ func TestResolveModelWithSlashInModelID(t *testing.T) {
 	}
 }
 
+func TestCoalesceModelRefSkipsStaleRelayModel(t *testing.T) {
+	c := Default()
+	c.DefaultModel = "deepseek-flash/z-ai/glm-5.2-free"
+	c.Providers = []ProviderEntry{{
+		Name: "deepseek-flash", Kind: "openai", BaseURL: "https://api.deepseek.com",
+		Models: []string{"deepseek-v4-flash"}, Default: "deepseek-v4-flash",
+		APIKeyEnv: "DEEPSEEK_API_KEY",
+	}}
+	got := c.CoalesceModelRef("deepseek-flash/z-ai/glm-5.2-free")
+	want := "deepseek-flash/deepseek-v4-flash"
+	if got != want {
+		t.Fatalf("CoalesceModelRef = %q, want %q", got, want)
+	}
+}
+
 func TestRemoveProvider(t *testing.T) {
 	c := Default()
 	c.Agent.PlannerModel = "deepseek-pro"

@@ -728,14 +728,7 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 	if model == "" {
 		model = cfg.DefaultModel
 	}
-	if e, ok := cfg.ResolveModel(model); ok {
-		model = e.Name + "/" + e.Model
-	} else {
-		model = cfg.DefaultModel
-		if e, ok := cfg.ResolveModel(model); ok {
-			model = e.Name + "/" + e.Model
-		}
-	}
+	model = cfg.CoalesceModelRef(model)
 
 	a.mu.Lock()
 	tab.model = model

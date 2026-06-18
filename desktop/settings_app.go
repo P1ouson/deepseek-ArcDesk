@@ -480,11 +480,15 @@ func (a *App) rebuild() error {
 	}
 	model := tab.model
 	if cfg, err := config.LoadForRoot(tab.WorkspaceRoot); err == nil {
-		if _, ok := cfg.ResolveModel(model); !ok {
-			model = cfg.DefaultModel
-			if e, ok := cfg.ResolveModel(model); ok {
-				model = e.Name + "/" + e.Model
-			}
+		coalesced := cfg.CoalesceModelRef(model)
+		if coalesced != model {
+			model = coalesced
+		}
+		if _, ok := cfg.ResolveModel(cfg.DefaultModel); !ok && coalesced != "" {
+			_ = a.applyConfigOnly(func(c *config.Config) error {
+				c.DefaultModel = coalesced
+				return nil
+			})
 		}
 	}
 	buildCtx, cancel := context.WithTimeout(a.bootContext(), 90*time.Second)
@@ -714,7 +718,7 @@ func (a *App) SetProviderKey(apiKeyEnv, value string) error {
 	}
 	if tab := a.activeTab(); tab != nil {
 		if err := a.rebuild(); err != nil {
-			return err
+			return userFacingErr(err)
 		}
 	}
 	go a.refreshProviderModelsAsync(apiKeyEnv)

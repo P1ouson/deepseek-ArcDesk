@@ -1839,6 +1839,51 @@ func (c *Config) ResolveModel(ref string) (*ProviderEntry, bool) {
 	return nil, false
 }
 
+// ModelRef formats a provider/model reference for SetModel and tab persistence.
+func ModelRef(providerName, modelID string) string {
+	return providerName + "/" + modelID
+}
+
+// CoalesceModelRef returns the first resolvable model ref, preferring preferred,
+// then default_model, then each provider's default, then any listed model. Used
+// when the active tab still points at a relay-only id after the provider list
+// changes (e.g. switching from a relay back to the official DeepSeek API).
+func (c *Config) CoalesceModelRef(preferred string) string {
+	try := func(ref string) (string, bool) {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			return "", false
+		}
+		if e, ok := c.ResolveModel(ref); ok {
+			return ModelRef(e.Name, e.Model), true
+		}
+		return "", false
+	}
+	if ref, ok := try(preferred); ok {
+		return ref
+	}
+	if ref, ok := try(c.DefaultModel); ok {
+		return ref
+	}
+	for i := range c.Providers {
+		e := &c.Providers[i]
+		if ref, ok := try(e.Name); ok {
+			return ref
+		}
+		if dm := e.DefaultModel(); dm != "" {
+			if ref, ok := try(ModelRef(e.Name, dm)); ok {
+				return ref
+			}
+		}
+		for _, m := range e.ModelList() {
+			if ref, ok := try(ModelRef(e.Name, m)); ok {
+				return ref
+			}
+		}
+	}
+	return strings.TrimSpace(preferred)
+}
+
 // APIKey resolves the entry's API key from its api_key_env.
 func (e *ProviderEntry) APIKey() string {
 	if e.APIKeyEnv == "" {
