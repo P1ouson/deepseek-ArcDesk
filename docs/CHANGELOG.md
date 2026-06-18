@@ -1,13 +1,13 @@
 # Changelog
 
 All notable changes to the Go line (ARCDESK 1.0+) are recorded here. The legacy
-`0.x` TypeScript history lives on the [`v1`](https://github.com/esengine/DeepSeek-ARCDESK/tree/v1)
+`0.x` TypeScript history lives on the legacy upstream [`v1`](https://github.com/esengine/DeepSeek-ARCDESK/tree/v1)
 branch.
 
 ## [1.0.0] — 2026-06-03
 
 First stable release — a **ground-up rewrite in Go**. Not an upgrade of the `0.x`
-TypeScript line; a new codebase that becomes the default (`main-v2`).
+TypeScript line; a new codebase that becomes the default (`main`).
 
 ### Highlights
 
@@ -48,4 +48,4 @@ TypeScript line; a new codebase that becomes the default (`main-v2`).
   support for the fetched runtime is unverified — install `codegraph` on PATH if
   the auto-fetch doesn't resolve there.
 
-[1.0.0]: https://github.com/esengine/DeepSeek-ARCDESK/releases/tag/v1.0.0
+[1.0.0]: https://github.com/P1ouson/deepseek-ArcDesk/releases/tag/v1.0.0

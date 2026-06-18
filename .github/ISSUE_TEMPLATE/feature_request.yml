@@ -9,7 +9,7 @@ body:
       label: Version line
       description: Which line is this for?
       options:
-        - "v2 — Go rewrite (1.x), main-v2 (active development)"
+        - "v2 — Go rewrite (1.x), main (active development)"
         - "v1 — Legacy TypeScript (0.x), maintenance only"
     validations:
       required: true

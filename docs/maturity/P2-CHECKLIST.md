@@ -17,7 +17,7 @@ Restart ArcDesk after Go changes so tools reload.
 
 ## Dogfood 脚本（在 ArcDesk 里逐条粘贴）
 
-工作区建议：`p0-dogfood-demo`（`C:\Users\dell\Desktop\p0-dogfood-demo`）或本仓库 `DeepSeek-ARCDESK`（有 `desktop/frontend` 和 `SPEC.md`）。2026-06-13 dogfood 在 demo 项目全部通过。
+工作区建议：`p0-dogfood-demo`（`C:\Users\dell\Desktop\p0-dogfood-demo`）或本仓库 `deepseek-ArcDesk`（有 `desktop/frontend` 和 `SPEC.md`）。2026-06-13 dogfood 在 demo 项目全部通过。
 
 ### ① Runtime RAG (#13)
 

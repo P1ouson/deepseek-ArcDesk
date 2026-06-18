@@ -42,7 +42,7 @@ homebrew_casks:
       name: homebrew-ARCDESK
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    homepage: "https://github.com/esengine/DeepSeek-ARCDESK"
+    homepage: "https://github.com/P1ouson/deepseek-ArcDesk"
     description: "Cache-first DeepSeek coding agent for the terminal."
     commit_author:
       name: ARCDESK
