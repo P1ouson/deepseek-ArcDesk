@@ -1,6 +1,6 @@
 # Contributing to ArcDesk
 
-Thank you for contributing. **ArcDesk** is the product; **`ARCDESK`** is the CLI binary and config namespace. Upstream repo: [`esengine/DeepSeek-ARCDESK`](https://github.com/esengine/DeepSeek-ARCDESK).
+Thank you for contributing. **ArcDesk** is the product; **`ARCDESK`** is the CLI binary and config namespace. Repository: [`P1ouson/deepseek-ArcDesk`](https://github.com/P1ouson/deepseek-ArcDesk).
 
 ## Security issues
 
@@ -15,8 +15,8 @@ Thank you for contributing. **ArcDesk** is the product; **`ARCDESK`** is the CLI
 ## Getting started
 
 ```bash
-git clone https://github.com/esengine/DeepSeek-ARCDESK.git
-cd DeepSeek-ARCDESK
+git clone https://github.com/P1ouson/deepseek-ArcDesk.git
+cd deepseek-ArcDesk
 make build          # bin/ARCDESK
 make test           # full CLI test suite
 ```
@@ -34,7 +34,8 @@ See [`desktop/README.md`](./desktop/README.md) for platform webview prerequisite
 
 | Directory | Purpose |
 |-----------|---------|
-| `cmd/ARCDESK` | CLI entry point |
+| `cmd/arcdesk` | CLI entry point |
+| `internal/boot` | Assembles `control.Controller` for all clients |
 | `internal/agent` | Agent loop, session, coordinator |
 | `internal/cli` | TUI, subcommands, setup wizard |
 | `internal/control` | Transport-agnostic controller |
@@ -42,6 +43,10 @@ See [`desktop/README.md`](./desktop/README.md) for platform webview prerequisite
 | `internal/tool/builtin` | Built-in tools (bash, read_file, …) |
 | `internal/provider` | Model-backend abstraction |
 | `internal/plugin` | MCP client (stdio + HTTP) |
+| `internal/skill` | Skills and sub-agents |
+| `internal/serve` | HTTP/SSE server |
+| `internal/hook` | Project hooks |
+| `internal/knowledge` | Knowledge Studio / failure memory |
 | `desktop/` | Wails desktop app (separate Go module) |
 | `docs/` | Engineering spec, migration guide |
 
@@ -63,6 +68,7 @@ Desktop tests:
 
 ```bash
 cd desktop && go test ./...
+cd desktop/frontend && pnpm exec tsc --noEmit
 ```
 
 ### Code style
@@ -105,31 +111,31 @@ ci: add go test workflow
 
 ## Submitting changes
 
-1. Fork [`esengine/DeepSeek-ARCDESK`](https://github.com/esengine/DeepSeek-ARCDESK)
-2. Branch from **`main-v2`** (current default development branch)
+1. Fork [`P1ouson/deepseek-ArcDesk`](https://github.com/P1ouson/deepseek-ArcDesk)
+2. Branch from **`main`** (default development branch)
 3. Include tests where behavior changes
 4. `make test` and `make vet` pass
-5. Open a PR to **`main-v2`**
+5. Open a PR to **`main`**
 
 ## Releases (maintainers)
 
 | Artifact | Tag / channel |
 |----------|----------------|
-| CLI / npm | semver tags on `main-v2` |
+| CLI | semver tags on `main` |
 | Desktop | `desktop-v*` tags → signed builds, `latest.json`, GitHub Releases + CDN mirror |
 
 Signing: minisign (see [`desktop/README.md`](./desktop/README.md)). Do not publish unsigned artifacts outside the release pipeline.
 
 ## Reporting bugs
 
-Use [issue templates](https://github.com/esengine/DeepSeek-ARCDESK/issues/new/choose). Include:
+Use [issue templates](https://github.com/P1ouson/deepseek-ArcDesk/issues/new/choose). Include:
 
 - ArcDesk desktop version **or** `ARCDESK --version`
 - OS and architecture
 - Steps to reproduce, expected vs actual
 - Redacted logs (no API keys)
 
-Usage questions → [Discussions](https://github.com/esengine/DeepSeek-ARCDESK/discussions) or [Discord](https://discord.gg/XF78rEME2D).
+Usage questions → [Discussions](https://github.com/P1ouson/deepseek-ArcDesk/discussions) or [Discord](https://discord.gg/XF78rEME2D).
 
 ## License
 

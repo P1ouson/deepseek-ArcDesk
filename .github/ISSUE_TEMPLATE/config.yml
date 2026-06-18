@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/esengine/DeepSeek-ARCDESK/blob/main-v2/SECURITY.md
+    url: https://github.com/P1ouson/deepseek-ArcDesk/blob/main/SECURITY.md
     about: Report security issues privately — do not open a public bug report.
   - name: Questions & discussions
-    url: https://github.com/esengine/DeepSeek-ARCDESK/discussions
+    url: https://github.com/P1ouson/deepseek-ArcDesk/discussions
     about: Usage questions, ideas, and general discussion.

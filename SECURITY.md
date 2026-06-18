@@ -7,7 +7,7 @@ any agent that can modify code and execute commands.
 
 | Version | Supported |
 |---------|-----------|
-| **1.x** (Go rewrite, `main-v2`) | Yes — security fixes for the current release line |
+| **1.x** (Go rewrite, `main`) | Yes — security fixes for the current release line |
 | **0.x** (TypeScript, `v1` branch) | Maintenance only — prefer upgrading to 1.x |
 
 Desktop builds are tagged `desktop-v*`. CLI/npm releases follow semver on the 1.x line.
@@ -17,7 +17,7 @@ Desktop builds are tagged `desktop-v*`. CLI/npm releases follow semver on the 1.
 **Do not open a public GitHub issue for security bugs.**
 
 1. Email maintainers privately (see GitHub profile contact or open a
-   [Security Advisory](https://github.com/esengine/DeepSeek-ARCDESK/security/advisories/new)
+   [Security Advisory](https://github.com/P1ouson/deepseek-ArcDesk/security/advisories/new)
    on the upstream repository if you have access).
 2. Include: affected version, platform (desktop / CLI / OS), reproduction steps, and
    impact (local privilege, network exposure, secret leak, etc.).
@@ -49,7 +49,7 @@ minisign -Vm ARCDESK-linux-amd64.tar.gz \
 ```
 
 Checksums and `.minisig` files ship alongside each asset on
-[GitHub Releases](https://github.com/esengine/DeepSeek-ARCDESK/releases).
+[GitHub Releases](https://github.com/P1ouson/deepseek-ArcDesk/releases).
 
 ## Known limitations
 

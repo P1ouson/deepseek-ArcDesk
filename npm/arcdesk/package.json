@@ -13,13 +13,13 @@
     "node": ">=18"
   },
   "license": "MIT",
-  "homepage": "https://github.com/esengine/DeepSeek-ARCDESK#readme",
+  "homepage": "https://github.com/P1ouson/deepseek-ArcDesk#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/esengine/DeepSeek-ARCDESK.git"
+    "url": "git+https://github.com/P1ouson/deepseek-ArcDesk.git"
   },
   "bugs": {
-    "url": "https://github.com/esengine/DeepSeek-ARCDESK/issues"
+    "url": "https://github.com/P1ouson/deepseek-ArcDesk/issues"
   },
   "keywords": [
     "arcdesk",

@@ -7,7 +7,7 @@
   "frontend:dev:watcher": "pnpm dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "esengine"
+    "name": "ArcDesk contributors"
   },
   "info": {
     "companyName": "ArcDesk",

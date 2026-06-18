@@ -9,7 +9,7 @@ changed and how to move over.
 | | Legacy (v1) | ARCDESK 1.0+ (v2) |
 |---|---|---|
 | Language | TypeScript / Node | Go |
-| Branch | [`v1`](https://github.com/esengine/DeepSeek-ARCDESK/tree/v1) (maintenance only) | `main-v2` (default, active) |
+| Branch | legacy TypeScript [`v1`](https://github.com/esengine/DeepSeek-ARCDESK/tree/v1)（上游归档，仅维护） | `main`（当前默认开发分支） |
 | Versions | `0.x` (up to v0.54.x) | `1.0.0`+ |
 | Install | `npm i -g ARCDESK` (the `latest` tag, stays on `0.x`) | `npm i -g ARCDESK@next` — `latest` deliberately stays on `0.x`; or a release archive / `go build` |
 | Code intelligence | embedding semantic search | bundled [CodeGraph](https://github.com/colbymchenry/codegraph) (symbol/call graph) |
@@ -44,8 +44,8 @@ your shell alongside a `1.x` desktop app is expected, not a conflict. Or build
 from source:
 
 ```sh
-git clone https://github.com/esengine/DeepSeek-ARCDESK   # default: main-v2 (Go)
-cd DeepSeek-ARCDESK && make build                        # -> bin/ARCDESK(.exe)
+git clone https://github.com/P1ouson/deepseek-ArcDesk   # default: main (Go)
+cd deepseek-ArcDesk && make build                        # -> bin/ARCDESK(.exe)
 ```
 
 ## Configuration
@@ -100,4 +100,4 @@ Issues and PRs are labelled by line: **`v1`** (legacy TypeScript) and **`v2`**
 (Go). File new reports against the line you're using. The legacy `v1` line is in
 maintenance mode — bug fixes only, no new features.
 
-Questions? Open a [Discussion](https://github.com/esengine/DeepSeek-ARCDESK/discussions).
+Questions? Open a [Discussion](https://github.com/P1ouson/deepseek-ArcDesk/discussions).
