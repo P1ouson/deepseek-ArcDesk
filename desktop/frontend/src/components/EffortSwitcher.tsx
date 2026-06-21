@@ -22,7 +22,12 @@ export function EffortSwitcherMenu({
           role="option"
           aria-selected={level === current}
           className={`modelsw__item ${level === current ? "modelsw__item--current" : ""}`}
-          onClick={() => onPick(level)}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            onPick(level);
+          }}
         >
           <span className="modelsw__model">{level}</span>
               {level === current && <Check size={12} className="modelsw__check" />}

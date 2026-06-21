@@ -2821,6 +2821,9 @@ func (a *App) ModelsForTab(tabID string) []ModelInfo {
 	workspaceRoot := ""
 	if tab := a.tabByIDLocked(tabID); tab != nil {
 		curModel = tab.model
+		if strings.TrimSpace(curModel) == "" {
+			curModel = tab.Label
+		}
 		workspaceRoot = tab.WorkspaceRoot
 	}
 	a.mu.RUnlock()
@@ -2828,10 +2831,12 @@ func (a *App) ModelsForTab(tabID string) []ModelInfo {
 	if err != nil {
 		return []ModelInfo{}
 	}
+	curModel = cfg.CoalesceModelRef(curModel)
 	return buildModelInfos(cfg, curModel)
 }
 
 func buildModelInfos(cfg *config.Config, curModel string) []ModelInfo {
+	curModel = cfg.CoalesceModelRef(curModel)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	out := make([]ModelInfo, 0)
@@ -2849,7 +2854,7 @@ func buildModelInfos(cfg *config.Config, curModel string) []ModelInfo {
 				Ref:      ref,
 				Provider: p.Name,
 				Model:    m,
-				Current:  ref == curModel,
+				Current:  cfg.CoalesceModelRef(ref) == curModel,
 			})
 		}
 	}
@@ -2860,12 +2865,15 @@ func buildModelInfos(cfg *config.Config, curModel string) []ModelInfo {
 // ensureCurrentModelInfo keeps the active tab model visible in the switcher when
 // GET /models has not succeeded yet (relay EOF, first launch, etc.).
 func ensureCurrentModelInfo(in []ModelInfo, cfg *config.Config, curModel string) []ModelInfo {
-	curModel = strings.TrimSpace(curModel)
+	curModel = cfg.CoalesceModelRef(curModel)
 	if curModel == "" {
 		return in
 	}
-	for _, m := range in {
-		if m.Ref == curModel {
+	for i, m := range in {
+		if cfg.CoalesceModelRef(m.Ref) == curModel {
+			if !in[i].Current {
+				in[i].Current = true
+			}
 			return in
 		}
 	}
@@ -2964,9 +2972,6 @@ func (a *App) SetModelForTab(tabID, name string) error {
 	if tab == nil {
 		return fmt.Errorf("no active workspace tab")
 	}
-	if name == tab.model {
-		return nil
-	}
 	if tab.Ctrl != nil && tab.Ctrl.Running() {
 		return fmt.Errorf("finish or cancel the current turn before changing model")
 	}
@@ -2978,10 +2983,27 @@ func (a *App) SetModelForTab(tabID, name string) error {
 	if !ok {
 		return fmt.Errorf("unknown model %q", name)
 	}
-	name = entry.Name + "/" + entry.Model
-	if err := cfg.Validate(name); err != nil {
+	targetRef := entry.Name + "/" + entry.Model
+	if err := cfg.Validate(targetRef); err != nil {
 		return userFacingErr(fmt.Errorf("cannot switch model: %w", err))
 	}
+	currentRef := cfg.CoalesceModelRef(tab.model)
+	targetCoalesced := cfg.CoalesceModelRef(targetRef)
+	if targetCoalesced == currentRef {
+		a.mu.Lock()
+		changed := tab.model != targetRef
+		if changed {
+			tab.model = targetRef
+			tab.Label = entry.Model
+			a.saveTabsLocked()
+		}
+		a.mu.Unlock()
+		if changed {
+			a.emitModelsRefreshed(map[string]any{"tabId": tab.ID})
+		}
+		return nil
+	}
+	name = targetRef
 	effortOverride := cloneStringPtr(tab.effort)
 	if effortOverride != nil {
 		normalized, err := config.NormalizeEffort(entry, config.EffortDisplay(&config.ProviderEntry{Effort: *effortOverride, Name: entry.Name, Kind: entry.Kind, BaseURL: entry.BaseURL}))
@@ -3027,6 +3049,7 @@ func (a *App) SetModelForTab(tabID, name string) error {
 	registerDesktopSessionTools(a, newCtrl)
 	applyTabModeToController(newCtrl, tab.mode)
 	a.emitReady(a.ctx)
+	a.emitModelsRefreshed(map[string]any{"tabId": tab.ID})
 
 	path := agent.ContinueSessionPath(prevPath, newCtrl.SessionDir(), newCtrl.Label())
 	if len(carried) > 0 {
@@ -3118,6 +3141,7 @@ func (a *App) SetEffortForTab(tabID, level string) error {
 	defer cancel()
 	newCtrl, _, err := a.buildControllerForTab(tab, buildCtx, tab.model, &effort)
 	if err != nil {
+		a.markTabAgentReady(tab, err.Error())
 		return err
 	}
 	a.mu.Lock()
@@ -3131,6 +3155,8 @@ func (a *App) SetEffortForTab(tabID, level string) error {
 	enableDesktopInteractive(newCtrl)
 	registerDesktopSessionTools(a, newCtrl)
 	applyTabModeToController(newCtrl, tab.mode)
+	a.emitReady(a.ctx)
+	a.emitModelsRefreshed(map[string]any{"tabId": tab.ID})
 	path := agent.ContinueSessionPath(prevPath, newCtrl.SessionDir(), newCtrl.Label())
 	if len(carried) > 0 {
 		newCtrl.Resume(&agent.Session{Messages: carried}, path)
@@ -3560,6 +3586,7 @@ func (a *App) currentProviderEntryForTab(tabID string) (*config.ProviderEntry, e
 	if strings.TrimSpace(ref) == "" {
 		ref = cfg.DefaultModel
 	}
+	ref = cfg.CoalesceModelRef(ref)
 	entry, ok := cfg.ResolveModel(ref)
 	if !ok {
 		return nil, fmt.Errorf("unknown model %q", ref)

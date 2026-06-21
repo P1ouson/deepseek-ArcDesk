@@ -74,6 +74,7 @@ export function AnchoredPopover({
   align = "start",
   offset = DEFAULT_OFFSET,
   placement = "auto",
+  instant = false,
   style,
 }: {
   open: boolean;
@@ -84,6 +85,8 @@ export function AnchoredPopover({
   align?: "start" | "end";
   offset?: number;
   placement?: "auto" | "bottom" | "top";
+  /** Skip unfold animation — keeps the popover hit target aligned with visible content. */
+  instant?: boolean;
   style?: CSSProperties;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -97,6 +100,10 @@ export function AnchoredPopover({
 
   useLayoutEffect(() => {
     if (!mounted || !open) return;
+    if (instant) {
+      setUnfolded(true);
+      return;
+    }
     setUnfolded(false);
     let frame2 = 0;
     const frame1 = requestAnimationFrame(() => {
@@ -106,10 +113,12 @@ export function AnchoredPopover({
       cancelAnimationFrame(frame1);
       if (frame2) cancelAnimationFrame(frame2);
     };
-  }, [mounted, open]);
+  }, [instant, mounted, open]);
 
   useDismissOverlay(mounted && open, onClose, {
     excludeRefs: [anchorRef, menuRef],
+    mode: instant ? "click" : "pointerdown",
+    excludeSelector: instant ? ".modelsw__menu--portal, .modelsw__item" : undefined,
   });
 
   const updatePosition = useCallback(() => {
@@ -165,10 +174,17 @@ export function AnchoredPopover({
 
   return createPortal(
     <>
-      <div className="anchored-popover__backdrop" onMouseDown={onClose} />
+      <div
+        className="anchored-popover__backdrop"
+        style={instant ? { pointerEvents: "none" } : undefined}
+        onMouseDown={() => {
+          if (instant) return;
+          onClose();
+        }}
+      />
       <div
         ref={menuRef}
-        className={`anchored-popover motion-unfold${unfolded ? " motion-unfold--open" : ""}${className ? ` ${className}` : ""}`}
+        className={`anchored-popover${instant ? " anchored-popover--instant" : " motion-unfold"}${!instant && unfolded ? " motion-unfold--open" : ""}${className ? ` ${className}` : ""}`}
         style={{
           ...style,
           left: position?.left ?? -9999,

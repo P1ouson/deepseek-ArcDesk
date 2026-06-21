@@ -132,6 +132,7 @@ func loadForRootUncached(root string) (*Config, error) {
 	backfillDeepSeekPro(cfg)
 	dedupeRedundantProviders(cfg)
 	pruneUnconfiguredProviders(cfg)
+	normalizeResolvableDefaultModel(cfg)
 	if !sawConfigFile {
 		cfg.Codegraph.Enabled = false
 		disabled := false

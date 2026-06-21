@@ -264,6 +264,33 @@ func TestNormalizeEffortDeepSeek(t *testing.T) {
 	}
 }
 
+func TestEffortCapabilityDeepSeekRelay(t *testing.T) {
+	e := &ProviderEntry{
+		Name:      "my-relay",
+		Kind:      "openai",
+		BaseURL:   "https://relay.example.com/v1",
+		Model:     "deepseek-v4-pro",
+		APIKeyEnv: "DEEPSEEK_API_KEY",
+	}
+	cap := EffortCapabilityForEntry(e)
+	if !cap.Supported || len(cap.Levels) != 3 {
+		t.Fatalf("relay DeepSeek levels = %+v, want auto/high/max", cap)
+	}
+}
+
+func TestEffortCapabilityDeepSeekByModelPrefix(t *testing.T) {
+	e := &ProviderEntry{
+		Name:    "custom",
+		Kind:    "openai",
+		BaseURL: "https://proxy.example.com/v1",
+		Model:   "deepseek-v4-flash",
+	}
+	cap := EffortCapabilityForEntry(e)
+	if !cap.Supported {
+		t.Fatalf("deepseek model prefix should support effort: %+v", cap)
+	}
+}
+
 func TestNormalizeLegacyEffortMigratesOff(t *testing.T) {
 	c := &Config{Providers: []ProviderEntry{
 		{Name: "deepseek", Effort: "off"},
@@ -331,6 +358,21 @@ func TestResolveModelWithSlashInModelID(t *testing.T) {
 	}
 	if e.Name != "deepseek-flash" || e.Model != "z-ai/glm-5.2-free" {
 		t.Fatalf("resolved entry = %+v", e)
+	}
+}
+
+func TestNormalizeResolvableDefaultModel(t *testing.T) {
+	c := &Config{
+		DefaultModel: "deepseek-flash/z-ai/glm-5.2-free",
+		Providers: []ProviderEntry{{
+			Name: "deepseek-flash", Kind: "openai", BaseURL: "https://api.deepseek.com",
+			Models: []string{"deepseek-v4-flash"}, Default: "deepseek-v4-flash", APIKeyEnv: "DEEPSEEK_API_KEY",
+		}},
+	}
+	normalizeResolvableDefaultModel(c)
+	want := "deepseek-flash/deepseek-v4-flash"
+	if c.DefaultModel != want {
+		t.Fatalf("DefaultModel = %q, want %q", c.DefaultModel, want)
 	}
 }
 

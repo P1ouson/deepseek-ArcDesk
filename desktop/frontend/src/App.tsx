@@ -1856,7 +1856,7 @@ export default function App() {
                         running={composerAgentRunning}
                         mode={mode}
                         cwd={composerCwd}
-                        modelLabel={state.meta?.label ?? t("status.connecting")}
+                        modelLabel={state.meta?.label || t("status.connecting")}
                         tabId={activeTabId}
                         effort={state.effort}
                         onSend={handleSend}

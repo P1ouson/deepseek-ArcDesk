@@ -148,6 +148,17 @@ func (a *App) emitReady(ctx context.Context) {
 	}
 }
 
+func (a *App) emitModelsRefreshed(payload map[string]any) {
+	a.mu.RLock()
+	hook := a.readyHook
+	ctx := a.ctx
+	a.mu.RUnlock()
+	if hook != nil || ctx == nil {
+		return
+	}
+	runtime.EventsEmit(ctx, "agent:models-refreshed", payload)
+}
+
 func (s *tabEventSink) recordReadTelemetry(e event.Event) {
 	if s.app == nil {
 		return
@@ -260,6 +271,11 @@ type TabMeta struct {
 func tabDisplayLabel(tab *WorkspaceTab) string {
 	if tab == nil {
 		return ""
+	}
+	if tab.Ctrl != nil {
+		if label := strings.TrimSpace(tab.Ctrl.Label()); label != "" {
+			return label
+		}
 	}
 	if label := strings.TrimSpace(tab.Label); label != "" {
 		return label

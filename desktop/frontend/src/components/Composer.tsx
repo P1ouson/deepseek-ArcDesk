@@ -22,6 +22,7 @@ import {
   Zap,
 } from "lucide-react";
 import { NO_WORKSPACE_VALUE } from "../lib/composerWorkspace";
+import { resolveComposerEffort } from "../lib/effortState";
 import { asArray } from "../lib/array";
 import { app, onFilesDropped } from "../lib/bridge";
 import { logBridgeError } from "../lib/logBridgeError";
@@ -42,8 +43,7 @@ import { ArgMenu } from "./ArgMenu";
 import { FileMenu } from "./FileMenu";
 import { EffortSwitcherMenu, EffortSwitcherTrigger } from "./EffortSwitcher";
 import { ComposerModeBar } from "./ComposerModeBar";
-import { ModelSwitcherMenu, ModelSwitcherTrigger } from "./ModelSwitcher";
-import { modelLabelFromRef } from "../lib/modelLabel";
+import { ModelSwitcherMenu, ModelSwitcherTrigger, useModelSwitcher } from "./ModelSwitcher";
 import { Tooltip } from "./Tooltip";
 import { useDismissOverlay } from "../lib/useDismissOverlay";
 import { AnchoredPopover } from "./AnchoredPopover";
@@ -322,7 +322,7 @@ export function Composer({
   onCancel: () => string | undefined;
   onCycleMode: () => void;
   onSetMode: (mode: Mode) => void;
-  onSwitchModel: (name: string) => void;
+  onSwitchModel: (name: string) => void | Promise<void>;
   onSetEffort: (level: string) => void;
   onPickFolder: (path?: string) => Promise<string>;
   onRemoveWorkspace: (path: string) => Promise<void>;
@@ -396,6 +396,31 @@ export function Composer({
   const showCodeWorkspaceRefs = codeSurface && workspaceRefs.length > 0;
   const hasContextTags =
     showTerminalTags || showBrowserTags || showPageTag || activeWriteContext || showCodeAttachments || showCodeWorkspaceRefs;
+  const { models: modelOptions, displayLabel: modelDisplayLabel, pickModel } =
+    useModelSwitcher(tabId, modelLabel);
+
+  const [liveEffort, setLiveEffort] = useState<EffortInfo | undefined>(effort);
+  useEffect(() => {
+    setLiveEffort(effort);
+  }, [effort]);
+
+  useEffect(() => {
+    if (!tabId) return;
+    let cancelled = false;
+    void app.EffortForTab(tabId)
+      .then((next) => {
+        if (!cancelled) setLiveEffort(next);
+      })
+      .catch((err) => logBridgeError("Composer.EffortForTab", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [modelLabel, ready, tabId]);
+
+  const effortUi = useMemo(
+    () => resolveComposerEffort(liveEffort, `${modelLabel} ${modelDisplayLabel}`),
+    [liveEffort, modelDisplayLabel, modelLabel],
+  );
 
   useEffect(() => {
     if (writeSurface) {
@@ -1163,7 +1188,7 @@ export function Composer({
 
   const composerCardStyle = composerHeight === null ? undefined : ({ "--composer-height": `${composerHeight}px` } as CSSProperties);
   const hasWorkspace = Boolean(cwd) && !workspaceNone;
-  const hasEffort = Boolean(effort?.supported);
+  const hasEffort = Boolean(effortUi?.supported);
   const composerMetaClass = [
     "composer-meta",
     hideModeBar ? "composer-meta--mode-inline" : "",
@@ -1261,28 +1286,38 @@ export function Composer({
         onClose={() => setParamMenu(null)}
         className="modelsw__menu modelsw__menu--portal"
         align="end"
+        instant
       >
         <ModelSwitcherMenu
-          tabId={tabId}
+          models={modelOptions}
           onPick={(name) => {
             setParamMenu(null);
-            onSwitchModel(name);
+            void pickModel(name, onSwitchModel);
           }}
         />
       </AnchoredPopover>
-      {effort?.supported && (
+      {effortUi?.supported && (
         <AnchoredPopover
           open={paramMenu === "effort" && !running}
           anchorRef={effortAnchorRef}
           onClose={() => setParamMenu(null)}
           className="modelsw__menu modelsw__menu--portal effortsw__menu"
           align="end"
+          instant
         >
           <EffortSwitcherMenu
-            effort={effort}
+            effort={effortUi}
             onPick={(level) => {
               setParamMenu(null);
-              if (level !== (effort.current || "auto")) onSetEffort(level);
+              setLiveEffort((prev) => ({
+                supported: true,
+                current: level,
+                default: prev?.default || "high",
+                levels: prev?.levels?.length ? prev.levels : ["auto", "high", "max"],
+              }));
+              if (level !== (effortUi.current || "auto")) {
+                void onSetEffort(level);
+              }
             }}
           />
         </AnchoredPopover>
@@ -1602,7 +1637,7 @@ export function Composer({
           <div className={`composer-meta__model-effort${hasEffort ? "" : " composer-meta__model-effort--solo"}`}>
             <div className="composer-meta__control composer-meta__control--model" ref={modelAnchorRef}>
               <ModelSwitcherTrigger
-                label={modelLabelFromRef(modelLabel)}
+                label={modelDisplayLabel}
                 title={modelLabel}
                 open={paramMenu === "model"}
                 disabled={running}
@@ -1613,11 +1648,11 @@ export function Composer({
                 }}
               />
             </div>
-            {effort?.supported && (
+            {effortUi?.supported && (
               <div className="composer-meta__control composer-meta__control--effort" ref={effortAnchorRef}>
                 <div className="modelsw effortsw">
                   <EffortSwitcherTrigger
-                    effort={effort}
+                    effort={effortUi}
                     open={paramMenu === "effort"}
                     disabled={running}
                     onClick={() => {

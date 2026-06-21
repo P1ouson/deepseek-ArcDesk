@@ -8,6 +8,10 @@ $env:GOTOOLCHAIN = "auto"
 Write-Host "==> Frontend" -ForegroundColor Cyan
 Push-Location (Join-Path $DesktopRoot "frontend")
 npm run build
+if ($LASTEXITCODE -ne 0) {
+    Pop-Location
+    throw "frontend build failed (exit $LASTEXITCODE)"
+}
 Pop-Location
 
 Write-Host "==> Wails desktop exe" -ForegroundColor Cyan

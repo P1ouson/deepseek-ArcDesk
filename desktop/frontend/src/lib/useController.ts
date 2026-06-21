@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { shouldBlockAgentSend } from "./agentActivity";
 import { assistantSeedText } from "./responseTruncation";
 import { asArray } from "./array";
-import { app, onEvent, onReady, onTabsShell } from "./bridge";
+import { app, onEvent, onModelsRefreshed, onReady, onTabsShell } from "./bridge";
 import { sameWorkspaceRoot } from "./composerWorkspace";
 import { humanizeUserError, toErrorMessage } from "./errors";
 import { logBridgeError } from "./logBridgeError";
@@ -730,6 +730,22 @@ export function useController() {
 
   const hydrateInflightRef = useRef(new Map<string, Promise<void>>());
 
+  const refreshTabRuntime = useCallback(async (tabId: string) => {
+    if (!tabId) return;
+    try {
+      const [meta, effort, context] = await Promise.all([
+        withIPCTimeout(app.MetaForTab(tabId), IPC_META_TIMEOUT_MS, "MetaForTab"),
+        withIPCTimeout(app.EffortForTab(tabId), IPC_META_TIMEOUT_MS, "EffortForTab"),
+        withIPCTimeout(app.ContextUsageForTab(tabId), IPC_META_TIMEOUT_MS, "ContextUsageForTab"),
+      ]);
+      dispatchTo(tabId, { type: "meta", meta });
+      dispatchTo(tabId, { type: "effort", effort });
+      dispatchTo(tabId, { type: "context", context });
+    } catch (err) {
+      logBridgeError(`refreshTabRuntime(${tabId})`, err);
+    }
+  }, [dispatchTo]);
+
   const loadSessionDataForTab = useCallback(async (tabId: string, reset = false) => {
     const inflight = hydrateInflightRef.current.get(tabId);
     if (inflight) return inflight;
@@ -863,14 +879,15 @@ export function useController() {
     if (activeTabIdRef.current) {
       const tabId = activeTabIdRef.current;
       const existing = statesRef.current.get(tabId);
-      if (existing?.meta?.ready === true && !existing.meta.startupErr) {
+      await refreshTabRuntime(tabId);
+      if (existing?.meta?.ready === true && !existing.meta.startupErr && existing.meta.label?.trim()) {
         return;
       }
       await loadSessionDataForTab(tabId);
       return;
     }
     await syncActiveTabFromBackend();
-  }, [loadSessionDataForTab, syncActiveTabFromBackend]);
+  }, [loadSessionDataForTab, refreshTabRuntime, syncActiveTabFromBackend]);
 
   useEffect(() => {
     const off = onEvent((e) => {
@@ -948,11 +965,16 @@ export function useController() {
     const offShell = onTabsShell(() => {
       void syncActiveTabFromBackend();
     });
+    const offModels = onModelsRefreshed(() => {
+      const tabId = activeTabIdRef.current;
+      if (tabId) void refreshTabRuntime(tabId);
+    });
     return () => {
       offReady();
       offShell();
+      offModels();
     };
-  }, [loadSessionData, syncActiveTabFromBackend]);
+  }, [loadSessionData, refreshTabRuntime, syncActiveTabFromBackend]);
 
   useEffect(() => {
     let cancelled = false;
@@ -981,10 +1003,13 @@ export function useController() {
     if (!activeTabId) return;
     const existing = statesRef.current.get(activeTabId);
     if (existing?.meta?.ready === true && !existing.meta.startupErr) {
+      void refreshTabRuntime(activeTabId);
+    }
+    if (existing?.meta?.ready === true && !existing.meta.startupErr && existing.meta.label?.trim()) {
       return;
     }
     void loadSessionDataForTab(activeTabId);
-  }, [activeTabId, loadSessionDataForTab]);
+  }, [activeTabId, loadSessionDataForTab, refreshTabRuntime]);
 
   useEffect(() => {
     if (!activeTabId) return;
@@ -1259,47 +1284,63 @@ export function useController() {
 
   const compact = useCallback(() => { app.Compact().catch(reportFailure); }, [reportFailure]);
 
-  const setModel = useCallback(async (name: string) => {
-    if (!activeTabId) {
-      reportFailure(new Error("no active workspace tab"));
+  const resolveModelSwitchTabId = useCallback(async (): Promise<string | undefined> => {
+    const tabId = activeTabIdRef.current ?? activeTabId;
+    if (tabId) return tabId;
+    const active = await activeTabFromBackend();
+    if (!active?.id) return undefined;
+    setActiveTabId(active.id);
+    return active.id;
+  }, [activeTabId, activeTabFromBackend]);
+
+  const refreshAfterModelSwitch = useCallback(async (tabId: string | undefined) => {
+    const id = tabId ?? activeTabIdRef.current;
+    if (id) {
+      await refreshTabRuntime(id);
       return;
     }
+    await loadSessionData();
+  }, [loadSessionData, refreshTabRuntime]);
+
+  const setModel = useCallback(async (name: string) => {
+    const tabId = await resolveModelSwitchTabId();
     try {
-      await app.SetModelForTab(activeTabId, name);
+      if (tabId) {
+        await app.SetModelForTab(tabId, name);
+      } else {
+        await app.SetModel(name);
+      }
     } catch (err) {
       reportFailure(err);
       try {
-        dispatchTo(activeTabId, { type: "meta", meta: await app.MetaForTab(activeTabId) });
+        await refreshAfterModelSwitch(tabId);
       } catch (refreshErr) {
         logBridgeError("setModel.metaAfterError", refreshErr);
       }
+      throw err;
+    }
+    await refreshAfterModelSwitch(tabId);
+  }, [refreshAfterModelSwitch, reportFailure, resolveModelSwitchTabId]);
+
+  const setEffort = useCallback(async (level: string) => {
+    const tabId = await resolveModelSwitchTabId();
+    if (!tabId) {
+      try {
+        await app.SetEffort(level);
+      } catch (err) {
+        reportFailure(err);
+      }
+      await loadSessionData();
       return;
     }
     try {
-      dispatchTo(activeTabId, { type: "meta", meta: await app.MetaForTab(activeTabId) });
-      dispatchTo(activeTabId, { type: "context", context: await app.ContextUsageForTab(activeTabId) });
-      dispatchTo(activeTabId, { type: "effort", effort: await app.EffortForTab(activeTabId) });
-    } catch (err) {
-      logBridgeError("setModel.refresh", err);
-    }
-  }, [activeTabId, dispatchTo, reportFailure]);
-
-  const setEffort = useCallback(async (level: string) => {
-    if (!activeTabId) return;
-    try {
-      await app.SetEffortForTab(activeTabId, level);
+      await app.SetEffortForTab(tabId, level);
     } catch (err) {
       reportFailure(err);
       return;
     }
-    try {
-      dispatchTo(activeTabId, { type: "meta", meta: await app.MetaForTab(activeTabId) });
-      dispatchTo(activeTabId, { type: "context", context: await app.ContextUsageForTab(activeTabId) });
-      dispatchTo(activeTabId, { type: "effort", effort: await app.EffortForTab(activeTabId) });
-    } catch (err) {
-      logBridgeError("setEffort.refresh", err);
-    }
-  }, [activeTabId, dispatchTo, reportFailure]);
+    await refreshTabRuntime(tabId);
+  }, [loadSessionData, refreshTabRuntime, reportFailure, resolveModelSwitchTabId]);
 
   const fetchMemory = useCallback((): Promise<MemoryView> =>
     app.Memory().catch(() => ({ docs: [], facts: [], scopes: [], storeDir: "", available: false })), []);

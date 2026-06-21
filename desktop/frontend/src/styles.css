@@ -655,21 +655,26 @@ a[href] { cursor: pointer; }
 }
 
 .workbench__composer-zone .composer-meta__model-effort .modelsw__label {
-  max-width: none;
   flex: 1 1 auto;
-  min-width: 0;
+  flex-shrink: 0;
+  min-width: 52px;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--fg-dim);
 }
 
 .workbench__composer-zone .composer-meta__model-effort .composer-meta__control--model {
-  min-width: 84px;
-  max-width: min(200px, 55%);
+  flex: 0 1 auto;
+  min-width: 108px;
+  max-width: 200px;
 }
 .workbench__composer-zone .composer-meta__model-effort--solo .composer-meta__control--model,
 .workbench__composer-zone .composer-meta--no-effort .composer-meta__model-effort .composer-meta__control--model {
-  max-width: none;
+  flex: 0 1 auto;
+  min-width: 108px;
+  max-width: 200px;
 }
 
 .workbench__resizer {
@@ -1778,11 +1783,13 @@ button:disabled:active,
 }
 .composer-meta__model-effort--solo .modelsw__trigger,
 .composer-meta--no-effort .composer-meta__model-effort .modelsw__trigger {
-  width: auto;
+  width: 100%;
 }
 .composer-meta__model-effort--solo .modelsw__label,
 .composer-meta--no-effort .composer-meta__model-effort .modelsw__label {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
+  flex-shrink: 0;
+  min-width: 52px;
 }
 .composer-meta__model-effort .composer-meta__control--effort {
   flex: 0 1 auto;
@@ -1794,13 +1801,17 @@ button:disabled:active,
   min-width: 0;
   max-width: 100%;
   justify-content: flex-start;
+  gap: 6px;
 }
 .composer-meta__model-effort .modelsw__label {
   flex: 1 1 auto;
-  min-width: 0;
+  flex-shrink: 0;
+  min-width: 52px;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--fg-dim);
 }
 .composer-meta__model-effort .modelsw__kind,
 .composer-meta__model-effort .modelsw__trigger > svg:last-child {
@@ -3360,6 +3371,16 @@ button:disabled:active,
 }
 .anchored-popover.motion-unfold {
   overflow: hidden;
+}
+
+.anchored-popover--instant {
+  display: block;
+  overflow: visible;
+}
+
+.anchored-popover--instant .motion-unfold__inner {
+  overflow: visible;
+  min-height: 0;
 }
 
 .anchored-popover.motion-unfold .motion-unfold__inner {

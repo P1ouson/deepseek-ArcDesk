@@ -140,8 +140,20 @@ func normalizeProviderEffortFields(e *ProviderEntry) {
 }
 
 func isDeepSeekEntry(e *ProviderEntry) bool {
-	if e == nil || e.Kind != "openai" {
+	if e == nil {
 		return false
+	}
+	kind := strings.TrimSpace(e.Kind)
+	if kind != "" && kind != "openai" {
+		return false
+	}
+	name := strings.ToLower(strings.TrimSpace(e.Name))
+	model := strings.ToLower(strings.TrimSpace(e.Model))
+	if strings.Contains(name, "deepseek") || strings.HasPrefix(model, "deepseek-") {
+		return true
+	}
+	if e.APIKeyEnv == "DEEPSEEK_API_KEY" {
+		return true
 	}
 	u, err := url.Parse(e.BaseURL)
 	if err != nil {

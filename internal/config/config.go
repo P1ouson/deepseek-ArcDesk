@@ -1884,6 +1884,17 @@ func (c *Config) CoalesceModelRef(preferred string) string {
 	return strings.TrimSpace(preferred)
 }
 
+// normalizeResolvableDefaultModel maps stale relay-only default_model refs onto a
+// currently configured provider/model pair so boot and effort queries resolve.
+func normalizeResolvableDefaultModel(c *Config) {
+	if c == nil {
+		return
+	}
+	if coalesced := c.CoalesceModelRef(c.DefaultModel); coalesced != "" {
+		c.DefaultModel = coalesced
+	}
+}
+
 // APIKey resolves the entry's API key from its api_key_env.
 func (e *ProviderEntry) APIKey() string {
 	if e.APIKeyEnv == "" {

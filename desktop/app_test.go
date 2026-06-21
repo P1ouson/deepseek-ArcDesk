@@ -115,6 +115,31 @@ func TestBuildModelInfosIncludesCurrentModelWhenListEmpty(t *testing.T) {
 	}
 }
 
+func TestBuildModelInfosMarksCurrentForBareModelName(t *testing.T) {
+	isolateDesktopUserDirs(t)
+	t.Setenv("DEEPSEEK_API_KEY", "sk-test")
+
+	cfg := config.Default()
+	cfg.Providers[0].Models = []string{"deepseek-v4-flash", "deepseek-v4-pro"}
+	cfg.Providers[0].Model = ""
+	if err := cfg.SaveTo(config.UserConfigPath()); err != nil {
+		t.Fatal(err)
+	}
+	config.InvalidateConfigCache("")
+
+	got := buildModelInfos(cfg, "deepseek-v4-pro")
+	var current ModelInfo
+	for _, m := range got {
+		if m.Current {
+			current = m
+			break
+		}
+	}
+	if current.Model != "deepseek-v4-pro" {
+		t.Fatalf("current = %+v, want deepseek-v4-pro marked current in %+v", current, got)
+	}
+}
+
 func TestCommandsIncludesEffortNotThinking(t *testing.T) {
 	app := NewApp()
 	cmds := app.Commands()
@@ -327,6 +352,70 @@ func TestSetEffortRebuildsController(t *testing.T) {
 	}
 	if got := app.Effort().Current; got != "max" {
 		t.Fatalf("Effort current = %q, want max", got)
+	}
+}
+
+func TestSetModelForTabSwitchesBetweenDeepSeekModels(t *testing.T) {
+	isolateDesktopUserDirs(t)
+	t.Setenv("DEEPSEEK_API_KEY", "sk-test")
+
+	app := NewApp()
+	app.ctx = context.Background()
+	app.readyHook = func() {}
+	old := control.New(control.Options{Label: "flash"})
+	app.setTestCtrl(old, "deepseek-flash/deepseek-v4-flash")
+	defer func() {
+		if c := app.activeCtrl(); c != nil {
+			c.Close()
+		}
+	}()
+
+	if err := app.SetModelForTab("test", "deepseek-pro/deepseek-v4-pro"); err != nil {
+		t.Fatalf("SetModelForTab: %v", err)
+	}
+	if app.tabs["test"].model != "deepseek-pro/deepseek-v4-pro" {
+		t.Fatalf("tab.model = %q, want deepseek-pro/deepseek-v4-pro", app.tabs["test"].model)
+	}
+	if app.activeCtrl() == old {
+		t.Fatal("SetModelForTab should rebuild the controller for a different model")
+	}
+}
+
+func TestSetModelForTabCanonicalizesSameModelRef(t *testing.T) {
+	isolateDesktopUserDirs(t)
+	t.Setenv("DEEPSEEK_API_KEY", "sk-test")
+
+	app := NewApp()
+	app.ctx = context.Background()
+	app.readyHook = func() {}
+	old := control.New(control.Options{Label: "flash"})
+	app.setTestCtrl(old, "deepseek-v4-flash")
+	defer func() {
+		if c := app.activeCtrl(); c != nil {
+			c.Close()
+		}
+	}()
+
+	if err := app.SetModelForTab("test", "deepseek-flash/deepseek-v4-flash"); err != nil {
+		t.Fatalf("SetModelForTab: %v", err)
+	}
+	if app.tabs["test"].model != "deepseek-flash/deepseek-v4-flash" {
+		t.Fatalf("tab.model = %q, want canonical ref", app.tabs["test"].model)
+	}
+	if app.activeCtrl() != old {
+		t.Fatal("SetModelForTab should not rebuild when coalesced model is unchanged")
+	}
+}
+
+func TestEffortForTabSupportsBareModelName(t *testing.T) {
+	isolateDesktopUserDirs(t)
+	t.Setenv("DEEPSEEK_API_KEY", "sk-test")
+
+	app := NewApp()
+	app.setTestCtrl(control.New(control.Options{Label: "flash"}), "deepseek-v4-pro")
+	got := app.EffortForTab("test")
+	if !got.Supported || got.Default != "high" {
+		t.Fatalf("EffortForTab = %+v, want DeepSeek effort supported", got)
 	}
 }
 
