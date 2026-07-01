@@ -8,6 +8,7 @@ import (
 
 	// Blank imports wire compile-time built-ins into their registries.
 	_ "arcdesk/internal/provider/anthropic"
+	_ "arcdesk/internal/provider/ollama"
 	_ "arcdesk/internal/provider/openai"
 	_ "arcdesk/internal/tool/builtin"
 )

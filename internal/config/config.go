@@ -1710,7 +1710,7 @@ func (c *Config) Validate(model string) error {
 	if e.BaseURL == "" {
 		return fmt.Errorf("provider %q: base_url is required", model)
 	}
-	if e.APIKey() == "" {
+	if e.APIKey() == "" && e.Kind != "ollama" {
 		return fmt.Errorf("provider %q: missing env %s", model, e.APIKeyEnv)
 	}
 	return nil
